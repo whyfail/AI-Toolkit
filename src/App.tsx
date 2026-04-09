@@ -11,8 +11,11 @@ import {
   ArrowUpCircle,
   CheckCircle,
   Loader2,
+  Github,
+  ExternalLink,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-shell";
 
 type Tab = "mcp" | "settings" | "about";
 type Theme = "light" | "dark" | "system";
@@ -121,7 +124,7 @@ function App() {
 
         {/* 版本 */}
         <div className="px-6 py-4 text-center">
-          <p className="text-xs text-[hsl(var(--muted-foreground))]">v1.0.0</p>
+          <p className="text-xs text-[hsl(var(--muted-foreground))]">v1.0.2</p>
         </div>
       </aside>
 
@@ -234,7 +237,7 @@ const SettingsTab: React.FC = () => {
               )}
             </div>
             <p className="text-xs text-[hsl(var(--muted-foreground))] mt-3">
-              当前版本 v1.0.0 · 更新源：GitHub Releases
+              当前版本 v1.0.2 · 更新源：GitHub Releases
             </p>
           </section>
 
@@ -294,7 +297,8 @@ const AboutTab: React.FC = () => {
     "从现有配置自动导入",
     "现代化可视化界面",
     "SQLite 数据库持久化存储",
-    "支持 8 种 AI 开发工具（含 Trae / Trae CN）",
+    "支持 10 种 AI 开发工具",
+    "在线自动更新功能",
   ];
 
   return (
@@ -310,17 +314,35 @@ const AboutTab: React.FC = () => {
       {/* 内容 */}
       <div className="flex-1 overflow-y-auto px-8 py-6">
         <div className="max-w-2xl space-y-6">
-          {/* 介绍 */}
+          {/* 项目信息 */}
           <section className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6">
-            <h3 className="text-base font-medium mb-3">MCP Manager</h3>
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-base font-medium">MCP Manager</h3>
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
+                  v1.0.2 · 通用 MCP 配置管理工具
+                </p>
+              </div>
+              <button
+                onClick={() =>
+                  open("https://github.com/whyfail/mcp-manager")
+                }
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[hsl(var(--border))] text-xs font-medium hover:bg-[hsl(var(--muted))] transition-colors"
+              >
+                <Github size={12} />
+                GitHub
+                <ExternalLink size={10} className="text-[hsl(var(--muted-foreground))]" />
+              </button>
+            </div>
             <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed">
-              通用的 Model Context Protocol (MCP) 服务器管理工具，支持 Qwen
-              Code、Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw 和
-              Trae。基于 Tauri 2 构建的跨平台桌面应用。
+              基于 Tauri 2 构建的跨平台桌面应用，用于统一管理多个 AI 编程工具的
+              MCP (Model Context Protocol) 服务器配置。支持 Qwen Code、Claude
+              Code、Codex、Gemini CLI、OpenCode、OpenClaw、Trae、Trae CN、Qoder
+              和 CodeBuddy。
             </p>
           </section>
 
-          {/* 特性 */}
+          {/* 核心特性 */}
           <section className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6">
             <h3 className="text-base font-medium mb-4">核心特性</h3>
             <ul className="space-y-2.5">
@@ -371,6 +393,26 @@ const AboutTab: React.FC = () => {
                   ))}
                 </div>
               </div>
+            </div>
+          </section>
+
+          {/* 支持与反馈 */}
+          <section className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6">
+            <h3 className="text-base font-medium mb-3">支持与反馈</h3>
+            <div className="space-y-2 text-sm text-[hsl(var(--muted-foreground))]">
+              <p>
+                如有问题或建议，欢迎在{" "}
+                <button
+                  onClick={() =>
+                    open("https://github.com/whyfail/mcp-manager/issues")
+                  }
+                  className="text-[hsl(var(--primary))] hover:underline inline-flex items-center gap-0.5"
+                >
+                  GitHub Issues
+                  <ExternalLink size={10} />
+                </button>{" "}
+                提交反馈。
+              </p>
             </div>
           </section>
         </div>
