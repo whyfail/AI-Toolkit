@@ -72,13 +72,16 @@ pub async fn test_mcp_connection(params: TestConnectionParams) -> Result<TestCon
     let env = params.env.clone().unwrap_or_default();
 
     tokio::task::spawn_blocking(move || {
-        let mut child = Command::new(&command)
-            .args(&args)
+        // 继承系统 PATH 环境变量，确保能找到 npx/node 等命令
+        let mut cmd = Command::new(&command);
+        cmd.args(&args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .envs(&env)
-            .spawn()
+            .env("PATH", std::env::var("PATH").unwrap_or_default());
+
+        let mut child = cmd.spawn()
             .map_err(|e| format!("无法启动命令 '{}': {}", command, e))?;
 
         // 发送 MCP 初始化请求
