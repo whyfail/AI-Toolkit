@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicklasxyz/tauri-plugin-sql/refs/heads/main/schema.json",
   "productName": "MCP Manager",
-  "version": "1.0.3",
+  "version": "1.0.0",
   "identifier": "com.mcp-manager.app",
   "build": {
     "beforeDevCommand": "pnpm dev",

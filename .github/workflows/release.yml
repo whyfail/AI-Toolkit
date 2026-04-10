@@ -109,24 +109,33 @@ jobs:
             exit 1
           fi
 
-          # Copy .dmg if available
+          # Copy .dmg if available (for manual installation)
           if [ -n "$DMG_PATH" ]; then
             NEW_DMG="MCP_Manager-${VERSION}-macOS-${ARCH}.dmg"
             cp "$DMG_PATH" "release-assets/$NEW_DMG"
             echo "✅ macOS dmg ready: $NEW_DMG"
           fi
 
+          # Copy .app.tar.gz (updater bundle) and signature
+          APP_TAR=$(find "$BUNDLE_DIR" -name "*.app.tar.gz" -type f 2>/dev/null | head -1)
+          if [ -n "$APP_TAR" ]; then
+            NEW_APP_TAR="MCP_Manager-${VERSION}-macOS-${ARCH}.app.tar.gz"
+            cp "$APP_TAR" "release-assets/$NEW_APP_TAR"
+            echo "✅ macOS updater bundle ready: $NEW_APP_TAR"
+          fi
+
           # Copy signature file if available
-          # Search entire target directory for .dmg.sig file
-          SIG_FILE=$(find src-tauri/target -name "*.dmg.sig" -type f 2>/dev/null | head -1)
+          # Tauri v2 generates .app.tar.gz.sig for macOS
+          SIG_FILE=$(find src-tauri/target -name "*.app.tar.gz.sig" -type f 2>/dev/null | head -1)
           if [ -n "$SIG_FILE" ]; then
-            cp "$SIG_FILE" "release-assets/MCP_Manager-${VERSION}-macOS-aarch64.dmg.sig"
+            cp "$SIG_FILE" "release-assets/MCP_Manager-${VERSION}-macOS-aarch64.app.tar.gz.sig"
             echo "✅ signature file ready: $(basename "$SIG_FILE")"
             echo "   from: $SIG_FILE"
           else
-            echo "⚠️ No .dmg.sig file found"
+            echo "⚠️ No .app.tar.gz.sig file found"
             echo "   Searching for any .sig files..."
             find src-tauri/target -name "*.sig" -type f 2>/dev/null | while read -r f; do echo "   Found: $f"; done || echo "   None found"
+            exit 1
           fi
 
           # Debug: list all files in bundle directory
@@ -205,13 +214,27 @@ jobs:
           }
 
           # Tauri updater artifacts: latest.json and signature file
+          # Tauri v2 generates .msi.zip for Windows
           $bundleDir = Get-ChildItem -Path 'src-tauri/target' -Name 'bundle' -Recurse -Directory | Select-Object -First 1
           if ($bundleDir) {
             $fullBundleDir = Join-Path 'src-tauri/target' $bundleDir
-            $sigFile = Get-ChildItem -Path $fullBundleDir -Name '*.msi.sig' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            
+            # Copy .msi.zip (updater bundle)
+            $msiZip = Get-ChildItem -Path $fullBundleDir -Name '*.msi.zip' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($msiZip) {
+              $dest = "MCP_Manager-$env:VERSION-Windows-x64.msi.zip"
+              Copy-Item (Join-Path $fullBundleDir $msiZip) (Join-Path release-assets $dest)
+              Write-Host "Windows updater bundle ready: $dest"
+            }
+            
+            # Copy signature file
+            $sigFile = Get-ChildItem -Path $fullBundleDir -Name '*.msi.zip.sig' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($sigFile) {
               Copy-Item (Join-Path $fullBundleDir $sigFile) (Join-Path release-assets (Split-Path $sigFile -Leaf))
               Write-Host "Windows signature file ready"
+            } else {
+              Write-Error "No .msi.zip.sig file found"
+              exit 1
             }
           }
 
@@ -272,39 +295,41 @@ jobs:
           RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           # Get file sizes
-          DMG_FILE=$(find release-assets -name "*.dmg" -type f | head -1)
-          MSI_FILE=$(find release-assets -name "*.msi" -type f | head -1)
-          DMG_SIG=$(find release-assets -name "*.dmg.sig" -type f | head -1)
-          MSI_SIG=$(find release-assets -name "*.msi.sig" -type f | head -1)
+          # For updater bundles (not installers)
+          APP_TAR_FILE=$(find release-assets -name "*.app.tar.gz" -type f | head -1)
+          MSI_ZIP_FILE=$(find release-assets -name "*.msi.zip" -type f | head -1)
+          APP_TAR_SIG=$(find release-assets -name "*.app.tar.gz.sig" -type f | head -1)
+          MSI_ZIP_SIG=$(find release-assets -name "*.msi.zip.sig" -type f | head -1)
 
-          DMG_SIZE=0
-          MSI_SIZE=0
-          DMG_SIG_CONTENT=""
-          MSI_SIG_CONTENT=""
+          APP_TAR_SIZE=0
+          MSI_ZIP_SIZE=0
+          APP_TAR_SIG_CONTENT=""
+          MSI_ZIP_SIG_CONTENT=""
 
-          if [ -n "$DMG_FILE" ]; then
-            DMG_SIZE=$(stat -f%z "$DMG_FILE" 2>/dev/null || stat -c%s "$DMG_FILE" 2>/dev/null || echo 0)
+          if [ -n "$APP_TAR_FILE" ]; then
+            APP_TAR_SIZE=$(stat -f%z "$APP_TAR_FILE" 2>/dev/null || stat -c%s "$APP_TAR_FILE" 2>/dev/null || echo 0)
           fi
-          if [ -n "$MSI_FILE" ]; then
-            MSI_SIZE=$(stat -f%z "$MSI_FILE" 2>/dev/null || stat -c%s "$MSI_FILE" 2>/dev/null || echo 0)
+          if [ -n "$MSI_ZIP_FILE" ]; then
+            MSI_ZIP_SIZE=$(stat -f%z "$MSI_ZIP_FILE" 2>/dev/null || stat -c%s "$MSI_ZIP_FILE" 2>/dev/null || echo 0)
           fi
-          if [ -n "$DMG_SIG" ]; then
-            DMG_SIG_CONTENT=$(cat "$DMG_SIG")
+          if [ -n "$APP_TAR_SIG" ]; then
+            APP_TAR_SIG_CONTENT=$(cat "$APP_TAR_SIG")
           fi
-          if [ -n "$MSI_SIG" ]; then
-            MSI_SIG_CONTENT=$(cat "$MSI_SIG")
+          if [ -n "$MSI_ZIP_SIG" ]; then
+            MSI_ZIP_SIG_CONTENT=$(cat "$MSI_ZIP_SIG")
           fi
 
           DOWNLOAD_BASE="https://github.com/whyfail/mcp-manager/releases/download/v${VERSION}"
 
           # Build latest.json using jq to avoid YAML/shell conflicts
+          # Note: URLs point to updater bundles (.app.tar.gz and .msi.zip), not installers
           jq -n \
             --arg ver "${VERSION}" \
             --arg date "${RELEASE_DATE}" \
-            --arg dmg_sig "${DMG_SIG_CONTENT}" \
-            --arg msi_sig "${MSI_SIG_CONTENT}" \
-            --arg dmg_url "${DOWNLOAD_BASE}/MCP_Manager-${VERSION}-macOS-aarch64.dmg" \
-            --arg msi_url "${DOWNLOAD_BASE}/MCP_Manager-${VERSION}-Windows-x64.msi" \
+            --arg app_tar_sig "${APP_TAR_SIG_CONTENT}" \
+            --arg msi_zip_sig "${MSI_ZIP_SIG_CONTENT}" \
+            --arg app_tar_url "${DOWNLOAD_BASE}/MCP_Manager-${VERSION}-macOS-aarch64.app.tar.gz" \
+            --arg msi_zip_url "${DOWNLOAD_BASE}/MCP_Manager-${VERSION}-Windows-x64.msi.zip" \
             --arg notes "See changelog at https://github.com/whyfail/mcp-manager/releases/tag/v${VERSION}" \
             '{
               version: $ver,
@@ -312,12 +337,12 @@ jobs:
               pub_date: $date,
               platforms: {
                 "darwin-aarch64": {
-                  signature: $dmg_sig,
-                  url: $dmg_url
+                  signature: $app_tar_sig,
+                  url: $app_tar_url
                 },
                 "windows-x86_64": {
-                  signature: $msi_sig,
-                  url: $msi_url
+                  signature: $msi_zip_sig,
+                  url: $msi_zip_url
                 }
               }
             }' > release-assets/latest.json
@@ -347,6 +372,8 @@ jobs:
 
             - **macOS (Apple Silicon)**: `MCP_Manager-${{ steps.get_version_release.outputs.VERSION }}-macOS-aarch64.dmg`
             - **Windows (x64)**: `MCP_Manager-${{ steps.get_version_release.outputs.VERSION }}-Windows-x64.msi`
+
+            **Note**: Auto-updater uses `.app.tar.gz` (macOS) and `.msi.zip` (Windows) bundles which are included in this release.
 
             ### ✨ Features
 
