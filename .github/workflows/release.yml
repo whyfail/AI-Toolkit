@@ -187,7 +187,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install WiX
-        run: winget install --id WiX.WiXToolset -e --silent --accept-package-agreements --accept-source-agreements
+        run: winget install --id WiXToolset.WiX --source winget -e --silent --accept-package-agreements --accept-source-agreements
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
