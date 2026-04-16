@@ -186,6 +186,9 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install WiX
+        run: winget install --id WiX.WiXToolset -e --silent
+
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
