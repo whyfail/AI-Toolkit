@@ -22,11 +22,11 @@ const agentColors: Record<string, string> = {
   codex: "bg-blue-500",
   gemini: "bg-green-500",
   opencode: "bg-cyan-500",
-  openclaw: "bg-pink-500",
   trae: "bg-indigo-500",
   "trae-cn": "bg-violet-500",
   "trae-solo-cn": "bg-fuchsia-500",
   qoder: "bg-yellow-500",
+  qodercli: "bg-amber-500",
   codebuddy: "bg-red-500",
 };
 

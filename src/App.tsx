@@ -3,6 +3,7 @@ import { Toaster, toast } from "sonner";
 import UnifiedMcpPanel from "@/components/mcp/UnifiedMcpPanel";
 import UpdateModal from "@/components/mcp/UpdateModal";
 import SkillsPanel from "@/components/skills/SkillsPanel";
+import ToolManagerPanel from "@/components/tool-manager/ToolManagerPanel";
 import {
   Database,
   Settings,
@@ -15,17 +16,18 @@ import {
   Loader2,
   Github,
   ExternalLink,
-  Wrench,
+  Package,
+  Sparkles,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
 import { useAppVersion } from "@/hooks/useAppVersion";
 
-type Tab = "mcp" | "skills" | "settings" | "about";
+type Tab = "mcp" | "skills" | "tools" | "settings" | "about";
 type Theme = "light" | "dark" | "system";
 
 function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("mcp");
+  const [activeTab, setActiveTab] = useState<Tab>("tools");
   const [theme, setTheme] = useState<Theme>("system");
   const appVersion = useAppVersion();
 
@@ -55,8 +57,9 @@ function App() {
   }, [theme]);
 
   const navItems = [
+    { id: "tools" as Tab, label: "工具管理", icon: Package },
+    { id: "skills" as Tab, label: "Skills 管理", icon: Sparkles },
     { id: "mcp" as Tab, label: "MCP 服务器", icon: Database },
-    { id: "skills" as Tab, label: "Skills 管理", icon: Wrench },
     { id: "settings" as Tab, label: "设置", icon: Settings },
     { id: "about" as Tab, label: "关于", icon: Info },
   ];
@@ -136,8 +139,9 @@ function App() {
 
       {/* 主内容区 */}
       <main className="flex-1 overflow-hidden">
-        {activeTab === "mcp" && <UnifiedMcpPanel />}
+        {activeTab === "tools" && <ToolManagerPanel />}
         {activeTab === "skills" && <SkillsPanel />}
+        {activeTab === "mcp" && <UnifiedMcpPanel />}
         {activeTab === "settings" && <SettingsTab />}
         {activeTab === "about" && <AboutTab />}
       </main>
@@ -156,11 +160,11 @@ const SettingsTab: React.FC = () => {
     { name: "Codex", path: "~/.codex/config.toml" },
     { name: "Gemini CLI", path: "~/.gemini/settings.json" },
     { name: "OpenCode", path: "~/.config/opencode/opencode.json" },
-    { name: "OpenClaw", path: "~/.openclaw/openclaw.json" },
+    { name: "Qoder", path: "~/Library/Application Support/Qoder/SharedClientCache/mcp.json" },
+    { name: "Qoder CLI", path: "~/.qodercli/settings.json" },
     { name: "Trae", path: "~/Library/Application Support/Trae/User/mcp.json" },
     { name: "Trae CN", path: "~/Library/Application Support/Trae CN/User/mcp.json" },
     { name: "TRAE SOLO CN", path: "~/Library/Application Support/TRAE SOLO CN/User/mcp.json" },
-    { name: "Qoder", path: "~/.qoder/settings.json" },
     { name: "CodeBuddy", path: "~/.codebuddy/mcp.json" },
   ];
 
@@ -357,7 +361,7 @@ const AboutTab: React.FC = () => {
               </button>
             </div>
             <p className="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed">
-              一款基于 Tauri 2 构建的跨平台桌面应用，专注于管理 AI 编程工具的 MCP 服务器配置和 Skills 技能同步。兼容 Qwen Code、Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw、Trae、Trae CN、Qoder、CodeBuddy 等主流工具。
+              一款基于 Tauri 2 构建的跨平台桌面应用，专注于管理 AI 编程工具的 MCP 服务器配置和 Skills 技能同步。兼容 Qwen Code、Claude Code、Codex、Gemini CLI、OpenCode、Trae、Trae CN、Qoder、CodeBuddy 等主流工具。
             </p>
           </section>
 

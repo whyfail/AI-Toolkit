@@ -46,8 +46,43 @@ export const SUPPORTED_APPS: Array<{ id: string; name: string; icon: string }> =
   { id: "codex", name: "Codex", icon: "codex" },
   { id: "gemini", name: "Gemini CLI", icon: "gemini" },
   { id: "opencode", name: "OpenCode", icon: "opencode" },
-  { id: "openclaw", name: "OpenClaw", icon: "openclaw" },
+  { id: "qoder", name: "Qoder", icon: "qoder" },
+  { id: "qodercli", name: "Qoder CLI", icon: "qodercli" },
   { id: "trae", name: "Trae", icon: "trae" },
   { id: "trae-cn", name: "Trae CN", icon: "trae-cn" },
   { id: "trae-solo-cn", name: "TRAE SOLO CN", icon: "trae-solo-cn" },
 ];
+
+// 工具安装方式
+export type InstallMethodType = "brew" | "npm" | "curl" | "custom" | "download";
+
+export interface ToolMethodInfo {
+  index: number;
+  method_type: InstallMethodType;
+  name: string;
+  package?: string;
+  url?: string;
+  command: string;
+  needs_confirm: boolean;
+}
+
+// 工具信息
+export interface ToolInfo {
+  app_type: string;
+  name: string;
+  installed: boolean;
+  version: string | null;
+  latest_version: string | null;
+  detected_method: string | null;
+  methods: ToolMethodInfo[];
+  homepage: string;
+}
+
+// 安装进度
+export interface InstallProgress {
+  tool: string;
+  status: "installing" | "updating" | "downloading" | "finished" | "error";
+  message: string;
+  progress?: number;
+  total?: number;
+}

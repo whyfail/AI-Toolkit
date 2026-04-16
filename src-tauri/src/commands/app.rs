@@ -53,12 +53,6 @@ pub async fn get_app_configs(
             mcp_count: 0,
         },
         AppConfigInfo {
-            id: "openclaw".to_string(),
-            name: "OpenClaw".to_string(),
-            config_path: "~/.openclaw/openclaw.json".to_string(),
-            mcp_count: 0,
-        },
-        AppConfigInfo {
             id: "trae".to_string(),
             name: "Trae".to_string(),
             config_path: "~/.trae/config.json".to_string(),

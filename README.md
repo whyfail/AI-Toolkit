@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B-lightgrey.svg)](https://github.com)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -17,7 +17,7 @@ AI 工具箱是一款**通用的 AI 编程工具管理工具**，支持统一管
 ## ✨ 核心特性
 
 ### 🎯 MCP 服务器管理
-- 支持 **11 种** 主流 AI 编程工具：Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, Trae, Trae CN, TRAE SOLO CN, Qoder, CodeBuddy
+- 支持 **11 种** 主流 AI 编程工具：Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, Trae, Trae CN, TRAE SOLO CN, Qoder, Qoder CLI, CodeBuddy
 - 在单一界面中添加、编辑、删除 MCP 服务器
 - 自动检测系统中已安装的 AI 工具，新工具发现时弹窗提示
 - 切换开关**实时同步**到对应工具的配置文件
@@ -37,6 +37,17 @@ AI 工具箱是一款**通用的 AI 编程工具管理工具**，支持统一管
 - 可视化界面，告别手动编辑 JSON/TOML 文件
 - 支持多个配置文件路径自动识别
 - **原子写入**：临时文件 + 重命名机制，防止配置损坏
+
+### 🚀 Agent 快速启动
+- **一键启动**：直接从应用内启动 AI 工具
+- **多终端支持**：Terminal, iTerm2, Warp, Hyper, Kitty, Alacritty, Fig, Kaku
+- **Node.js 环境自动检测**：支持 nvm, fnm, volta, nvmd 等版本管理工具
+- **Windows 终端支持**：Windows Terminal, PowerShell, CMD, Git Bash
+
+### 📦 工具管理
+- **安装向导**：显示各工具的多种安装方式 (Homebrew, npm, curl 脚本)
+- **版本检测**：自动检测已安装工具的版本
+- **一键更新**：快速更新已安装的工具
 
 ## 📸 界面预览
 
@@ -98,11 +109,11 @@ cp -R /Volumes/AI\ Toolkit/AI\ Toolkit.app /Applications/
 | OpenAI Codex | `~/.codex/config.toml` |
 | Google Gemini CLI | `~/.gemini/settings.json` |
 | OpenCode | `~/.config/opencode/opencode.json` |
-| OpenClaw | `~/.openclaw/openclaw.json` |
+| Qoder | `~/Library/Application Support/Qoder/SharedClientCache/mcp.json` |
+| Qoder CLI | `~/.qodercli/settings.json` |
 | Trae | `~/Library/Application Support/Trae/User/mcp.json` |
 | Trae CN | `~/Library/Application Support/Trae CN/User/mcp.json` |
 | TRAE SOLO CN | `~/Library/Application Support/TRAE SOLO CN/User/mcp.json` |
-| Qoder | `~/.qoder/settings.json` |
 | CodeBuddy | `~/.codebuddy/mcp.json` |
 
 ## 🛠️ 技术栈

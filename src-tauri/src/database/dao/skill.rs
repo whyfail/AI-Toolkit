@@ -1,6 +1,6 @@
-use rusqlite::params;
 use crate::database::Database;
 use crate::error::AppError;
+use rusqlite::params;
 
 pub struct SkillRecord {
     pub id: String,

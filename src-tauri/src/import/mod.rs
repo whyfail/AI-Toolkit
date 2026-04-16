@@ -4,9 +4,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::agents::get_agent_config_paths;
 use crate::database::{McpApps, McpServer, McpServerSpec};
 use crate::mcp::AppType;
-use crate::agents::get_agent_config_paths;
 
 /// 导入结果
 pub struct ImportResult {
@@ -85,18 +85,6 @@ fn parse_mcp_json(content: &str, app: &AppType) -> Option<IndexMap<String, McpSe
             }
         }
     }
-    // OpenClaw (~/.openclaw/openclaw.json): 配置在 models.providers 中
-    else if let Some(models) = json.get("models") {
-        if let Some(providers) = models.get("providers") {
-            if let Some(obj) = providers.as_object() {
-                for (id, config) in obj {
-                    if let Some(server) = parse_openclaw_provider(id, config, app) {
-                        servers.insert(id.clone(), server);
-                    }
-                }
-            }
-        }
-    }
     // 直接是服务器对象
     else if let Some(obj) = json.as_object() {
         for (id, config) in obj {
@@ -146,55 +134,6 @@ fn parse_mcp_toml(content: &str, app: &AppType) -> Option<IndexMap<String, McpSe
     }
 }
 
-/// 解析 OpenClaw models.providers 配置
-fn parse_openclaw_provider(id: &str, config: &serde_json::Value, app: &AppType) -> Option<McpServer> {
-    let config_obj = config.as_object()?;
-    
-    let base_url = config_obj.get("baseUrl").and_then(|v| v.as_str()).map(String::from);
-    let api_key = config_obj.get("apiKey").and_then(|v| v.as_str()).map(String::from);
-    let api = config_obj.get("api").and_then(|v| v.as_str()).map(String::from);
-    
-    // 构建服务器规范（OpenClaw 使用 API 端点而非传统 MCP）
-    let server = McpServerSpec {
-        spec_type: Some("http".to_string()),
-        url: base_url.clone(),
-        env: api_key.map(|key| {
-            let mut map = HashMap::new();
-            map.insert("API_KEY".to_string(), key);
-            map
-        }),
-        command: None,
-        args: None,
-        cwd: None,
-        headers: api.map(|a| {
-            let mut map = HashMap::new();
-            map.insert("X-API-Type".to_string(), a);
-            map
-        }),
-        extra: HashMap::new(),
-    };
-
-    // 创建应用状态
-    let mut apps = McpApps::default();
-    apps.set_enabled_for(app, true);
-
-    let name = config_obj.get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or(id)
-        .to_string();
-
-    Some(McpServer {
-        id: format!("openclaw-{}", id),
-        name,
-        server,
-        apps,
-        description: Some(format!("OpenClaw provider: {}", id)),
-        homepage: None,
-        docs: None,
-        tags: vec![format!("imported-from-{}", app.name())],
-    })
-}
-
 /// 解析单个服务器配置
 fn parse_server_config(id: &str, config: &serde_json::Value, app: &AppType) -> Option<McpServer> {
     let config_obj = config.as_object()?;
@@ -205,32 +144,48 @@ fn parse_server_config(id: &str, config: &serde_json::Value, app: &AppType) -> O
     let (command, args) = if let Some(cmd_val) = config_obj.get("command") {
         if let Some(arr) = cmd_val.as_array() {
             // command 是数组 (OpenCode 格式): 第一个元素作为 command，其余作为 args
-            let mut items: Vec<String> = arr.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+            let mut items: Vec<String> = arr
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
             let cmd = items.first().map(|s| s.clone());
-            let a = if items.len() > 1 { Some(items.split_off(1)) } else { None };
+            let a = if items.len() > 1 {
+                Some(items.split_off(1))
+            } else {
+                None
+            };
             (cmd, a)
         } else {
             // command 是字符串 (标准格式)
             let cmd = cmd_val.as_str().map(String::from);
-            let a = config_obj.get("args").and_then(|v| v.as_array()).map(|arr| {
-                arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()
-            });
+            let a = config_obj
+                .get("args")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                });
             (cmd, a)
         }
     } else {
         (None, None)
     };
     // 同时支持 "env" (标准格式) 和 "environment" (OpenCode 格式)
-    let env = config_obj.get("env")
+    let env = config_obj
+        .get("env")
         .or_else(|| config_obj.get("environment"))
         .and_then(|v| {
-        v.as_object().map(|obj| {
-            obj.iter()
-                .filter_map(|(k, v)| v.as_str().map(|vs| (k.clone(), vs.to_string())))
-                .collect()
-        })
-    });
-    let url = config_obj.get("url").and_then(|v| v.as_str()).map(String::from);
+            v.as_object().map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|vs| (k.clone(), vs.to_string())))
+                    .collect()
+            })
+        });
+    let url = config_obj
+        .get("url")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     let headers = config_obj.get("headers").and_then(|v| {
         v.as_object().map(|obj| {
             obj.iter()
@@ -239,7 +194,10 @@ fn parse_server_config(id: &str, config: &serde_json::Value, app: &AppType) -> O
         })
     });
 
-    let cwd = config_obj.get("cwd").and_then(|v| v.as_str()).map(String::from);
+    let cwd = config_obj
+        .get("cwd")
+        .and_then(|v| v.as_str())
+        .map(String::from);
 
     let spec_type = if command.is_some() {
         Some("stdio".to_string())
@@ -266,14 +224,24 @@ fn parse_server_config(id: &str, config: &serde_json::Value, app: &AppType) -> O
     apps.set_enabled_for(app, true);
 
     // 从配置中提取名称和描述
-    let name = config_obj.get("name")
+    let name = config_obj
+        .get("name")
         .and_then(|v| v.as_str())
         .unwrap_or(id)
         .to_string();
-    
-    let description = config_obj.get("description").and_then(|v| v.as_str()).map(String::from);
-    let docs = config_obj.get("docs").and_then(|v| v.as_str()).map(String::from);
-    let homepage = config_obj.get("homepage").and_then(|v| v.as_str()).map(String::from);
+
+    let description = config_obj
+        .get("description")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let docs = config_obj
+        .get("docs")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let homepage = config_obj
+        .get("homepage")
+        .and_then(|v| v.as_str())
+        .map(String::from);
 
     Some(McpServer {
         id: id.to_string(),
@@ -304,7 +272,7 @@ pub fn import_all() -> IndexMap<String, McpServer> {
     // Iterate through all apps and check their OS-specific paths
     for app in AppType::all() {
         let paths = get_agent_config_paths(&app);
-        
+
         // Check each possible path for this app
         for path in &paths {
             if let Some(result) = import_from_path(app.clone(), path) {

@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.2.0 (2026-04-16)
+
+### 新增功能
+
+#### Agent 快速启动
+- **一键启动**：支持直接从应用内启动 AI 工具
+- **多终端支持**：Terminal, iTerm2, Warp, Hyper, Kitty, Alacritty, Fig, Kaku
+- **Node.js 环境自动检测**：支持 nvm, fnm, volta, nvmd 等版本管理工具
+- **Windows 终端支持**：Windows Terminal, PowerShell, CMD, Git Bash
+
+#### 工具管理
+- **安装向导**：显示各工具的多种安装方式 (Homebrew, npm, curl 脚本)
+- **版本检测**：自动检测已安装工具的版本
+- **一键更新**：快速更新已安装的工具
+
+#### Qoder CLI 支持
+- 新增 Qoder CLI 工具支持
+- 配置文件路径：`~/.qodercli/settings.json`
+
+### 改进
+- **移除 OpenClaw**：移除已停用的 OpenClaw 支持
+- **Qoder 路径更新**：Qoder 配置路径更新为 `~/Library/Application Support/Qoder/SharedClientCache/mcp.json`
+- **工具数量**：从 10 种增加到 11 种
+
+### 修复
+- 若干 bug 修复和稳定性提升
+
+---
+
 ## v1.1.0 (2026-04-14)
 
 ### 新增功能
@@ -16,7 +45,7 @@
 - **选择性安装**：支持多 Skills 仓库的选择性子目录安装
 
 #### 工具检测与同步
-- **多工具支持**：支持 Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, Trae, Trae CN, TRAE SOLO CN, Qoder, CodeBuddy
+- **多工具支持**：支持 Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, Trae, Trae CN, TRAE SOLO CN, Qoder, CodeBuddy
 - **自动发现**：启动时自动检测系统中已安装的 AI 工具
 - **实时同步**：MCP 服务器配置切换实时同步到对应工具配置文件
 - **冲突检测**：检测同名 Skills 在不同工具中的安装情况

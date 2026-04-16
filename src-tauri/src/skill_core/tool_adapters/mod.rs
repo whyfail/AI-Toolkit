@@ -12,7 +12,6 @@ pub enum ToolId {
     Amp,
     KimiCli,
     Augment,
-    OpenClaw,
     Cline,
     CodeBuddy,
     CommandCode,
@@ -68,7 +67,6 @@ impl ToolId {
             ToolId::Amp => "amp",
             ToolId::KimiCli => "kimi_cli",
             ToolId::Augment => "augment",
-            ToolId::OpenClaw => "openclaw",
             ToolId::Cline => "cline",
             ToolId::CodeBuddy => "codebuddy",
             ToolId::CommandCode => "command_code",
@@ -187,13 +185,6 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             // add-skill global path: ~/.augment/rules/
             relative_skills_dir: ".augment/rules",
             relative_detect_dir: ".augment",
-        },
-        ToolAdapter {
-            id: ToolId::OpenClaw,
-            display_name: "OpenClaw",
-            // add-skill global path: ~/.openclaw/skills/
-            relative_skills_dir: ".openclaw/skills",
-            relative_detect_dir: ".openclaw",
         },
         ToolAdapter {
             id: ToolId::Cline,
@@ -519,18 +510,18 @@ fn detect_link(path: &Path) -> (bool, Option<PathBuf>) {
 
 pub fn get_all_tool_status() -> Result<Vec<ToolStatus>> {
     let mut tool_statuses = Vec::new();
-    
+
     for tool in default_tool_adapters() {
         let installed = is_tool_installed(&tool)?;
         let skills_dir = resolve_default_path(&tool)?;
         let skills = scan_tool_dir(&tool, &skills_dir)?;
-        
+
         tool_statuses.push(ToolStatus {
             tool,
             installed,
             skills,
         });
     }
-    
+
     Ok(tool_statuses)
 }

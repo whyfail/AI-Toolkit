@@ -74,7 +74,6 @@ export type ToolId =
   | 'amp'
   | 'kimi_cli'
   | 'augment'
-  | 'openclaw'
   | 'cline'
   | 'codebuddy'
   | 'command_code'

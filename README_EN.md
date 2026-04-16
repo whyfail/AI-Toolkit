@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B-lightgrey.svg)](https://github.com)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -17,7 +17,7 @@ AI Toolkit is a **universal AI programming tools management tool** that supports
 ## ✨ Key Features
 
 ### 🎯 MCP Server Management
-- Support for **11** mainstream AI programming tools: Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, Trae, Trae CN, TRAE SOLO CN, Qoder, CodeBuddy
+- Support for **11** mainstream AI programming tools: Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, Trae, Trae CN, TRAE SOLO CN, Qoder, Qoder CLI, CodeBuddy
 - Add, edit, and delete MCP servers in a single interface
 - Automatically detects installed AI tools on your system and prompts for MCP sync when new tools are discovered
 - Toggle switches **sync in real-time** to the corresponding tool's configuration file
@@ -37,6 +37,17 @@ AI Toolkit is a **universal AI programming tools management tool** that supports
 - Visual interface, goodbye manual editing of JSON/TOML files
 - Automatic recognition of multiple configuration file paths
 - **Atomic Writing**: Temporary file + rename mechanism to prevent configuration corruption
+
+### 🚀 Quick Agent Launch
+- **One-Click Launch**: Start AI tools directly from the app
+- **Multi-Terminal Support**: Terminal, iTerm2, Warp, Hyper, Kitty, Alacritty, Fig, Kaku
+- **Auto Node.js Detection**: Supports nvm, fnm, volta, nvmd and other version managers
+- **Windows Terminal Support**: Windows Terminal, PowerShell, CMD, Git Bash
+
+### 📦 Tool Management
+- **Installation Wizard**: Shows multiple installation methods (Homebrew, npm, curl scripts)
+- **Version Detection**: Auto-detect installed tool versions
+- **One-Click Update**: Quickly update installed tools
 
 ## 📸 Screenshots
 
@@ -98,11 +109,11 @@ Since the current version is not code-signed or notarized by Apple, macOS Gateke
 | OpenAI Codex | `~/.codex/config.toml` |
 | Google Gemini CLI | `~/.gemini/settings.json` |
 | OpenCode | `~/.config/opencode/opencode.json` |
-| OpenClaw | `~/.openclaw/openclaw.json` |
+| Qoder | `~/Library/Application Support/Qoder/SharedClientCache/mcp.json` |
+| Qoder CLI | `~/.qodercli/settings.json` |
 | Trae | `~/Library/Application Support/Trae/User/mcp.json` |
 | Trae CN | `~/Library/Application Support/Trae CN/User/mcp.json` |
 | TRAE SOLO CN | `~/Library/Application Support/TRAE SOLO CN/User/mcp.json` |
-| Qoder | `~/.qoder/settings.json` |
 | CodeBuddy | `~/.codebuddy/mcp.json` |
 
 ## 🛠️ Tech Stack

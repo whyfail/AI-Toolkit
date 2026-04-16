@@ -145,6 +145,22 @@ fn remove_path_any(path: &Path) -> Result<()> {
         return Ok(());
     }
     if ft.is_dir() {
+        // On Windows, remove_dir_all recursively deletes directory contents,
+        // which is wrong for junctions (directory symbolic links) - we only
+        // want to delete the junction itself. Use rmdir which handles this correctly.
+        #[cfg(windows)]
+        {
+            let exit = std::process::Command::new("cmd")
+                .args(["/c", "rmdir", path.to_string_lossy().as_ref()])
+                .output();
+            if let Ok(output) = exit {
+                if output.status.success() {
+                    return Ok(());
+                }
+                // If rmdir fails (e.g., not a junction, or regular directory),
+                // fall through to remove_dir_all
+            }
+        }
         std::fs::remove_dir_all(path).with_context(|| format!("remove dir {:?}", path))?;
         return Ok(());
     }
@@ -153,9 +169,35 @@ fn remove_path_any(path: &Path) -> Result<()> {
 }
 
 fn is_same_link(link_path: &Path, target: &Path) -> bool {
+    // Try read_link first (works for symbolic links)
     if let Ok(existing) = std::fs::read_link(link_path) {
         return existing == target;
     }
+
+    // On Windows, read_link doesn't work for junctions.
+    // Use fsutil to query the reparse point target.
+    #[cfg(windows)]
+    {
+        let output = std::process::Command::new("fsutil")
+            .args(["reparsepoint", "query", link_path.to_string_lossy().as_ref()])
+            .output();
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                // fsutil outputs "Symbolic Link" or "Mount Point" and "Print Name: <target>"
+                if let Some(print_name_pos) = stdout.find("Print Name:") {
+                    let after_print_name = &stdout[print_name_pos + 11..];
+                    // The target path is typically in quotes like: :\path\to\target
+                    let trimmed = after_print_name.trim();
+                    // Handle various formats that fsutil might output
+                    let target_str = trimmed.trim_start_matches('"').trim_end_matches('"');
+                    let target_path = PathBuf::from(target_str);
+                    return target_path == target;
+                }
+            }
+        }
+    }
+
     false
 }
 

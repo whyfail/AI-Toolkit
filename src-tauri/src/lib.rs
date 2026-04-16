@@ -80,6 +80,8 @@ pub fn run() {
             commands::agents::detect_agents,
             commands::agents::sync_agent_mcp,
             commands::agents::open_config_file,
+            commands::agents::launch_agent,
+            commands::agents::get_terminals,
             // 技能管理命令
             commands::skills::get_managed_skills,
             commands::skills::get_tool_status,
@@ -99,6 +101,12 @@ pub fn run() {
             // 更新命令
             commands::update::check_update,
             commands::update::install_update,
+            // 工具管理命令
+            commands::tool_manager::get_tool_infos,
+            commands::tool_manager::get_tool_info,
+            commands::tool_manager::install_tool,
+            commands::tool_manager::update_tool,
+            commands::tool_manager::get_tool_homepage,
             // 应用信息命令
             commands::app::get_version,
         ])

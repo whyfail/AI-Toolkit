@@ -92,7 +92,7 @@ pub async fn test_mcp_connection(params: TestConnectionParams) -> Result<TestCon
             "params": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": { "name": "ai-tool-manager", "version": "1.1.0" }
+                "clientInfo": { "name": "ai-tool-manager", "version": "1.2.0" }
             }
         });
 

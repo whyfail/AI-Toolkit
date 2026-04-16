@@ -90,13 +90,6 @@ pub fn get_agent_config_paths(app: &AppType) -> Vec<PathBuf> {
                 vec!["~/.config/opencode/opencode.json"]
             }
         }
-        AppType::OpenClaw => {
-            if cfg!(windows) {
-                vec!["%USERPROFILE%\\.openclaw\\openclaw.json"]
-            } else {
-                vec!["~/.openclaw/openclaw.json"]
-            }
-        }
         AppType::Trae => {
             if cfg!(windows) {
                 vec!["%APPDATA%\\Trae\\User\\mcp.json"]
@@ -120,9 +113,16 @@ pub fn get_agent_config_paths(app: &AppType) -> Vec<PathBuf> {
         }
         AppType::Qoder => {
             if cfg!(windows) {
-                vec!["%USERPROFILE%\\.qoder\\settings.json"]
+                vec!["%APPDATA%\\Qoder\\SharedClientCache\\mcp.json"]
             } else {
-                vec!["~/.qoder/settings.json"]
+                vec!["~/Library/Application Support/Qoder/SharedClientCache/mcp.json"]
+            }
+        }
+        AppType::Qodercli => {
+            if cfg!(windows) {
+                vec!["%USERPROFILE%\\.qodercli\\settings.json"]
+            } else {
+                vec!["~/.qodercli/settings.json"]
             }
         }
         AppType::CodeBuddy => {
@@ -144,11 +144,11 @@ pub fn get_agent_name(app: &AppType) -> String {
         AppType::Codex => "Codex".to_string(),
         AppType::Gemini => "Gemini CLI".to_string(),
         AppType::OpenCode => "OpenCode".to_string(),
-        AppType::OpenClaw => "OpenClaw".to_string(),
         AppType::Trae => "Trae".to_string(),
         AppType::TraeCn => "Trae CN".to_string(),
         AppType::TraeSoloCn => "TRAE SOLO CN".to_string(),
         AppType::Qoder => "Qoder".to_string(),
+        AppType::Qodercli => "Qoder CLI".to_string(),
         AppType::CodeBuddy => "CodeBuddy".to_string(),
     }
 }
@@ -158,34 +158,74 @@ pub fn get_agent_detect_dir(app: &AppType) -> Option<PathBuf> {
     let path_str = match app {
         AppType::QwenCode => "~/.qwen",
         AppType::Claude => {
-            if cfg!(windows) { "%USERPROFILE%\\.claude" } else { "~/.claude" }
+            if cfg!(windows) {
+                "%USERPROFILE%\\.claude"
+            } else {
+                "~/.claude"
+            }
         }
         AppType::Codex => {
-            if cfg!(windows) { "%USERPROFILE%\\.codex" } else { "~/.codex" }
+            if cfg!(windows) {
+                "%USERPROFILE%\\.codex"
+            } else {
+                "~/.codex"
+            }
         }
         AppType::Gemini => {
-            if cfg!(windows) { "%USERPROFILE%\\.gemini" } else { "~/.gemini" }
+            if cfg!(windows) {
+                "%USERPROFILE%\\.gemini"
+            } else {
+                "~/.gemini"
+            }
         }
         AppType::OpenCode => {
-            if cfg!(windows) { "%USERPROFILE%\\.config\\opencode" } else { "~/.config/opencode" }
-        }
-        AppType::OpenClaw => {
-            if cfg!(windows) { "%USERPROFILE%\\.openclaw" } else { "~/.openclaw" }
+            if cfg!(windows) {
+                "%USERPROFILE%\\.config\\opencode"
+            } else {
+                "~/.config/opencode"
+            }
         }
         AppType::Trae => {
-            if cfg!(windows) { "%APPDATA%\\Trae" } else { "~/Library/Application Support/Trae" }
+            if cfg!(windows) {
+                "%APPDATA%\\Trae"
+            } else {
+                "~/Library/Application Support/Trae"
+            }
         }
         AppType::TraeCn => {
-            if cfg!(windows) { "%APPDATA%\\Trae CN" } else { "~/Library/Application Support/Trae CN" }
+            if cfg!(windows) {
+                "%APPDATA%\\Trae CN"
+            } else {
+                "~/Library/Application Support/Trae CN"
+            }
         }
         AppType::TraeSoloCn => {
-            if cfg!(windows) { "%APPDATA%\\TRAE SOLO CN" } else { "~/Library/Application Support/TRAE SOLO CN" }
+            if cfg!(windows) {
+                "%APPDATA%\\TRAE SOLO CN"
+            } else {
+                "~/Library/Application Support/TRAE SOLO CN"
+            }
         }
         AppType::Qoder => {
-            if cfg!(windows) { "%USERPROFILE%\\.qoder" } else { "~/.qoder" }
+            if cfg!(windows) {
+                "%APPDATA%\\Qoder"
+            } else {
+                "~/Library/Application Support/Qoder"
+            }
+        }
+        AppType::Qodercli => {
+            if cfg!(windows) {
+                "%USERPROFILE%\\.qodercli"
+            } else {
+                "~/.qodercli"
+            }
         }
         AppType::CodeBuddy => {
-            if cfg!(windows) { "%USERPROFILE%\\.codebuddy" } else { "~/.codebuddy" }
+            if cfg!(windows) {
+                "%USERPROFILE%\\.codebuddy"
+            } else {
+                "~/.codebuddy"
+            }
         }
     };
     Some(resolve_path(path_str))
@@ -219,7 +259,6 @@ fn count_mcp_in_config(path: &Path) -> usize {
                     }
                 }
             }
-            // OpenClaw models.providers
             if let Some(models) = json.get("models") {
                 if let Some(providers) = models.get("providers") {
                     if let Some(obj) = providers.as_object() {

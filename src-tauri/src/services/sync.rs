@@ -2,10 +2,10 @@ use indexmap::IndexMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::agents::resolve_path;
 use crate::database::McpServer;
 use crate::error::AppError;
 use crate::mcp::AppType;
-use crate::agents::resolve_path;
 
 /// 同步指定应用的 MCP 配置到其配置文件
 pub fn sync_app_config(app: &AppType, servers: &[McpServer]) -> Result<(), AppError> {
@@ -17,14 +17,21 @@ pub fn sync_app_config(app: &AppType, servers: &[McpServer]) -> Result<(), AppEr
 
     // 读取现有配置（保留非 MCP 字段）
     let mut config: serde_json::Value = if Path::new(&config_path).exists() {
-        let content = fs::read_to_string(&config_path)
-            .map_err(|e| AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+        let content = fs::read_to_string(&config_path).map_err(|e| {
+            AppError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            ))
+        })?;
         serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
     } else {
         // 如果文件不存在，创建目录
         if let Some(parent) = Path::new(&config_path).parent() {
             fs::create_dir_all(parent).map_err(|e| {
-                AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+                AppError::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
             })?;
         }
         serde_json::json!({})
@@ -52,7 +59,7 @@ pub fn sync_app_config(app: &AppType, servers: &[McpServer]) -> Result<(), AppEr
     // 原子写入
     let content = serde_json::to_string_pretty(&config)
         .map_err(|e| AppError::Serialization(e.to_string()))?;
-    
+
     atomic_write(&config_path, &content)?;
 
     Ok(())
@@ -61,14 +68,21 @@ pub fn sync_app_config(app: &AppType, servers: &[McpServer]) -> Result<(), AppEr
 fn sync_codex_config(path: &PathBuf, servers: &[McpServer]) -> Result<(), AppError> {
     // 读取 TOML
     let mut config: toml::Value = if Path::new(path).exists() {
-        let content = fs::read_to_string(path)
-            .map_err(|e| AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+        let content = fs::read_to_string(path).map_err(|e| {
+            AppError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            ))
+        })?;
         toml::from_str(&content).unwrap_or(toml::Value::Table(toml::map::Map::new()))
     } else {
         // 创建目录
         if let Some(parent) = Path::new(path).parent() {
             fs::create_dir_all(parent).map_err(|e| {
-                AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+                AppError::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
             })?;
         }
         toml::Value::Table(toml::map::Map::new())
@@ -82,7 +96,10 @@ fn sync_codex_config(path: &PathBuf, servers: &[McpServer]) -> Result<(), AppErr
             server_entry.insert("command".to_string(), toml::Value::String(cmd.clone()));
         }
         if let Some(args) = &server.server.args {
-            let arr: Vec<toml::Value> = args.iter().map(|a| toml::Value::String(a.clone())).collect();
+            let arr: Vec<toml::Value> = args
+                .iter()
+                .map(|a| toml::Value::String(a.clone()))
+                .collect();
             server_entry.insert("args".to_string(), toml::Value::Array(arr));
         }
         if let Some(env) = &server.server.env {
@@ -100,9 +117,9 @@ fn sync_codex_config(path: &PathBuf, servers: &[McpServer]) -> Result<(), AppErr
     }
 
     // 写入 TOML
-    let content = toml::to_string_pretty(&config)
-        .map_err(|e| AppError::Serialization(e.to_string()))?;
-    
+    let content =
+        toml::to_string_pretty(&config).map_err(|e| AppError::Serialization(e.to_string()))?;
+
     atomic_write(path, &content)?;
     Ok(())
 }
@@ -111,14 +128,22 @@ fn build_mcp_json(servers: &[McpServer]) -> serde_json::Map<String, serde_json::
     let mut mcp_servers = serde_json::Map::new();
     for server in servers {
         let mut entry = serde_json::Map::new();
-        
+
         if let Some(cmd) = &server.server.command {
-            entry.insert("command".to_string(), serde_json::Value::String(cmd.clone()));
+            entry.insert(
+                "command".to_string(),
+                serde_json::Value::String(cmd.clone()),
+            );
         }
         if let Some(args) = &server.server.args {
-            entry.insert("args".to_string(), serde_json::Value::Array(
-                args.iter().map(|a| serde_json::Value::String(a.clone())).collect()
-            ));
+            entry.insert(
+                "args".to_string(),
+                serde_json::Value::Array(
+                    args.iter()
+                        .map(|a| serde_json::Value::String(a.clone()))
+                        .collect(),
+                ),
+            );
         }
         if let Some(env) = &server.server.env {
             let env_map: serde_json::Map<String, serde_json::Value> = env
@@ -149,7 +174,10 @@ fn build_opencode_mcp_json(servers: &[McpServer]) -> serde_json::Map<String, ser
 
         // 判断连接类型：有 url 则为 remote，否则为 local
         if server.server.url.is_some() {
-            entry.insert("type".to_string(), serde_json::Value::String("remote".to_string()));
+            entry.insert(
+                "type".to_string(),
+                serde_json::Value::String("remote".to_string()),
+            );
             if let Some(url) = &server.server.url {
                 entry.insert("url".to_string(), serde_json::Value::String(url.clone()));
             }
@@ -158,10 +186,16 @@ fn build_opencode_mcp_json(servers: &[McpServer]) -> serde_json::Map<String, ser
                     .iter()
                     .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
                     .collect();
-                entry.insert("headers".to_string(), serde_json::Value::Object(headers_map));
+                entry.insert(
+                    "headers".to_string(),
+                    serde_json::Value::Object(headers_map),
+                );
             }
         } else {
-            entry.insert("type".to_string(), serde_json::Value::String("local".to_string()));
+            entry.insert(
+                "type".to_string(),
+                serde_json::Value::String("local".to_string()),
+            );
             // OpenCode 的 command 是 string[]，合并 command + args
             let mut command_vec: Vec<serde_json::Value> = Vec::new();
             if let Some(cmd) = &server.server.command {
@@ -182,7 +216,10 @@ fn build_opencode_mcp_json(servers: &[McpServer]) -> serde_json::Map<String, ser
                         .iter()
                         .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
                         .collect();
-                    entry.insert("environment".to_string(), serde_json::Value::Object(env_map));
+                    entry.insert(
+                        "environment".to_string(),
+                        serde_json::Value::Object(env_map),
+                    );
                 }
             }
         }
@@ -211,43 +248,92 @@ fn get_config_path_for_app(app: &AppType) -> Result<String, AppError> {
     Ok(match app {
         AppType::QwenCode => "~/.qwen/settings.json",
         AppType::Claude => {
-            if cfg!(windows) { "%USERPROFILE%\\.claude.json" } else { "~/.claude.json" }
-        },
+            if cfg!(windows) {
+                "%USERPROFILE%\\.claude.json"
+            } else {
+                "~/.claude.json"
+            }
+        }
         AppType::Codex => {
-            if cfg!(windows) { "%USERPROFILE%\\.codex\\config.toml" } else { "~/.codex/config.toml" }
-        },
+            if cfg!(windows) {
+                "%USERPROFILE%\\.codex\\config.toml"
+            } else {
+                "~/.codex/config.toml"
+            }
+        }
         AppType::Gemini => {
-            if cfg!(windows) { "%USERPROFILE%\\.gemini\\settings.json" } else { "~/.gemini/settings.json" }
-        },
+            if cfg!(windows) {
+                "%USERPROFILE%\\.gemini\\settings.json"
+            } else {
+                "~/.gemini/settings.json"
+            }
+        }
         AppType::OpenCode => {
-            if cfg!(windows) { "%USERPROFILE%\\.config\\opencode\\opencode.json" } else { "~/.config/opencode/opencode.json" }
-        },
-        AppType::OpenClaw => {
-            if cfg!(windows) { "%USERPROFILE%\\.openclaw\\openclaw.json" } else { "~/.openclaw/openclaw.json" }
-        },
+            if cfg!(windows) {
+                "%USERPROFILE%\\.config\\opencode\\opencode.json"
+            } else {
+                "~/.config/opencode/opencode.json"
+            }
+        }
         AppType::Trae => {
-            if cfg!(windows) { "%APPDATA%\\Trae\\User\\mcp.json" } else { "~/Library/Application Support/Trae/User/mcp.json" }
-        },
+            if cfg!(windows) {
+                "%APPDATA%\\Trae\\User\\mcp.json"
+            } else {
+                "~/Library/Application Support/Trae/User/mcp.json"
+            }
+        }
         AppType::TraeCn => {
-            if cfg!(windows) { "%APPDATA%\\Trae CN\\User\\mcp.json" } else { "~/Library/Application Support/Trae CN/User/mcp.json" }
-        },
+            if cfg!(windows) {
+                "%APPDATA%\\Trae CN\\User\\mcp.json"
+            } else {
+                "~/Library/Application Support/Trae CN/User/mcp.json"
+            }
+        }
         AppType::TraeSoloCn => {
-            if cfg!(windows) { "%APPDATA%\\TRAE SOLO CN\\User\\mcp.json" } else { "~/Library/Application Support/TRAE SOLO CN/User/mcp.json" }
-        },
+            if cfg!(windows) {
+                "%APPDATA%\\TRAE SOLO CN\\User\\mcp.json"
+            } else {
+                "~/Library/Application Support/TRAE SOLO CN/User/mcp.json"
+            }
+        }
         AppType::Qoder => {
-            if cfg!(windows) { "%USERPROFILE%\\.qoder\\settings.json" } else { "~/.qoder/settings.json" }
-        },
+            if cfg!(windows) {
+                "%APPDATA%\\Qoder\\SharedClientCache\\mcp.json"
+            } else {
+                "~/Library/Application Support/Qoder/SharedClientCache/mcp.json"
+            }
+        }
+        AppType::Qodercli => {
+            if cfg!(windows) {
+                "%USERPROFILE%\\.qodercli\\settings.json"
+            } else {
+                "~/.qodercli/settings.json"
+            }
+        }
         AppType::CodeBuddy => {
-            if cfg!(windows) { "%USERPROFILE%\\.codebuddy\\mcp.json" } else { "~/.codebuddy/mcp.json" }
-        },
-    }.to_string())
+            if cfg!(windows) {
+                "%USERPROFILE%\\.codebuddy\\mcp.json"
+            } else {
+                "~/.codebuddy/mcp.json"
+            }
+        }
+    }
+    .to_string())
 }
 
 fn atomic_write(path: &PathBuf, content: &str) -> Result<(), AppError> {
     let temp_path = path.with_extension("tmp");
-    fs::write(&temp_path, content)
-        .map_err(|e| AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
-    fs::rename(&temp_path, path)
-        .map_err(|e| AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+    fs::write(&temp_path, content).map_err(|e| {
+        AppError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string(),
+        ))
+    })?;
+    fs::rename(&temp_path, path).map_err(|e| {
+        AppError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string(),
+        ))
+    })?;
     Ok(())
 }

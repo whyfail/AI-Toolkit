@@ -22,8 +22,6 @@ pub struct McpApps {
     #[serde(default)]
     pub opencode: bool,
     #[serde(default)]
-    pub openclaw: bool,
-    #[serde(default)]
     pub trae: bool,
     #[serde(default)]
     pub trae_cn: bool,
@@ -31,6 +29,8 @@ pub struct McpApps {
     pub trae_solo_cn: bool,
     #[serde(default)]
     pub qoder: bool,
+    #[serde(default)]
+    pub qodercli: bool,
     #[serde(default)]
     pub codebuddy: bool,
 }
@@ -43,11 +43,11 @@ impl McpApps {
             AppType::Codex => self.codex,
             AppType::Gemini => self.gemini,
             AppType::OpenCode => self.opencode,
-            AppType::OpenClaw => self.openclaw,
             AppType::Trae => self.trae,
             AppType::TraeCn => self.trae_cn,
             AppType::TraeSoloCn => self.trae_solo_cn,
             AppType::Qoder => self.qoder,
+            AppType::Qodercli => self.qodercli,
             AppType::CodeBuddy => self.codebuddy,
         }
     }
@@ -59,11 +59,11 @@ impl McpApps {
             AppType::Codex => self.codex = enabled,
             AppType::Gemini => self.gemini = enabled,
             AppType::OpenCode => self.opencode = enabled,
-            AppType::OpenClaw => self.openclaw = enabled,
             AppType::Trae => self.trae = enabled,
             AppType::TraeCn => self.trae_cn = enabled,
             AppType::TraeSoloCn => self.trae_solo_cn = enabled,
             AppType::Qoder => self.qoder = enabled,
+            AppType::Qodercli => self.qodercli = enabled,
             AppType::CodeBuddy => self.codebuddy = enabled,
         }
     }
@@ -117,7 +117,7 @@ impl Database {
             .prepare(
                 "SELECT id, name, server_config, description, homepage, docs, tags,
                         enabled_qwen_code, enabled_claude, enabled_codex, enabled_gemini,
-                        enabled_opencode, enabled_openclaw, enabled_trae, enabled_trae_cn,
+                        enabled_opencode, enabled_trae, enabled_trae_cn,
                         enabled_trae_solo_cn, enabled_qoder, enabled_codebuddy
                  FROM mcp_servers
                  ORDER BY name ASC, id ASC",
@@ -138,12 +138,11 @@ impl Database {
                 let enabled_codex: bool = row.get(9)?;
                 let enabled_gemini: bool = row.get(10)?;
                 let enabled_opencode: bool = row.get(11)?;
-                let enabled_openclaw: bool = row.get(12)?;
-                let enabled_trae: bool = row.get(13)?;
-                let enabled_trae_cn: bool = row.get(14)?;
-                let enabled_trae_solo_cn: bool = row.get(15)?;
-                let enabled_qoder: bool = row.get(16)?;
-                let enabled_codebuddy: bool = row.get(17)?;
+                let enabled_trae: bool = row.get(12)?;
+                let enabled_trae_cn: bool = row.get(13)?;
+                let enabled_trae_solo_cn: bool = row.get(14)?;
+                let enabled_qoder: bool = row.get(15)?;
+                let enabled_codebuddy: bool = row.get(16)?;
 
                 let server: McpServerSpec =
                     serde_json::from_str(&server_config_str).unwrap_or_default();
@@ -161,11 +160,11 @@ impl Database {
                             codex: enabled_codex,
                             gemini: enabled_gemini,
                             opencode: enabled_opencode,
-                            openclaw: enabled_openclaw,
                             trae: enabled_trae,
                             trae_cn: enabled_trae_cn,
                             trae_solo_cn: enabled_trae_solo_cn,
                             qoder: enabled_qoder,
+                            qodercli: false,
                             codebuddy: enabled_codebuddy,
                         },
                         description,
@@ -192,9 +191,9 @@ impl Database {
             "INSERT OR REPLACE INTO mcp_servers (
                 id, name, server_config, description, homepage, docs, tags,
                 enabled_qwen_code, enabled_claude, enabled_codex, enabled_gemini,
-                enabled_opencode, enabled_openclaw, enabled_trae, enabled_trae_cn,
+                enabled_opencode, enabled_trae, enabled_trae_cn,
                 enabled_trae_solo_cn, enabled_qoder, enabled_codebuddy, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
                       strftime('%s', 'now') * 1000)",
             rusqlite::params![
                 server.id,
@@ -212,7 +211,6 @@ impl Database {
                 server.apps.codex,
                 server.apps.gemini,
                 server.apps.opencode,
-                server.apps.openclaw,
                 server.apps.trae,
                 server.apps.trae_cn,
                 server.apps.trae_solo_cn,
@@ -227,8 +225,11 @@ impl Database {
     /// 删除 MCP 服务器
     pub fn delete_mcp_server(&self, id: &str) -> Result<(), AppError> {
         let conn = lock_conn!(self.conn);
-        conn.execute("DELETE FROM mcp_servers WHERE id = ?1", rusqlite::params![id])
-            .map_err(|e| AppError::Database(e.to_string()))?;
+        conn.execute(
+            "DELETE FROM mcp_servers WHERE id = ?1",
+            rusqlite::params![id],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(())
     }
 }

@@ -18,7 +18,7 @@ pub struct Database {
 impl Database {
     pub fn new() -> Result<Self, AppError> {
         let db_path = Self::get_db_path()?;
-        
+
         // 确保目录存在
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
@@ -26,9 +26,8 @@ impl Database {
             })?;
         }
 
-        let conn = Connection::open(&db_path).map_err(|e| {
-            AppError::Database(format!("Failed to open database: {}", e))
-        })?;
+        let conn = Connection::open(&db_path)
+            .map_err(|e| AppError::Database(format!("Failed to open database: {}", e)))?;
 
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -66,7 +65,6 @@ impl Database {
                 enabled_codex BOOLEAN DEFAULT FALSE,
                 enabled_gemini BOOLEAN DEFAULT FALSE,
                 enabled_opencode BOOLEAN DEFAULT FALSE,
-                enabled_openclaw BOOLEAN DEFAULT FALSE,
                 enabled_trae BOOLEAN DEFAULT FALSE,
                 enabled_trae_cn BOOLEAN DEFAULT FALSE,
                 enabled_trae_solo_cn BOOLEAN DEFAULT FALSE,
@@ -113,12 +111,30 @@ impl Database {
         .map_err(|e| AppError::Database(format!("Failed to initialize schema: {}", e)))?;
 
         // 尝试添加新列（忽略已存在的错误）
-        let _ = conn.execute("ALTER TABLE mcp_servers ADD COLUMN enabled_trae BOOLEAN DEFAULT FALSE", []);
-        let _ = conn.execute("ALTER TABLE mcp_servers ADD COLUMN enabled_trae_cn BOOLEAN DEFAULT FALSE", []);
-        let _ = conn.execute("ALTER TABLE mcp_servers ADD COLUMN enabled_trae_solo_cn BOOLEAN DEFAULT FALSE", []);
-        let _ = conn.execute("ALTER TABLE mcp_servers ADD COLUMN enabled_qoder BOOLEAN DEFAULT FALSE", []);
-        let _ = conn.execute("ALTER TABLE mcp_servers ADD COLUMN enabled_codebuddy BOOLEAN DEFAULT FALSE", []);
-        let _ = conn.execute("ALTER TABLE managed_skills ADD COLUMN source_subpath TEXT", []);
+        let _ = conn.execute(
+            "ALTER TABLE mcp_servers ADD COLUMN enabled_trae BOOLEAN DEFAULT FALSE",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE mcp_servers ADD COLUMN enabled_trae_cn BOOLEAN DEFAULT FALSE",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE mcp_servers ADD COLUMN enabled_trae_solo_cn BOOLEAN DEFAULT FALSE",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE mcp_servers ADD COLUMN enabled_qoder BOOLEAN DEFAULT FALSE",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE mcp_servers ADD COLUMN enabled_codebuddy BOOLEAN DEFAULT FALSE",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE managed_skills ADD COLUMN source_subpath TEXT",
+            [],
+        );
 
         Ok(())
     }

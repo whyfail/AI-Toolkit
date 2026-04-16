@@ -26,6 +26,8 @@ ai-tool-manager/
 │       ├── UnifiedMcpPanel.tsx   # 主面板：服务器列表 + 搜索 + 扫描 + Agent 切换
 │       ├── McpFormModal.tsx      # 添加/编辑服务器的表单弹窗 (JSON 导入 + 手动填写)
 │       └── NewAgentModal.tsx     # 新工具发现弹窗
+│   └── components/tool-manager/
+│       └── ToolManagerPanel.tsx  # 工具管理面板：安装/更新/启动 Agent 工具
 │
 ├── src-tauri/                    # Rust 后端源码
 │   ├── Cargo.toml                # Rust 依赖配置
@@ -42,12 +44,14 @@ ai-tool-manager/
 │       ├── services/
 │       │   ├── mod.rs            # 服务模块导出
 │       │   ├── mcp_service.rs    # MCP 业务逻辑层 (CRUD + 同步触发)
-│       │   └── sync.rs           # 配置文件同步生成 (核心: 各应用格式适配)
+│       │   ├── sync.rs           # 配置文件同步生成 (核心: 各应用格式适配)
+│       │   └── tool_manager.rs   # 工具安装/更新服务
 │       ├── commands/
 │       │   ├── mod.rs            # 命令模块导出
 │       │   ├── mcp.rs            # MCP Tauri 命令 (get/upsert/delete/toggle/import/test)
 │       │   ├── app.rs            # 应用配置 Tauri 命令
-│       │   └── agents.rs         # Agent 检测 Tauri 命令
+│       │   ├── agents.rs         # Agent 检测/启动 Tauri 命令 (含 launch_agent, get_terminals)
+│       │   └── tool_manager.rs   # 工具安装/更新 Tauri 命令
 │       └── database/
 │           ├── mod.rs            # Database 结构体、Schema 初始化
 │           └── dao/mcp.rs        # 数据模型定义 + SQLite CRUD 操作
@@ -81,10 +85,11 @@ cd src-tauri && cargo check
 | Codex | `~/.codex/config.toml` | `mcp_servers` | TOML |
 | Gemini CLI | `~/.gemini/settings.json` | `mcpServers` | JSON 对象/数组 |
 | OpenCode | `~/.config/opencode/opencode.json` | `mcp` | JSON (严格 schema) |
-| OpenClaw | `~/.openclaw/openclaw.json` | `models.providers` | JSON (特殊结构) |
 | Trae | `~/Library/Application Support/Trae/User/mcp.json` | `mcpServers` | JSON 对象 |
 | Trae CN | `~/Library/Application Support/Trae CN/User/mcp.json` | `mcpServers` | JSON 对象 |
-| Qoder | `~/.qoder/settings.json` | `mcpServers` | JSON 对象 |
+| TRAE SOLO CN | `~/Library/Application Support/TRAE SOLO CN/User/mcp.json` | `mcpServers` | JSON 对象 |
+| Qoder | `~/Library/Application Support/Qoder/SharedClientCache/mcp.json` | `mcpServers` | JSON 对象 |
+| Qoder CLI | `~/.qodercli/settings.json` | `mcpServers` | JSON 对象 |
 | CodeBuddy | `~/.codebuddy/mcp.json` | `mcpServers` | JSON 对象 |
 
 ## 核心架构
@@ -110,7 +115,6 @@ Database (SQLite) + Config File Sync
 **特殊格式处理**:
 - **Codex**: 独立 `sync_codex_config()` 生成 TOML 格式
 - **OpenCode**: 使用 `build_opencode_mcp_json()` 生成严格 schema 格式（`type` 必填、`command` 为 `string[]`、环境变量用 `environment`）
-- **OpenClaw**: 使用 `sync_openclaw_config()` 生成嵌套结构（`models.providers`）
 - **其他工具**: 通用 `build_mcp_json()` 生成 `command`/`args`/`env` 格式
 
 ### 配置导入机制 (import/mod.rs)
@@ -119,7 +123,6 @@ Database (SQLite) + Config File Sync
 - `mcpServers` 对象格式
 - `mcpServers` 数组格式 (Gemini CLI)
 - `mcp` 键 (OpenCode/Trae)
-- `models.providers` (OpenClaw)
 - TOML `mcp_servers` (Codex)
 - 顶层即为服务器对象的格式
 
@@ -160,6 +163,12 @@ Database (SQLite) + Config File Sync
 | `detect_agents` | 检测已安装的 Agent 工具 |
 | `sync_agent_mcp` | 同步 Agent MCP 配置 |
 | `open_config_file` | 打开配置文件 |
+| `launch_agent` | 启动 Agent 工具 (支持多种终端) |
+| `get_terminals` | 获取系统已安装的终端列表 |
+| `get_tool_infos` | 获取所有工具的安装信息 |
+| `get_tool_info` | 获取指定工具的安装信息 |
+| `install_tool` | 安装工具 |
+| `update_tool` | 更新工具 |
 
 ## 版本管理
 
@@ -182,9 +191,8 @@ Database (SQLite) + Config File Sync
 
 添加新工具支持时需要注意:
 1. **OpenCode** 的 MCP 配置有严格 schema (`additionalProperties: false`)，必须使用专用的 `build_opencode_mcp_json()` 生成
-2. **OpenClaw** 的 MCP 配置嵌套在 `models.providers` 下，结构特殊
-3. **Codex** 使用 TOML 格式，需要独立的 `sync_codex_config()` 处理
-4. **Gemini CLI** 的 `mcpServers` 可能是数组格式
+2. **Codex** 使用 TOML 格式，需要独立的 `sync_codex_config()` 处理
+3. **Gemini CLI** 的 `mcpServers` 可能是数组格式
 
 ### 路径处理
 
