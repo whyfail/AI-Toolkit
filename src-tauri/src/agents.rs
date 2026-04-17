@@ -231,6 +231,62 @@ pub fn get_agent_detect_dir(app: &AppType) -> Option<PathBuf> {
     Some(resolve_path(path_str))
 }
 
+/// 获取 Agent 工具的 CLI binary 名称
+fn get_agent_binary_name(app: &AppType) -> &'static str {
+    match app {
+        AppType::Trae => "trae",
+        AppType::TraeCn => "trae",
+        AppType::TraeSoloCn => "trae",
+        AppType::QwenCode => "qwen",
+        AppType::Claude => "claude",
+        AppType::Codex => "codex",
+        AppType::Gemini => "gemini",
+        AppType::OpenCode => "opencode",
+        AppType::Qoder => "qoder",
+        AppType::Qodercli => "qodercli",
+        AppType::CodeBuddy => "codebuddy",
+    }
+}
+
+/// 使用 which_binary 检测 Agent 是否已安装（更可靠）
+fn is_agent_installed(app: &AppType) -> bool {
+    use crate::services::tool_manager::which_binary;
+    let binary_name = get_agent_binary_name(app);
+
+    // 先尝试 binary 检测
+    if which_binary(binary_name).is_some() {
+        return true;
+    }
+
+    // 检查配置路径是否存在
+    let config_paths = get_agent_config_paths(app);
+    if config_paths.iter().any(|p| p.exists()) {
+        return true;
+    }
+
+    // Mac GUI 应用检测（通过检查 /Applications/*.app）
+    #[cfg(target_os = "macos")]
+    {
+        let app_name = match app {
+            AppType::Trae => "Trae.app",
+            AppType::TraeCn => "Trae CN.app",
+            AppType::TraeSoloCn => "TRAE SOLO CN.app",
+            AppType::Qoder => "Qoder.app",
+            _ => return false,
+        };
+        if std::path::Path::new(&format!("/Applications/{}", app_name)).exists() {
+            return true;
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+    }
+
+    false
+}
+
 /// 统计配置文件中的 MCP 服务器数量
 fn count_mcp_in_config(path: &Path) -> usize {
     let content = match fs::read_to_string(path) {
@@ -277,24 +333,20 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
     AppType::all()
         .iter()
         .map(|app| {
-            // 优先检测应用目录是否存在（判断工具是否已安装）
-            let detect_dir = get_agent_detect_dir(app);
-            let dir_exists = detect_dir.as_ref().map(|p| p.exists()).unwrap_or(false);
+            // 使用更可靠的 binary 检测方式
+            let exists = is_agent_installed(app);
 
-            // 如果目录存在，再检测配置文件
+            // 获取配置文件路径
             let paths = get_agent_config_paths(app);
             let mut found_path: Option<&PathBuf> = None;
 
-            if dir_exists {
-                for p in &paths {
-                    if p.exists() {
-                        found_path = Some(p);
-                        break;
-                    }
+            for p in &paths {
+                if p.exists() {
+                    found_path = Some(p);
+                    break;
                 }
             }
 
-            let exists = dir_exists;
             let mcp_count = if let Some(config_path) = found_path {
                 count_mcp_in_config(config_path)
             } else {
@@ -306,7 +358,7 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
                 name: get_agent_name(app),
                 config_path: found_path
                     .map(|p| p.to_string_lossy().to_string())
-                    .or_else(|| detect_dir.map(|p| p.to_string_lossy().to_string()))
+                    .or_else(|| get_agent_detect_dir(app).map(|p| p.to_string_lossy().to_string()))
                     .unwrap_or_default(),
                 exists,
                 mcp_count,

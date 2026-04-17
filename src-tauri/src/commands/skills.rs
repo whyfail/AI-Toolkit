@@ -96,21 +96,38 @@ pub async fn get_managed_skills(state: State<'_, AppState>) -> Result<Vec<Manage
     // 按名称排序
     skills_in_repo.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
 
+    // ========================================
+    // 优化：预先检测已安装工具，避免重复检测
+    // ========================================
+    #[derive(Clone)]
+    struct InstalledToolInfo {
+        tool_id: String,
+        skills_dir: PathBuf,
+    }
+    let installed_tools: Vec<InstalledToolInfo> = all_tools
+        .iter()
+        .filter_map(|tool| {
+            let skills_dir = resolve_default_path(tool).ok()?;
+            // 只要 binary 存在或 skills 目录存在，就认为工具已安装
+            if is_tool_installed(tool) || skills_dir.exists() {
+                Some(InstalledToolInfo {
+                    tool_id: tool.id.as_key().to_string(),
+                    skills_dir,
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
     let mut result: Vec<ManagedSkill> = Vec::new();
 
     for (skill_name, central_path) in skills_in_repo {
-        // 检查这个技能在哪些工具中已同步
+        // 检查这个技能在哪些工具中已同步（使用预检测的安装状态）
         let mut targets: Vec<SyncTarget> = Vec::new();
 
-        for tool in &all_tools {
-            let installed = is_tool_installed(tool).map_err(|e| e.to_string())?;
-            if !installed {
-                continue;
-            }
-
-            let tool_id = tool.id.as_key().to_string();
-            let skills_dir = resolve_default_path(tool).map_err(|e| e.to_string())?;
-            let skill_target_path = skills_dir.join(&skill_name);
+        for tool_info in &installed_tools {
+            let skill_target_path = tool_info.skills_dir.join(&skill_name);
 
             if skill_target_path.exists() {
                 let mode = if skill_target_path.is_symlink() {
@@ -119,7 +136,7 @@ pub async fn get_managed_skills(state: State<'_, AppState>) -> Result<Vec<Manage
                     "copy".to_string()
                 };
                 targets.push(SyncTarget {
-                    tool: tool_id,
+                    tool: tool_info.tool_id.clone(),
                     mode,
                     status: "synced".to_string(),
                     target_path: skill_target_path.to_string_lossy().to_string(),
@@ -185,7 +202,7 @@ pub async fn get_onboarding_plan() -> Result<OnboardingPlan, String> {
     let mut total_tools = 0;
 
     for tool in &all_tools {
-        let installed = is_tool_installed(tool).map_err(|e| e.to_string())?;
+        let installed = is_tool_installed(tool);
         if !installed {
             continue;
         }
@@ -575,7 +592,7 @@ pub async fn delete_managed_skill(_skill_id: String, skill_name: String) -> Resu
     let mut paths_to_delete: Vec<(PathBuf, bool)> = Vec::new(); // (path, is_link)
 
     for tool in &all_tools {
-        let installed = is_tool_installed(tool).map_err(|e| e.to_string())?;
+        let installed = is_tool_installed(tool);
         if !installed {
             continue;
         }
@@ -633,7 +650,7 @@ pub async fn unsync_skill_from_tool(
         let tool_adapter = adapter_by_key(&tool)
             .ok_or_else(|| format!("Unknown tool: {}", tool))?;
 
-        let installed = is_tool_installed(&tool_adapter).map_err(|e| e.to_string())?;
+        let installed = is_tool_installed(&tool_adapter);
         if !installed {
             return Err(format!("Tool {} is not installed", tool));
         }
@@ -777,7 +794,7 @@ pub async fn rename_skill(
         // 2. 重命名所有已同步工具中的文件夹
         let all_tools = default_tool_adapters();
         for tool in &all_tools {
-            let installed = is_tool_installed(tool).map_err(|e| e.to_string())?;
+            let installed = is_tool_installed(tool);
             if !installed {
                 continue;
             }

@@ -3,21 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { X, CheckSquare, Square, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ManagedSkill, ToolOption } from '../types';
-
-// 工具颜色映射
-const appColors: Record<string, string> = {
-  "qwen-code": "bg-purple-500",
-  claude: "bg-orange-500",
-  codex: "bg-blue-500",
-  gemini: "bg-green-500",
-  opencode: "bg-cyan-500",
-  trae: "bg-indigo-500",
-  "trae-cn": "bg-violet-500",
-  "trae-solo-cn": "bg-fuchsia-500",
-  qoder: "bg-yellow-500",
-  qodercli: "bg-amber-500",
-  codebuddy: "bg-red-500",
-};
+import { APP_COLORS } from '@/lib/tools';
 
 interface BatchSyncModalProps {
   open: boolean;
@@ -183,7 +169,7 @@ function BatchSyncModal({
                   <div
                     className={`w-2 h-2 rounded-full ${
                       isSelected
-                        ? appColors[tool.id] || "bg-[hsl(var(--foreground))]"
+                        ? APP_COLORS[tool.id as keyof typeof APP_COLORS] || "bg-[hsl(var(--foreground))]"
                         : "bg-current opacity-40"
                     }`}
                   />

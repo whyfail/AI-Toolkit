@@ -34,13 +34,31 @@ pub struct InstallRequest {
 
 #[tauri::command]
 pub async fn get_tool_infos() -> Result<Vec<ToolInfo>, String> {
-    let mut tools = Vec::new();
-    for app in AppType::all() {
-        if let Some(mut info) = build_tool_info(&app).await {
+    use futures::future;
+    use tokio::join;
+
+    // 先收集所有 AppType，避免临时值问题
+    let apps: Vec<_> = AppType::all();
+
+    // 并行处理所有工具：每个工具独立执行，最后合并结果
+    let futures: Vec<_> = apps
+        .iter()
+        .map(|app| async move {
+            let mut info = match build_tool_info(app).await {
+                Some(info) => info,
+                None => return None,
+            };
+
             if info.installed {
-                info.version = ToolManagerService::get_version(&app).await;
-                info.latest_version = ToolManagerService::get_latest_version(&app).await;
-                info.detected_method = ToolManagerService::detect_install_method(&app).await
+                // 并行获取版本信息
+                let (version, latest_version, detected_method) = join!(
+                    ToolManagerService::get_version(app),
+                    ToolManagerService::get_latest_version(app),
+                    ToolManagerService::detect_install_method(app),
+                );
+                info.version = version;
+                info.latest_version = latest_version;
+                info.detected_method = detected_method
                     .map(|m| match m {
                         crate::services::tool_manager::InstallMethodType::Brew => "Homebrew".to_string(),
                         crate::services::tool_manager::InstallMethodType::Npm => "npm".to_string(),
@@ -50,9 +68,15 @@ pub async fn get_tool_infos() -> Result<Vec<ToolInfo>, String> {
                         crate::services::tool_manager::InstallMethodType::Custom => "自定义".to_string(),
                     });
             }
-            tools.push(info);
-        }
-    }
+            Some(info)
+        })
+        .collect();
+
+    // 并行等待所有任务完成
+    let results = future::join_all(futures).await;
+
+    // 过滤掉 None 并收集结果
+    let tools: Vec<ToolInfo> = results.into_iter().filter_map(|x| x).collect();
     Ok(tools)
 }
 

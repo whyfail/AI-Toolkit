@@ -72,12 +72,18 @@ function EditSkillModal({ open, skill, onClose, onSkillEdited }: EditSkillModalP
       const candidates = await invoke<GitSkillCandidate[]>('list_git_skills', {
         repoUrl: trimmedSourceRef,
       });
-      if (candidates.length > 1) {
+      if (candidates.length === 0) {
+        toast.error('未在仓库中找到有效的技能');
+      } else if (candidates.length === 1) {
+        // 单个技能：自动填入
+        setSourceRef(`${trimmedSourceRef}/tree/HEAD/${candidates[0].subpath}`);
+        setName(candidates[0].name);
+        toast.success('已自动填入技能信息');
+      } else {
+        // 多个技能：弹出选择窗口
         setGitCandidates(candidates);
         setPendingSourceRef(trimmedSourceRef);
         setShowPickModal(true);
-      } else {
-        toast.info('该仓库只有一个技能');
       }
     } catch (err) {
       toast.error(`扫描失败: ${err}`);
@@ -100,8 +106,8 @@ function EditSkillModal({ open, skill, onClose, onSkillEdited }: EditSkillModalP
 
   const handleCandidateConfirm = async () => {
     if (selectedCandidate) {
-      // 回填完整仓库地址
-      setSourceRef(`${pendingSourceRef}/tree/main/${selectedCandidate.subpath}`);
+      // 回填完整仓库地址，使用 HEAD 指向默认分支
+      setSourceRef(`${pendingSourceRef}/tree/HEAD/${selectedCandidate.subpath}`);
       // 自动填入选中的技能名
       setName(selectedCandidate.name);
     }

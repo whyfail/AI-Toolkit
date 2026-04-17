@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { invoke } from "@tauri-apps/api/core";
 import { toolApi } from "@/lib/api";
+import { useInstalledTools } from "@/contexts/InstalledToolsContext";
+import { isLaunchable } from "@/lib/tools";
 import { open } from "@tauri-apps/plugin-shell";
 import { Loader2, Download, RefreshCw, ExternalLink, CheckCircle, AlertCircle, Play, ChevronDown } from "lucide-react";
 
@@ -70,10 +72,6 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     </div>
   );
 };
-
-const launchableTools = ["qwen-code", "claude", "codex", "gemini", "opencode", "qodercli", "codebuddy"];
-
-const isLaunchable = (appType: string): boolean => launchableTools.includes(appType);
 
 const ToolCard: React.FC<{
   tool: {
@@ -317,6 +315,9 @@ const ToolManagerPanel: React.FC = () => {
   const [selectedTerminal, setSelectedTerminal] = useState<string>("terminal");
   const [isTerminalMenuOpen, setIsTerminalMenuOpen] = useState(false);
 
+  // 使用共享的工具检测上下文
+  const { refresh: refreshInstalledTools } = useInstalledTools();
+
   const { data: tools, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["tool-infos"],
     queryFn: toolApi.getToolInfos,
@@ -543,7 +544,12 @@ const ToolManagerPanel: React.FC = () => {
               )}
             </div>
             <button
-              onClick={() => refetch()}
+              onClick={async () => {
+                // 调用全局刷新，刷新后所有模块共享结果
+                await refreshInstalledTools();
+                // 同时刷新工具详情
+                refetch();
+              }}
               disabled={isFetching}
               className="p-2 rounded-lg hover:bg-[hsl(var(--muted))] transition-colors disabled:opacity-50"
               title="刷新"

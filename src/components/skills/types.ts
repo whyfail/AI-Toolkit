@@ -65,48 +65,19 @@ export type InstallResultDto = {
   content_hash?: string | null
 }
 
-export type ToolId = 
-  | 'cursor'
+// 支持的工具 ID（与 README 和 AppType 保持一致）
+export type ToolId =
+  | 'qwen_code'
   | 'claude_code'
   | 'codex'
+  | 'gemini_cli'
   | 'opencode'
-  | 'antigravity'
-  | 'amp'
-  | 'kimi_cli'
-  | 'augment'
-  | 'cline'
-  | 'codebuddy'
-  | 'command_code'
-  | 'continue'
-  | 'crush'
-  | 'junie'
-  | 'iflow_cli'
-  | 'kiro_cli'
-  | 'kode'
-  | 'mcpjam'
-  | 'mistral_vibe'
-  | 'mux'
-  | 'openclaude'
-  | 'openhands'
-  | 'pi'
   | 'qoder'
-  | 'qoderwork'
-  | 'qwen_code'
+  | 'kilo_code'   // Qoder CLI (使用 kilo_code 作为 skills 目录标识)
   | 'trae'
   | 'trae_cn'
-  | 'zencoder'
-  | 'neovate'
-  | 'pochi'
-  | 'adal'
-  | 'kilo_code'
-  | 'roo_code'
-  | 'goose'
-  | 'gemini_cli'
-  | 'github_copilot'
-  | 'clawdbot'
-  | 'droid'
-  | 'windsurf'
-  | 'moltbot'
+  | 'neovate'      // TRAE SOLO CN
+  | 'codebuddy'
 
 export type ToolAdapter = {
   id: ToolId
@@ -128,8 +99,6 @@ export type ToolStatus = {
   installed: boolean
   skills: DetectedSkill[]
 }
-
-export type ToolStatusDto = ToolStatus[]
 
 export type UpdateResultDto = {
   skill_id: string

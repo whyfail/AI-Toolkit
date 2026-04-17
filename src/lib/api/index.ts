@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { McpServer, AppConfigInfo, ToolInfo } from "@/types";
+import type { AgentInfo, ToolStatus, ToolAdapter, DetectedSkill, InstalledToolsReport } from "@/contexts/InstalledToolsContext";
+
+// Re-export types for external use
+export type { AgentInfo, ToolStatus, ToolAdapter, DetectedSkill, InstalledToolsReport };
 
 // MCP API
 export const mcpApi = {
@@ -71,5 +75,15 @@ export const toolApi = {
   // 获取工具主页 URL
   async getToolHomepage(appType: string): Promise<string> {
     return invoke<string>("get_tool_homepage", { appType });
+  },
+
+  // 获取已安装工具的缓存数据（启动时检测一次）
+  async getInstalledTools(): Promise<InstalledToolsReport> {
+    return invoke<InstalledToolsReport>("get_installed_tools");
+  },
+
+  // 手动刷新已安装工具的检测（工具管理模块的刷新按钮）
+  async refreshInstalledTools(): Promise<InstalledToolsReport> {
+    return invoke<InstalledToolsReport>("refresh_installed_tools");
   },
 };

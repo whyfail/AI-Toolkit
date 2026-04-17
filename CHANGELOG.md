@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.2.4 (2026-04-17)
+
+### 修复
+
+- **Skills 工具检测**：修复 Trae、Trae CN、TRAE SOLO CN、Qoder、Qoder CLI 在 Skills 模块中无法被检测到的的问题
+- **MCP 模块工具检测**：修复 GUI 应用（Trae、Trae CN、TRAE SOLO CN、Qoder）通过 /Applications 检测不准确的问题
+- **Skills 目录路径**：修正 Qoder CLI 的 Skills 路径从 `.qodercli/skills` 到 `.qoder/skills`，TRAE SOLO CN 从 `.trae-solo-cn/skills` 到 `.trae-cn/skills`
+- **Skills 模块性能**：优化 `get_managed_skills` 命令执行速度，预检测已安装工具避免重复扫描
+- **MCP 模块性能**：优化 `get_tool_infos` 首次加载速度，使用并行获取版本信息
+- **更新重启**：修复检查更新后下载完成但应用不自动重启的问题
+
+### 改进
+
+- **自动检测**：工具列表为空时自动触发首次检测，无需手动刷新
+- **Skills 安装流程**：优化 Git 仓库单 Skills 自动安装流程，多 Skills 选择后触发安装
+
+---
+
 ## v1.2.0 (2026-04-16)
 
 ### 新增功能

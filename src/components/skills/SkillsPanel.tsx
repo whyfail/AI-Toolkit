@@ -7,16 +7,15 @@ import AddSkillModal from './modals/AddSkillModal';
 import ImportModal from './modals/ImportModal';
 import BatchSyncModal from './modals/BatchSyncModal';
 import EditSkillModal from './modals/EditSkillModal';
+import { useInstalledTools } from '@/contexts/InstalledToolsContext';
 import type {
   ManagedSkill,
-  ToolStatusDto,
   OnboardingPlan,
   ToolOption
 } from './types';
 
 function SkillsPanel() {
   const [managedSkills, setManagedSkills] = useState<ManagedSkill[]>([]);
-  const [toolStatus, setToolStatus] = useState<ToolStatusDto | null>(null);
   const [plan, setPlan] = useState<OnboardingPlan | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -28,49 +27,62 @@ function SkillsPanel() {
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
 
+  // 使用共享的工具检测上下文
+  const { toolStatuses, isLoading: toolsLoading, refresh: refreshInstalledTools } = useInstalledTools();
+
   const loadManagedSkills = useCallback(async () => {
     try {
-      const result = await invoke<ManagedSkill[]>('get_managed_skills');
+      // 10秒超时保护，防止命令挂起导致页面一直loading
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('加载超时，请尝试重启应用')), 10000);
+      });
+      const result = await Promise.race([
+        invoke<ManagedSkill[]>('get_managed_skills'),
+        timeoutPromise
+      ]);
       setManagedSkills(result);
     } catch (err) {
       console.warn('Failed to load managed skills:', err);
+      toast.error(`加载技能失败: ${err}`);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  const loadToolStatus = useCallback(async () => {
-    try {
-      const status = await invoke<ToolStatusDto>('get_tool_status');
-      setToolStatus(status);
-
-      // Default-select installed tools for sync targets
-      const targets: Record<string, boolean> = {};
-      for (const t of status) {
-        targets[t.tool.id] = t.installed;
-      }
-      setSyncTargets(targets);
-    } catch (err) {
-      console.warn('Failed to load tool status:', err);
-    }
-  }, []);
-
   const loadPlan = useCallback(async () => {
     try {
-      const result = await invoke<OnboardingPlan>('get_onboarding_plan');
-      setPlan(result);
+      // 10秒超时保护
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('加载超时')), 10000);
+      });
+      await Promise.race([
+        invoke<OnboardingPlan>('get_onboarding_plan'),
+        timeoutPromise
+      ]).then(result => setPlan(result));
     } catch (err) {
       console.warn('Failed to load onboarding plan:', err);
     }
   }, []);
 
+  // 当工具状态加载完成后，设置 syncTargets
+  useEffect(() => {
+    if (toolStatuses && toolStatuses.length > 0) {
+      const targets: Record<string, boolean> = {};
+      for (const t of toolStatuses) {
+        // tool.id is already a string (kebab-case) from backend serialization
+        const toolId = t.tool.id;
+        targets[toolId] = t.installed;
+      }
+      setSyncTargets(targets);
+    }
+  }, [toolStatuses]);
+
   useEffect(() => {
     loadManagedSkills();
-    loadToolStatus();
     loadPlan();
-  }, [loadManagedSkills, loadToolStatus, loadPlan]);
+  }, [loadManagedSkills, loadPlan]);
 
-  const tools: ToolOption[] = toolStatus
+  const tools: ToolOption[] = toolStatuses
     ?.filter(status => status.installed)
     .map((status) => ({
       id: status.tool.id,
@@ -112,11 +124,12 @@ function SkillsPanel() {
     setShowBatchSyncModal(true);
   }, [selectedSkills]);
 
-  const handleRefresh = useCallback(() => {
-    setIsLoading(true);
-    loadManagedSkills();
-    loadToolStatus();
-  }, [loadManagedSkills, loadToolStatus]);
+  const handleRefresh = useCallback(async () => {
+    // 刷新工具检测（这会更新 toolStatuses）
+    await refreshInstalledTools();
+    // 刷新技能列表
+    await loadManagedSkills();
+  }, [refreshInstalledTools, loadManagedSkills]);
 
   const handleReviewImport = useCallback(async () => {
     if (plan) {
@@ -167,10 +180,10 @@ function SkillsPanel() {
           <div className="flex gap-2 flex-shrink-0">
             <button
               onClick={handleRefresh}
-              disabled={isLoading}
+              disabled={isLoading || toolsLoading}
               className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-[hsl(var(--secondary))] hover:brightness-[0.95] active:brightness-[0.9] text-[hsl(var(--secondary-foreground))] rounded-lg text-sm font-medium transition-all border border-[hsl(var(--border))] disabled:opacity-50"
             >
-              <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} />
+              <RefreshCw size={16} className={(isLoading || toolsLoading) ? "animate-spin" : ""} />
               <span className="hidden sm:inline">刷新</span>
             </button>
             <button
@@ -229,7 +242,7 @@ function SkillsPanel() {
 
       {/* 技能列表 */}
       <div className="flex-1 overflow-y-auto px-3 sm:px-8 py-4 sm:py-5">
-        {isLoading ? (
+        {isLoading || toolsLoading ? (
           <div className="flex items-center justify-center h-64">
             <div className="text-[hsl(var(--muted-foreground))]">加载中...</div>
           </div>

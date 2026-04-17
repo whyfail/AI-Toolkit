@@ -90,7 +90,7 @@ fn detect_node_environment() -> Result<String, String> {
 }
 
 /// 检测到的 Agent 信息（前端用）
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AgentInfo {
     pub id: String,
     pub name: String,

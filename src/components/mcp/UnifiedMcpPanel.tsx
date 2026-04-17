@@ -9,37 +9,18 @@ import {
   Search,
   RefreshCw,
   ExternalLink,
+  Loader2,
 } from "lucide-react";
 import {
   useAllMcpServers,
   useToggleMcpApp,
   useDeleteMcpServer,
 } from "@/hooks/useMcp";
+import { useInstalledTools, AgentInfo } from "@/contexts/InstalledToolsContext";
 import type { McpServer } from "@/types";
+import { APP_COLORS } from "@/lib/tools";
 import McpFormModal from "./McpFormModal";
 import NewAgentModal from "./NewAgentModal";
-
-interface AgentInfo {
-  id: string;
-  name: string;
-  config_path: string;
-  exists: boolean;
-  mcp_count: number;
-}
-
-const appColors: Record<string, string> = {
-  "qwen-code": "bg-purple-500",
-  claude: "bg-orange-500",
-  codex: "bg-blue-500",
-  gemini: "bg-green-500",
-  opencode: "bg-cyan-500",
-  trae: "bg-indigo-500",
-  "trae-cn": "bg-violet-500",
-  "trae-solo-cn": "bg-fuchsia-500",
-  qoder: "bg-yellow-500",
-  qodercli: "bg-amber-500",
-  codebuddy: "bg-red-500",
-};
 
 const UnifiedMcpPanel: React.FC = () => {
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -47,8 +28,10 @@ const UnifiedMcpPanel: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [newAgents, setNewAgents] = useState<AgentInfo[] | null>(null);
   const [isScanning, setIsScanning] = useState(false);
-  const [installedAgents, setInstalledAgents] = useState<AgentInfo[]>([]);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  // 使用共享的工具检测上下文
+  const { installedAgents } = useInstalledTools();
 
   const { data: serversMap, isLoading, refetch } = useAllMcpServers();
   const toggleAppMutation = useToggleMcpApp();
@@ -63,26 +46,13 @@ const UnifiedMcpPanel: React.FC = () => {
     }
   };
 
-  // 检测已安装的工具
-  const detectInstalled = async () => {
-    try {
-      const agents = await invoke<AgentInfo[]>("detect_agents");
-      setInstalledAgents(agents.filter((a) => a.exists));
-    } catch (e) {
-      console.error("Failed to detect agents:", e);
-    }
-  };
-
-  // 启动时检测 + 监听新工具事件
+  // 监听新工具事件
   useEffect(() => {
-    detectInstalled();
-
     let unlisten: UnlistenFn;
     const setupListener = async () => {
       unlisten = await listen<AgentInfo[]>("agents-detected", (event) => {
         if (event.payload.length > 0) {
           setNewAgents(event.payload);
-          detectInstalled();
         }
       });
     };
@@ -92,16 +62,16 @@ const UnifiedMcpPanel: React.FC = () => {
     };
   }, []);
 
-  // 手动扫描
+  // 手动扫描（使用全局刷新，刷新后所有模块共享）
   const handleScan = async () => {
     setIsScanning(true);
     try {
-      const agents = await invoke<AgentInfo[]>("detect_agents");
-      const existing = agents.filter((a) => a.exists);
+      // 调用全局刷新
+      const report = await invoke<{ agents: AgentInfo[] }>("refresh_installed_tools");
+      const existing = report.agents.filter((a) => a.exists);
       if (existing.length > 0) {
         setNewAgents(existing);
       }
-      setInstalledAgents(existing);
     } catch (e) {
       console.error("Failed to detect agents:", e);
     }
@@ -236,7 +206,7 @@ const UnifiedMcpPanel: React.FC = () => {
                   title="点击打开配置文件"
                 >
                   <div
-                    className={`w-2 h-2 rounded-full flex-shrink-0 ${appColors[agent.id]}`}
+                    className={`w-2 h-2 rounded-full flex-shrink-0 ${APP_COLORS[agent.id as keyof typeof APP_COLORS]}`}
                   />
                   <span className="text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--foreground))] transition-colors flex items-center gap-1">
                     {agent.name}:{" "}
@@ -257,9 +227,12 @@ const UnifiedMcpPanel: React.FC = () => {
 
       {/* 服务器列表 */}
       <div className="flex-1 overflow-y-auto px-3 sm:px-8 py-4 sm:py-5">
-        {isLoading ? (
+        {isLoading || isScanning ? (
           <div className="flex items-center justify-center h-64">
-            <div className="text-[hsl(var(--muted-foreground))]">加载中...</div>
+            <div className="text-[hsl(var(--muted-foreground))] flex items-center gap-2">
+              <Loader2 size={18} className="animate-spin" />
+              <span>{isScanning ? "正在扫描工具..." : "加载中..."}</span>
+            </div>
           </div>
         ) : serverEntries.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-center">
@@ -429,7 +402,7 @@ const McpServerRow: React.FC<McpServerRowProps> = ({
               <div
                 className={`w-2 h-2 rounded-full flex-shrink-0 ${
                   server.apps[agent.id]
-                    ? appColors[agent.id]
+                    ? APP_COLORS[agent.id as keyof typeof APP_COLORS]
                     : "bg-current opacity-40"
                 }`}
               />

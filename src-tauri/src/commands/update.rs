@@ -1,5 +1,5 @@
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
 #[derive(Serialize, Clone)]
@@ -42,15 +42,23 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
 
     let _ = app.emit("update-status", "downloading");
 
+    // 发送下载进度更新
+    let app_handle = app.clone();
     update
         .download_and_install(
-            |chunk_length, content_length| {
-                log::debug!("下载进度: {} / {:?}", chunk_length, content_length);
+            move |_chunk_length, _content_length| {
+                let _ = app_handle.emit("update-status", "downloading");
             },
             || {
                 log::info!("更新已准备好，正在重启...");
             },
         )
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // 显式调用重启（tauri-plugin-updater 不会自动重启）
+    log::info!("正在重启应用...");
+    app.restart();
+
+    Ok(())
 }

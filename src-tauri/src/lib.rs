@@ -8,12 +8,14 @@ pub mod import;
 pub mod mcp;
 pub mod services;
 pub mod skill_core;
+pub mod tool_detection;
 
-use agents::{detect_all_agents, get_last_detected_agents, save_detected_agents};
+use agents::{get_last_detected_agents, save_detected_agents};
 use app_state::AppState;
 use database::Database;
 use tauri::{Emitter, Manager, async_runtime::spawn};
 use std::time::Duration;
+use tool_detection::detect_all_tools;
 
 pub fn run() {
     tauri::Builder::default()
@@ -41,25 +43,40 @@ pub fn run() {
                 // 等待 1 秒，确保前端 React 应用已挂载并完成事件监听器注册
                 tokio::time::sleep(Duration::from_secs(1)).await;
 
-                let previous = get_last_detected_agents();
-                let all_agents = detect_all_agents();
-                let current_names: Vec<String> = all_agents
-                    .iter()
-                    .filter(|a| a.exists)
-                    .map(|a| a.app_type.name().to_string())
-                    .collect();
-                let new_agents: Vec<_> = all_agents
-                    .iter()
-                    .filter(|a| a.exists && !previous.contains(&a.app_type.name().to_string()))
-                    .cloned()
-                    .collect();
+                // 执行统一的工具检测并缓存结果
+                match detect_all_tools() {
+                    Ok(report) => {
+                        // 检测新安装的工具
+                        let previous = get_last_detected_agents();
+                        let current_names: Vec<String> = report.agents
+                            .iter()
+                            .filter(|a| a.exists)
+                            .map(|a| a.id.clone())
+                            .collect();
+                        let new_agents: Vec<_> = report.agents
+                            .iter()
+                            .filter(|a| a.exists && !previous.contains(&a.id))
+                            .cloned()
+                            .collect();
 
-                // 保存当前检测状态
-                save_detected_agents(&current_names);
+                        // 保存检测状态并更新缓存
+                        save_detected_agents(&current_names);
 
-                // 如果有新工具，通过事件通知前端
-                if !new_agents.is_empty() {
-                    let _ = app_handle.emit("agents-detected", &new_agents);
+                        // 在异步块内获取 state 来更新缓存
+                        if let Some(state) = app_handle.try_state::<AppState>() {
+                            if let Ok(mut cache) = state.installed_tools.write() {
+                                *cache = report.clone();
+                            }
+                        }
+
+                        // 如果有新工具，通过事件通知前端
+                        if !new_agents.is_empty() {
+                            let _ = app_handle.emit("agents-detected", &new_agents);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to detect tools: {}", e);
+                    }
                 }
             });
 
@@ -108,6 +125,9 @@ pub fn run() {
             commands::tool_manager::install_tool,
             commands::tool_manager::update_tool,
             commands::tool_manager::get_tool_homepage,
+            // 统一工具检测命令
+            commands::tool_detection::get_installed_tools,
+            commands::tool_detection::refresh_installed_tools,
             // 应用信息命令
             commands::app::get_version,
         ])

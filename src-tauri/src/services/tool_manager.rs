@@ -146,7 +146,7 @@ fn ensure_npm_path_windows() -> Result<(), String> {
 }
 
 #[cfg(windows)]
-fn which_binary(binary: &str) -> Option<String> {
+pub fn which_binary(binary: &str) -> Option<String> {
     let output = std::process::Command::new("where")
         .arg(binary)
         .output()
@@ -159,7 +159,7 @@ fn which_binary(binary: &str) -> Option<String> {
 }
 
 #[cfg(not(windows))]
-fn which_binary(binary: &str) -> Option<String> {
+pub fn which_binary(binary: &str) -> Option<String> {
     // First try system which
     let output = std::process::Command::new("sh")
         .args(["-c", &format!("which {}", binary)])
@@ -232,11 +232,60 @@ fn npm_list_global(package: &str) -> Option<bool> {
 
 #[cfg(not(windows))]
 fn npm_list_global(package: &str) -> Option<bool> {
+    // Try using npm from PATH first
     let output = std::process::Command::new("sh")
         .args(["-c", &format!("npm list -g {} 2>/dev/null", package)])
         .output()
         .ok()?;
-    Some(output.status.success() && String::from_utf8_lossy(&output.stdout).contains(package))
+
+    if output.status.success() && String::from_utf8_lossy(&output.stdout).contains(package) {
+        return Some(true);
+    }
+
+    // If npm not in PATH, try to find it via which_binary
+    let npm_path = which_binary("npm")?;
+    let npm_prefix = std::path::Path::new(&npm_path)
+        .parent()? // bin/npm -> bin/
+        .parent()? // bin/ -> prefix
+        .to_path_buf();
+
+    // Check if the package directory exists in npm global lib
+    let global_lib = npm_prefix.join("lib").join("node_modules");
+    if !global_lib.exists() {
+        return Some(false);
+    }
+
+    // Check if the package directory exists
+    if let Ok(mut entries) = std::fs::read_dir(&global_lib) {
+        while let Some(Ok(entry)) = entries.next() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            // npm packages can be @scope/name or just name
+            if name_str == package || name_str.starts_with(&format!("{}/", package)) {
+                return Some(true);
+            }
+            // Also check if it's a bin symlink in the package
+            let bin_dir = entry.path().join("bin");
+            if bin_dir.exists() {
+                return Some(true);
+            }
+        }
+    }
+
+    // Also check @scope/package format for scoped packages
+    if package.starts_with('@') {
+        let parts: Vec<&str> = package.split('/').collect();
+        if parts.len() == 2 {
+            let scope_dir = global_lib.join(parts[0]);
+            if scope_dir.exists() {
+                if scope_dir.join(parts[1]).exists() {
+                    return Some(true);
+                }
+            }
+        }
+    }
+
+    Some(false)
 }
 
 impl ToolManagerService {
@@ -260,8 +309,126 @@ impl ToolManagerService {
             return None;
         }
 
-        let install_info = app.get_install_info()?;
+        let binary_name = get_binary_name(app);
+        let binary_path = which_binary(&binary_name)?;
+        let binary_path_str = binary_path.as_str();
 
+        #[cfg(not(windows))]
+        {
+            let home = std::env::var("HOME").ok();
+
+            // Check if binary is in Homebrew directories
+            let homebrew_bin_paths = [
+                "/opt/homebrew/bin",
+                "/usr/local/bin",
+            ];
+            for path in homebrew_bin_paths {
+                if binary_path_str.starts_with(path) {
+                    // Verify it's actually Homebrew by checking if brew exists and the binary is linked
+                    if which_binary("brew").is_some() {
+                        // Additional check: see if the binary is managed by Homebrew
+                        let output = std::process::Command::new("sh")
+                            .args(["-c", &format!("brew list {} 2>/dev/null", binary_name)])
+                            .output();
+                        if let Ok(out) = output {
+                            if out.status.success() {
+                                return Some(InstallMethodType::Brew);
+                            }
+                        }
+                    }
+                    // If brew check fails but path suggests Homebrew, still return Brew
+                    return Some(InstallMethodType::Brew);
+                }
+            }
+
+            // Check Homebrew Cellar (actual installation path)
+            if binary_path_str.contains("/Cellar/") || binary_path_str.contains("/homebrew/") {
+                return Some(InstallMethodType::Brew);
+            }
+
+            // Check if binary is in nvm/nvmd/fnm/volta/npm global directories
+            let npm_prefix = get_npm_global_prefix();
+            let npm_prefix_str = npm_prefix.as_deref().unwrap_or("");
+            if !npm_prefix_str.is_empty() {
+                if binary_path_str.contains(&format!("{}/versions/node", npm_prefix_str))
+                    || binary_path_str.contains(&format!("{}/node", npm_prefix_str))
+                    || binary_path_str.contains(&format!("{}/bin", npm_prefix_str))
+                {
+                    return Some(InstallMethodType::Npm);
+                }
+            }
+
+            // Check common nvm/nvmd/fnm/volta paths
+            if let Some(ref h) = home {
+                let nvm_paths = [
+                    format!("{}/.nvm/versions/node", h),
+                    format!("{}/.fnm/versions/node", h),
+                    format!("{}/.volta", h),
+                    format!("{}/.nvmd/versions", h),
+                ];
+                for nvm_path in &nvm_paths {
+                    if binary_path_str.contains(nvm_path) {
+                        return Some(InstallMethodType::Npm);
+                    }
+                }
+            }
+
+            // Check for cargo (Rust packages)
+            if let Some(ref h) = home {
+                let cargo_bin = format!("{}/.cargo/bin", h);
+                if binary_path_str.starts_with(&cargo_bin) {
+                    return Some(InstallMethodType::Curl); // Treat cargo as curl/custom
+                }
+            }
+
+            // Check for user-local binaries
+            if let Some(ref h) = home {
+                let local_bin = format!("{}/.local/bin", h);
+                if binary_path_str.starts_with(&local_bin) {
+                    return Some(InstallMethodType::Curl);
+                }
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            // Check Winget locations
+            let winget_paths = [
+                std::env::var("LOCALAPPDATA").ok(),
+                std::env::var("ProgramFiles").ok(),
+                std::env::var("UserProfile").ok(),
+            ];
+            for base in winget_paths.into_iter().flatten() {
+                let winget_dir = std::path::PathBuf::from(&base);
+                for path in ["Microsoft\\WindowsApps", "winget", "Programs"] {
+                    if binary_path_str.contains(path) {
+                        return Some(InstallMethodType::Winget);
+                    }
+                }
+            }
+
+            // Check Scoop
+            if let Some(ref h) = std::env::var("UserProfile").ok() {
+                let scoop_dir = format!("{}\\scoop\\shims", h);
+                if binary_path_str.starts_with(&scoop_dir) {
+                    return Some(InstallMethodType::Scoop);
+                }
+            }
+
+            // Check npm on Windows
+            if let Some(npm_prefix) = get_npm_global_prefix() {
+                let npm_prefix_path = std::path::Path::new(&npm_prefix);
+                let npm_global_bin = npm_prefix_path.join("bin");
+                if binary_path_str.starts_with(npm_prefix_path.to_str().unwrap_or(""))
+                    || binary_path_str.starts_with(npm_global_bin.to_str().unwrap_or(""))
+                {
+                    return Some(InstallMethodType::Npm);
+                }
+            }
+        }
+
+        // Fallback: check if npm global list contains the package
+        let install_info = app.get_install_info()?;
         if let Some(method) = install_info.methods.iter().find(|m| matches!(m, InstallMethod::Npm { .. })) {
             if let InstallMethod::Npm { package } = method {
                 if npm_list_global(package).unwrap_or(false) {
@@ -270,44 +437,15 @@ impl ToolManagerService {
             }
         }
 
-        #[cfg(windows)]
-        {
-            if let Some(path) = which_binary("winget") {
-                if !path.is_empty() {
-                    let binary_name = app.name();
-                    if which_binary(&binary_name).is_some() {
-                        return Some(InstallMethodType::Winget);
-                    }
-                }
-            }
-            if let Some(path) = which_binary("scoop") {
-                if !path.is_empty() {
-                    let binary_name = app.name();
-                    if which_binary(&binary_name).is_some() {
-                        return Some(InstallMethodType::Scoop);
-                    }
-                }
-            }
-        }
-
+        // Default fallback for Unix
         #[cfg(not(windows))]
-        {
-            if let Some(path) = which_binary("brew") {
-                if !path.is_empty() {
-                    let binary_name = app.name();
-                    if which_binary(&binary_name).is_some() {
-                        return Some(InstallMethodType::Brew);
-                    }
-                }
-            }
+        if which_binary(&binary_name).is_some() {
+            return Some(InstallMethodType::Curl);
         }
 
-        let binary_name = app.name();
+        #[cfg(windows)]
         if which_binary(&binary_name).is_some() {
-            #[cfg(windows)]
             return Some(InstallMethodType::Winget);
-            #[cfg(not(windows))]
-            return Some(InstallMethodType::Curl);
         }
 
         None
