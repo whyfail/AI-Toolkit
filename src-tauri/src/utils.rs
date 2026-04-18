@@ -7,6 +7,9 @@
 /// On non-Windows platforms, `suppress_console()` is a no-op.
 
 #[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
 pub trait SuppressConsole: Sized {
     fn suppress_console(&mut self) -> &mut Self;
 }
@@ -25,7 +28,6 @@ pub trait SuppressConsole: Sized {
 #[cfg(windows)]
 impl SuppressConsole for std::process::Command {
     fn suppress_console(&mut self) -> &mut Self {
-        use std::os::windows::process::CommandExt;
         self.creation_flags(0x08000000); // CREATE_NO_WINDOW
         self
     }
@@ -41,7 +43,6 @@ impl SuppressConsole for std::process::Command {}
 #[cfg(windows)]
 impl SuppressConsole for tokio::process::Command {
     fn suppress_console(&mut self) -> &mut Self {
-        use std::os::windows::process::CommandExt;
         self.creation_flags(0x08000000); // CREATE_NO_WINDOW
         self
     }

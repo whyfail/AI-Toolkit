@@ -422,7 +422,7 @@ impl ToolManagerService {
                 std::env::var("UserProfile").ok(),
             ];
             for base in winget_paths.into_iter().flatten() {
-                let winget_dir = std::path::PathBuf::from(&base);
+                let _winget_dir = std::path::PathBuf::from(&base);
                 for path in ["Microsoft\\WindowsApps", "winget", "Programs"] {
                     if binary_path_str.contains(path) {
                         return Some(InstallMethodType::Winget);
@@ -791,36 +791,6 @@ impl ToolManagerService {
             Some(InstallMethodType::Winget) | Some(InstallMethodType::Scoop) => {
                 // Winget and Scoop are Windows-only
                 Err("Winget/Scoop 仅在 Windows 上可用".into())
-            }
-            #[cfg(windows)]
-            Some(InstallMethodType::Winget) => {
-                let package = install_info.methods.iter()
-                    .find_map(|m| {
-                        match m {
-                            InstallMethod::Brew { package } => Some(package.clone()),
-                            InstallMethod::Npm { package } => Some(package.clone()),
-                            _ => None,
-                        }
-                    })
-                    .unwrap_or_else(|| app.name().to_lowercase());
-                let mut cmd = std::process::Command::new("winget");
-                cmd.suppress_console().args(["upgrade", "--id", &package, "-e"]);
-                Self::execute_command_windows(&mut cmd).await
-            }
-            #[cfg(windows)]
-            Some(InstallMethodType::Scoop) => {
-                let package = install_info.methods.iter()
-                    .find_map(|m| {
-                        match m {
-                            InstallMethod::Brew { package } => Some(package.clone()),
-                            InstallMethod::Npm { package } => Some(package.clone()),
-                            _ => None,
-                        }
-                    })
-                    .unwrap_or_else(|| app.name().to_lowercase());
-                let mut cmd = std::process::Command::new("scoop");
-                cmd.suppress_console().args(["update", &package]);
-                Self::execute_command_windows(&mut cmd).await
             }
             None => {
                 if !install_info.update_cmd.is_empty() {
