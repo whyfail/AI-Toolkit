@@ -1,6 +1,6 @@
 [package]
 name = "ai-tool-manager"
-version = "1.2.5"
+version = "1.2.6"
 description = "Universal MCP Server Manager"
 authors = ["you"]
 edition = "2021"
