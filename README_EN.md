@@ -66,7 +66,7 @@ AI Toolkit is a **universal AI programming tools management tool** that supports
 
 ### macOS Installation
 
-Download the latest `AI Toolkit_x.x.x_aarch64.dmg` installer from the [Releases](https://github.com/whyfail/ai-tool-manager/releases) page:
+Download the latest `AI Toolkit_x.x.x_aarch64.dmg` installer from the [Releases](https://github.com/whyfail/ai-toolkit/releases) page:
 
 ```bash
 # Mount DMG

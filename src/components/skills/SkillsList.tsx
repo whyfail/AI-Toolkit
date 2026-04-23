@@ -20,6 +20,7 @@ interface SkillsListProps {
   onConfirmDelete: () => void;
   onCancelDelete: () => void;
   onSkillSync?: () => void;
+  isDeleting?: boolean;
 }
 
 function SkillsList({
@@ -35,6 +36,7 @@ function SkillsList({
   onConfirmDelete,
   onCancelDelete,
   onSkillSync,
+  isDeleting,
 }: SkillsListProps) {
   const [detailSkill, setDetailSkill] = useState<ManagedSkill | null>(null);
   const [readmeContent, setReadmeContent] = useState<string | null>(null);
@@ -389,9 +391,10 @@ function SkillsList({
               </button>
               <button
                 onClick={onConfirmDelete}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-red-500 hover:bg-red-600 text-white transition-colors"
+                disabled={isDeleting}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-red-500 hover:bg-red-600 text-white transition-colors disabled:opacity-50"
               >
-                删除
+                {isDeleting ? '删除中...' : '删除'}
               </button>
             </div>
           </div>

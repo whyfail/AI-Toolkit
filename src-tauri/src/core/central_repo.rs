@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use dirs::home_dir;
 
-const CENTRAL_DIR_NAME: &str = ".ai-tool-manager";
+const CENTRAL_DIR_NAME: &str = ".ai-toolkit";
 const SKILLS_SUBDIR: &str = "skills";
 
-/// Resolve the central skills repository path: ~/.ai-tool-manager/skills/
+/// Resolve the central skills repository path: ~/.ai-toolkit/skills/
 pub fn resolve_central_repo_path() -> Result<PathBuf> {
     if let Some(home) = home_dir() {
         return Ok(home.join(CENTRAL_DIR_NAME).join(SKILLS_SUBDIR));
@@ -27,7 +27,7 @@ mod tests {
     #[test]
     fn test_resolve_central_repo_path() {
         let path = resolve_central_repo_path().unwrap();
-        assert!(path.to_string_lossy().contains(".ai-tool-manager"));
+        assert!(path.to_string_lossy().contains(".ai-toolkit"));
         assert!(path.to_string_lossy().contains("skills"));
     }
 }

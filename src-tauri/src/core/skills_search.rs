@@ -42,7 +42,7 @@ fn search_skills_online_inner(
 
     let response = client
         .get(url)
-        .header("User-Agent", "ai-tool-manager")
+        .header("User-Agent", "ai-toolkit")
         .send()
         .context("skills.sh search request failed")?
         .error_for_status()

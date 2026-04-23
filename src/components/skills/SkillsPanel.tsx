@@ -23,6 +23,7 @@ function SkillsPanel() {
   const [searchQuery, setSearchQuery] = useState('');
   const [syncTargets, setSyncTargets] = useState<Record<string, boolean>>({});
   const [deleteSkillId, setDeleteSkillId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [editingSkill, setEditingSkill] = useState<ManagedSkill | null>(null);
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
@@ -154,6 +155,7 @@ function SkillsPanel() {
     if (!deleteSkillId) return;
     const skill = managedSkills.find(s => s.id === deleteSkillId);
     try {
+      setIsDeleting(true);
       toast.info(`正在删除技能: ${skill?.name || deleteSkillId}`);
       await invoke('delete_managed_skill', { skillId: deleteSkillId, skillName: skill?.name || '' });
       toast.success(`技能 "${skill?.name}" 已删除`);
@@ -161,6 +163,8 @@ function SkillsPanel() {
       loadManagedSkills();
     } catch (err) {
       toast.error(`删除技能失败: ${err}`);
+    } finally {
+      setIsDeleting(false);
     }
   }, [deleteSkillId, managedSkills, loadManagedSkills]);
 
@@ -259,6 +263,7 @@ function SkillsPanel() {
             onDeleteId={deleteSkillId}
             onConfirmDelete={confirmDelete}
             onCancelDelete={() => setDeleteSkillId(null)}
+            isDeleting={isDeleting}
             onSkillSync={loadManagedSkills}
           />
         )}

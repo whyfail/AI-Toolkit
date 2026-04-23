@@ -88,7 +88,7 @@ fn download_dir_recursive(
 
     let mut req = client
         .get(&url)
-        .header("User-Agent", "ai-tool-manager")
+        .header("User-Agent", "ai-toolkit")
         .header("Accept", "application/vnd.github.v3+json");
     if let Some(t) = token {
         req = req.header("Authorization", format!("Bearer {}", t));
@@ -114,7 +114,7 @@ fn download_dir_recursive(
                     }
                     let mut file_req = client
                         .get(download_url)
-                        .header("User-Agent", "ai-tool-manager");
+                        .header("User-Agent", "ai-toolkit");
                     if let Some(t) = token {
                         file_req = file_req.header("Authorization", format!("Bearer {}", t));
                     }

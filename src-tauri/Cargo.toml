@@ -1,12 +1,12 @@
 [package]
-name = "ai-tool-manager"
-version = "1.2.9"
-description = "Universal MCP Server Manager"
+name = "ai-toolkit"
+version = "1.3.0"
+description = "Universal MCP Server & Skills Manager for AI CLI Tools"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "ai_tool_manager_lib"
+name = "ai_toolkit_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

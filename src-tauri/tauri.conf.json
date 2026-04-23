@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/json/tauri.conf.json",
   "productName": "AI Toolkit",
-  "version": "1.2.9",
-  "identifier": "com.ai-tool-manager.app",
+  "version": "1.3.0",
+  "identifier": "com.ai-toolkit.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "AI 工具箱",
+        "title": "AI Toolkit",
         "width": 1200,
         "height": 800,
         "resizable": true,
@@ -41,7 +41,7 @@
       "dialog": false,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkxN0U1NEQ4NjQ0NDk2Q0MKUldUTWxrUmsyRlIra1MyQTVNbkpaSmpiOENvamVyT3p5TDg4YmJnMEIzL0JYOTdCUTZVUHNaaWoK",
       "endpoints": [
-        "https://github.com/whyfail/ai-tool-manager/releases/latest/download/latest.json"
+        "https://github.com/whyfail/ai-toolkit/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

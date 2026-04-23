@@ -1,4 +1,4 @@
-# AI 工具箱
+# AI Toolkit
 
 <div align="center">
 
@@ -12,7 +12,7 @@
 
 ## 📖 简介
 
-AI 工具箱是一款**通用的 AI 编程工具管理工具**，支持统一管理 MCP 服务器配置和 Skills 技能同步。告别繁琐的手动编辑，一个应用即可管理所有 AI CLI 工具的插件服务。
+AI Toolkit是一款**通用的 AI 编程工具管理工具**，支持统一管理 MCP 服务器配置和 Skills 技能同步。告别繁琐的手动编辑，一个应用即可管理所有 AI CLI 工具的插件服务。
 
 ## ✨ 核心特性
 
@@ -66,7 +66,7 @@ AI 工具箱是一款**通用的 AI 编程工具管理工具**，支持统一管
 
 ### macOS 安装
 
-从 [Releases](https://github.com/whyfail/ai-tool-manager/releases) 页面下载最新的 `AI Toolkit_x.x.x_aarch64.dmg` 安装包：
+从 [Releases](https://github.com/whyfail/ai-toolkit/releases) 页面下载最新的 `AI Toolkit_x.x.x_aarch64.dmg` 安装包：
 
 ```bash
 # 挂载 DMG

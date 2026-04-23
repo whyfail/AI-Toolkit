@@ -380,7 +380,7 @@ pub async fn list_git_skills(repo_url: String) -> Result<Vec<GitSkillCandidate>,
 fn clone_to_cache_for_list(clone_url: &str, branch: Option<&str>) -> Result<(PathBuf, String), String> {
     use crate::core::git_fetcher::clone_or_pull;
 
-    let cache_root = std::env::temp_dir().join("ai-tool-manager-git-cache");
+    let cache_root = std::env::temp_dir().join("ai-toolkit-git-cache");
     std::fs::create_dir_all(&cache_root)
         .map_err(|e| e.to_string())?;
 

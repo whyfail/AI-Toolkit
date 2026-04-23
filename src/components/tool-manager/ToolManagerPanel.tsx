@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { invoke } from "@tauri-apps/api/core";
@@ -6,7 +6,7 @@ import { toolApi } from "@/lib/api";
 import { useInstalledTools } from "@/contexts/InstalledToolsContext";
 import { isLaunchable } from "@/lib/tools";
 import { open } from "@tauri-apps/plugin-shell";
-import { Loader2, Download, RefreshCw, ExternalLink, CheckCircle, AlertCircle, Play, ChevronDown } from "lucide-react";
+import { Loader2, Download, RefreshCw, ExternalLink, CheckCircle, AlertCircle, Play } from "lucide-react";
 
 function compareVersions(current: string, latest: string): boolean {
   const parse = (v: string) => v.replace(/[^0-9.]/g, '').split('.').map(n => parseInt(n, 10) || 0);
@@ -312,8 +312,6 @@ const ToolManagerPanel: React.FC = () => {
   const [updatingTool, setUpdatingTool] = useState<string | null>(null);
   const [installingTool, setInstallingTool] = useState<string | null>(null);
   const [scanningTool, setScanningTool] = useState<string | null>(null);
-  const [selectedTerminal, setSelectedTerminal] = useState<string>("");
-  const [isTerminalMenuOpen, setIsTerminalMenuOpen] = useState(false);
 
   // 使用共享的工具检测上下文
   const { refresh: refreshInstalledTools } = useInstalledTools();
@@ -324,20 +322,6 @@ const ToolManagerPanel: React.FC = () => {
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
   });
-
-  const { data: terminals } = useQuery({
-    queryKey: ["terminals"],
-    queryFn: () => invoke<Array<{ id: string; name: string; path: string }>>("get_terminals"),
-  });
-
-  // 当终端列表加载后，如果当前选中的终端不在列表中，自动选择第一个可用的终端
-  useEffect(() => {
-    if (terminals && terminals.length > 0) {
-      if (!terminals.some(t => t.id === selectedTerminal)) {
-        setSelectedTerminal(terminals[0].id);
-      }
-    }
-  }, [terminals]);
 
   const installMutation = useMutation({
     mutationFn: ({
@@ -430,26 +414,11 @@ const ToolManagerPanel: React.FC = () => {
 
   const handleLaunch = async (appType: string) => {
     try {
-      await invoke("launch_agent", { agentId: appType, terminalId: selectedTerminal });
+      await invoke("launch_agent", { agentId: appType });
     } catch (e) {
       toast.error(`启动失败: ${e}`);
     }
   };
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest(".terminal-menu")) {
-        setIsTerminalMenuOpen(false);
-      }
-    };
-    if (isTerminalMenuOpen) {
-      document.addEventListener("click", handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener("click", handleClickOutside);
-    };
-  }, [isTerminalMenuOpen]);
 
   if (isLoading) {
     return (
@@ -518,36 +487,6 @@ const ToolManagerPanel: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="relative">
-              <button
-                onClick={() => setIsTerminalMenuOpen(!isTerminalMenuOpen)}
-                className="terminal-menu inline-flex items-center gap-1.5 px-3 py-1.5 bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] rounded-lg text-sm border border-[hsl(var(--border))] transition-colors"
-              >
-                <span className="text-[hsl(var(--muted-foreground))]">终端:</span>
-                <span className="font-medium">
-                  {terminals?.find(t => t.id === selectedTerminal)?.name || "Terminal"}
-                </span>
-                <ChevronDown size={14} className={`text-[hsl(var(--muted-foreground))] transition-transform ${isTerminalMenuOpen ? 'rotate-180' : ''}`} />
-              </button>
-              {isTerminalMenuOpen && terminals && (
-                <div className="absolute right-0 mt-2 w-40 bg-[hsl(var(--card))] border border-[hsl(var(--border))] rounded-lg shadow-lg py-1 z-50">
-                  {terminals.map((term) => (
-                    <button
-                      key={term.id}
-                      onClick={() => {
-                        setSelectedTerminal(term.id);
-                        setIsTerminalMenuOpen(false);
-                      }}
-                      className={`w-full px-3 py-2 text-left text-sm hover:bg-[hsl(var(--muted))] transition-colors flex items-center gap-2 ${
-                        selectedTerminal === term.id ? "bg-[hsl(var(--muted))]" : ""
-                      }`}
-                    >
-                      {term.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
             <button
               onClick={async () => {
                 // 调用全局刷新，刷新后所有模块共享结果

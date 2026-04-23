@@ -41,7 +41,7 @@ pub fn fetch_featured_skills() -> Result<Vec<FeaturedSkill>> {
 
     let body = client
         .get(FEATURED_SKILLS_URL)
-        .header("User-Agent", "ai-tool-manager")
+        .header("User-Agent", "ai-toolkit")
         .send()?
         .error_for_status()?
         .text()?;

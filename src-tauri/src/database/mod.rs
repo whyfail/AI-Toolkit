@@ -42,8 +42,8 @@ impl Database {
     fn get_db_path() -> Result<PathBuf, AppError> {
         let config_dir = dirs::home_dir()
             .ok_or_else(|| AppError::Database("Could not find home directory".to_string()))?
-            .join(".ai-tool-manager");
-        Ok(config_dir.join("ai-tool-manager.db"))
+            .join(".ai-toolkit");
+        Ok(config_dir.join("ai-toolkit.db"))
     }
 
     fn init_schema(&self) -> Result<(), AppError> {

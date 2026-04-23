@@ -76,7 +76,7 @@ function App() {
             </div>
             <div>
               <h1 className="text-base font-semibold tracking-tight">
-                AI 工具箱
+                AI Toolkit
               </h1>
               <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
                 AI 编程工具管理
@@ -269,7 +269,7 @@ const SettingsTab: React.FC = () => {
                   数据库路径
                 </p>
                 <code className="block mt-1 px-3 py-2 bg-[hsl(var(--muted))] rounded-lg text-sm font-mono">
-                  ~/.ai-tool-manager/ai-tool-manager.db
+                  ~/.ai-toolkit/ai-toolkit.db
                 </code>
               </div>
               <div>
@@ -277,7 +277,7 @@ const SettingsTab: React.FC = () => {
                   Skills 列表路径
                 </p>
                 <code className="block mt-1 px-3 py-2 bg-[hsl(var(--muted))] rounded-lg text-sm font-mono">
-                  ~/.ai-tool-manager/skills/
+                  ~/.ai-toolkit/skills/
                 </code>
               </div>
             </div>
@@ -334,7 +334,7 @@ const AboutTab: React.FC = () => {
       <div className="px-8 pt-8 pb-6 border-b border-[hsl(var(--border))]">
         <h2 className="text-2xl font-semibold tracking-tight">关于</h2>
         <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
-          了解 AI 工具箱 的更多信息
+          了解 AI Toolkit 的更多信息
         </p>
       </div>
 
@@ -345,14 +345,14 @@ const AboutTab: React.FC = () => {
           <section className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-6">
             <div className="flex items-start justify-between mb-4">
               <div>
-                <h3 className="text-base font-medium">AI 工具箱</h3>
+                <h3 className="text-base font-medium">AI Toolkit</h3>
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mt-0.5">
                   v{appVersion}· MCP 和 Skills 管理工具
                 </p>
               </div>
               <button
                 onClick={() =>
-                  open("https://github.com/whyfail/ai-tool-manager")
+                  open("https://github.com/whyfail/ai-toolkit")
                 }
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[hsl(var(--border))] text-xs font-medium hover:bg-[hsl(var(--muted))] transition-colors"
               >
@@ -428,7 +428,7 @@ const AboutTab: React.FC = () => {
                 如有问题或建议，欢迎在{" "}
                 <button
                   onClick={() =>
-                    open("https://github.com/whyfail/ai-tool-manager/issues")
+                    open("https://github.com/whyfail/ai-toolkit/issues")
                   }
                   className="text-[hsl(var(--primary))] hover:underline inline-flex items-center gap-0.5"
                 >

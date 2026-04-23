@@ -1,8 +1,8 @@
 {
-  "name": "ai-tool-manager",
-  "version": "1.2.9",
-  "description": "Universal MCP Server Manager - Support Qwen Code, Claude Code, Codex, and more",
-  "author": "Your Name",
+  "name": "ai-toolkit",
+  "version": "1.3.0",
+  "description": "Universal MCP Server & Skills Manager for AI CLI Tools",
+  "author": "whyfail",
   "license": "MIT",
   "type": "module",
   "scripts": {

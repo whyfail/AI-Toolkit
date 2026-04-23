@@ -547,12 +547,12 @@ fn get_git_cache_ttl_secs() -> u64 {
 }
 
 fn clone_to_cache_with_ttl(clone_url: &str, branch: Option<&str>) -> Result<(PathBuf, String)> {
-    let cache_root = std::env::temp_dir().join("ai-tool-manager-git-cache");
+    let cache_root = std::env::temp_dir().join("ai-toolkit-git-cache");
     std::fs::create_dir_all(&cache_root)
         .with_context(|| format!("failed to create cache dir {:?}", cache_root))?;
 
     let repo_dir = cache_root.join(repo_cache_key(clone_url, branch));
-    let meta_path = repo_dir.join(".ai-tool-manager-cache.json");
+    let meta_path = repo_dir.join(".ai-toolkit-cache.json");
 
     let lock = GIT_CACHE_LOCK.get_or_init(|| Mutex::new(()));
     let _guard = lock.lock().unwrap_or_else(|err| err.into_inner());

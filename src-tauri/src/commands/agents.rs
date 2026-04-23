@@ -278,194 +278,7 @@ pub async fn open_config_file(agent_id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// 终端类型
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TerminalInfo {
-    pub id: String,
-    pub name: String,
-    pub path: String,
-}
-
-/// 检测系统已安装的终端
-#[tauri::command]
-pub fn get_terminals() -> Vec<TerminalInfo> {
-    let mut terminals = Vec::new();
-
-    #[cfg(target_os = "macos")]
-    {
-        // Terminal.app
-        terminals.push(TerminalInfo {
-            id: "terminal".to_string(),
-            name: "Terminal".to_string(),
-            path: "/System/Applications/Utilities/Terminal.app".to_string(),
-        });
-
-        // iTerm2
-        if std::path::Path::new("/Applications/iTerm.app").exists() {
-            terminals.push(TerminalInfo {
-                id: "iterm".to_string(),
-                name: "iTerm".to_string(),
-                path: "/Applications/iTerm.app".to_string(),
-            });
-        }
-
-        // Warp
-        if std::path::Path::new("/Applications/Warp.app").exists() {
-            terminals.push(TerminalInfo {
-                id: "warp".to_string(),
-                name: "Warp".to_string(),
-                path: "/Applications/Warp.app".to_string(),
-            });
-        }
-
-        // Hyper
-        if std::path::Path::new("/Applications/Hyper.app").exists() {
-            terminals.push(TerminalInfo {
-                id: "hyper".to_string(),
-                name: "Hyper".to_string(),
-                path: "/Applications/Hyper.app".to_string(),
-            });
-        }
-
-        // Kitty
-        if std::path::Path::new("/Applications/kitty.app").exists() {
-            terminals.push(TerminalInfo {
-                id: "kitty".to_string(),
-                name: "Kitty".to_string(),
-                path: "/Applications/kitty.app".to_string(),
-            });
-        }
-
-        // Alacritty
-        if std::path::Path::new("/Applications/Alacritty.app").exists() {
-            terminals.push(TerminalInfo {
-                id: "alacritty".to_string(),
-                name: "Alacritty".to_string(),
-                path: "/Applications/Alacritty.app".to_string(),
-            });
-        }
-
-        // Fig
-        if std::path::Path::new("/Applications/Fig.app").exists() {
-            terminals.push(TerminalInfo {
-                id: "fig".to_string(),
-                name: "Fig".to_string(),
-                path: "/Applications/Fig.app".to_string(),
-            });
-        }
-
-        // Kaku
-        if std::path::Path::new("/Applications/Kaku.app").exists() {
-            terminals.push(TerminalInfo {
-                id: "kaku".to_string(),
-                name: "Kaku".to_string(),
-                path: "/Applications/Kaku.app".to_string(),
-            });
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        // Windows Terminal
-        if Command::new("where")
-            .suppress_console()
-            .arg("wt")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
-            terminals.push(TerminalInfo {
-                id: "windows-terminal".to_string(),
-                name: "Windows Terminal".to_string(),
-                path: "wt.exe".to_string(),
-            });
-        }
-
-        // PowerShell 7+
-        if Command::new("where")
-            .suppress_console()
-            .arg("pwsh")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
-            terminals.push(TerminalInfo {
-                id: "pwsh".to_string(),
-                name: "PowerShell 7".to_string(),
-                path: "pwsh.exe".to_string(),
-            });
-        }
-
-        // Windows PowerShell (5.1)
-        if Command::new("where")
-            .suppress_console()
-            .arg("powershell")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
-            terminals.push(TerminalInfo {
-                id: "powershell".to_string(),
-                name: "Windows PowerShell".to_string(),
-                path: "powershell.exe".to_string(),
-            });
-        }
-
-        // CMD
-        if Command::new("where")
-            .suppress_console()
-            .arg("cmd")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
-            terminals.push(TerminalInfo {
-                id: "cmd".to_string(),
-                name: "CMD".to_string(),
-                path: "cmd.exe".to_string(),
-            });
-        }
-
-        // Git Bash
-        let git_bash_path = r"C:\Program Files\Git\bin\bash.exe";
-        if std::path::Path::new(git_bash_path).exists() {
-            terminals.push(TerminalInfo {
-                id: "git-bash".to_string(),
-                name: "Git Bash".to_string(),
-                path: git_bash_path.to_string(),
-            });
-        }
-    }
-
-    terminals
-}
-
-/// 查找 Git Bash 的路径
-#[cfg(target_os = "windows")]
-fn get_git_bash_path() -> Option<String> {
-    let candidates = [
-        r"C:\Program Files\Git\bin\bash.exe",
-        r"C:\Program Files (x86)\Git\bin\bash.exe",
-    ];
-    for path in &candidates {
-        if std::path::Path::new(path).exists() {
-            return Some(path.to_string());
-        }
-    }
-    // 尝试通过 where 查找
-    if let Ok(output) = Command::new("where").suppress_console().arg("bash").output() {
-        if output.status.success() {
-            let bash_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if let Some(first_line) = bash_path.lines().next() {
-                let first_line = first_line.trim();
-                if first_line.to_lowercase().contains("git") && std::path::Path::new(first_line).exists() {
-                    return Some(first_line.to_string());
-                }
-            }
-        }
-    }
-    None
-}
+/// 启动 Agent 工具（打开默认终端并运行命令）
 
 fn get_agent_launch_command(app: &AppType) -> Option<String> {
     match app {
@@ -483,9 +296,9 @@ fn get_agent_launch_command(app: &AppType) -> Option<String> {
     }
 }
 
-/// 启动 Agent 工具（打开终端并运行命令）
+/// 启动 Agent 工具（打开默认终端并运行命令）
 #[tauri::command]
-pub async fn launch_agent(agent_id: String, terminal_id: Option<String>) -> Result<(), String> {
+pub async fn launch_agent(agent_id: String) -> Result<(), String> {
     let app_type = AppType::from_str(&agent_id).map_err(|e| e.to_string())?;
 
     let Some(command) = get_agent_launch_command(&app_type) else {
@@ -497,11 +310,8 @@ pub async fn launch_agent(agent_id: String, terminal_id: Option<String>) -> Resu
         format!("{}: 请先安装 Node.js", e)
     })?;
 
-    let term_id = terminal_id.unwrap_or_else(|| "terminal".to_string());
-
     #[cfg(target_os = "macos")]
     {
-        // 统一写临时脚本文件，避免 full_cmd 中的双引号/$PATH 破坏 AppleScript 语法
         let script_path = format!("/tmp/ai_toolkit_run_{}.sh", std::process::id());
         let full_cmd = format!(
             "cd ~/Desktop && export PATH=\"{}:$PATH:/usr/local/bin:/opt/homebrew/bin\" && {}; exec $SHELL",
@@ -510,188 +320,20 @@ pub async fn launch_agent(agent_id: String, terminal_id: Option<String>) -> Resu
         std::fs::write(&script_path, &full_cmd)
             .map_err(|e| format!("写入脚本失败: {}", e))?;
 
-        match term_id.as_str() {
-            "terminal" => {
-                let script = format!(
-                    "tell application \"Terminal\"\n\
-                     activate\n\
-                     do script \"chmod +x {} && {}\"\n\
-                     end tell",
-                    script_path, script_path
-                );
-                let output = Command::new("osascript")
-                    .suppress_console()
-                    .args(["-e", &script])
-                    .output()
-                    .map_err(|e| format!("启动 {} 失败: {}", agent_id, e))?;
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    return Err(format!("启动 {} 失败: {}", agent_id, stderr));
-                }
-            }
-            "iterm" => {
-                let script = format!(
-                    "tell application \"iTerm\"\n\
-                     activate\n\
-                     create window with default profile\n\
-                     tell current session of current window\n\
-                     write text \"source {}\"\n\
-                     end tell\n\
-                     end tell",
-                    script_path
-                );
-                let output = Command::new("osascript")
-                    .suppress_console()
-                    .args(["-e", &script])
-                    .output()
-                    .map_err(|e| format!("启动 {} 失败: {}", agent_id, e))?;
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    return Err(format!("启动 {} 失败: {}", agent_id, stderr));
-                }
-            }
-            "warp" => {
-                // Warp 不支持 AppleScript do script，需通过 System Events 模拟键盘输入
-                let script = format!(
-                    "tell application \"Warp\"\n\
-                     activate\n\
-                     end tell\n\
-                     delay 0.5\n\
-                     tell application \"System Events\"\n\
-                     keystroke \"source {}\" & return\n\
-                     end tell",
-                    script_path
-                );
-                let output = Command::new("osascript")
-                    .suppress_console()
-                    .args(["-e", &script])
-                    .output()
-                    .map_err(|e| format!("启动 {} 失败: {}", agent_id, e))?;
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    if stderr.contains("不允许发送按键") || stderr.contains("not allowed") || stderr.contains("1002") {
-                        return Err(format!(
-                            "启动 {} 失败: 需要辅助功能权限。请在「系统设置 → 隐私与安全性 → 辅助功能」中添加 AI Toolkit（或终端应用），然后重试。",
-                            agent_id
-                        ));
-                    }
-                    return Err(format!("启动 {} 失败: {}", agent_id, stderr));
-                }
-            }
-            "hyper" => {
-                let script = format!(
-                    "tell application \"Hyper\"\n\
-                     activate\n\
-                     delay 0.5\n\
-                     tell application \"System Events\"\n\
-                     keystroke \"source {}\" & return\n\
-                     end tell\n\
-                     end tell",
-                    script_path
-                );
-                let output = Command::new("osascript")
-                    .suppress_console()
-                    .args(["-e", &script])
-                    .output()
-                    .map_err(|e| format!("启动 {} 失败: {}", agent_id, e))?;
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    if stderr.contains("不允许发送按键") || stderr.contains("not allowed") || stderr.contains("1002") {
-                        return Err(format!(
-                            "启动 {} 失败: 需要辅助功能权限。请在「系统设置 → 隐私与安全性 → 辅助功能」中添加 AI Toolkit（或终端应用），然后重试。",
-                            agent_id
-                        ));
-                    }
-                    return Err(format!("启动 {} 失败: {}", agent_id, stderr));
-                }
-            }
-            "kitty" => {
-                // Kitty 支持 CLI 参数直接执行命令，无需 System Events
-                // 直接调用 kitty binary 启动新窗口执行脚本
-                let kitty_bin = "/Applications/kitty.app/Contents/MacOS/kitty";
-                let kitty_result = Command::new(kitty_bin)
-                    .suppress_console()
-                    .args(["sh", "-c", &format!("source {}", script_path)])
-                    .spawn();
-                match kitty_result {
-                    Ok(_) => {}
-                    Err(e) => {
-                        return Err(format!("启动 {} 失败: 无法启动 Kitty ({})", agent_id, e));
-                    }
-                }
-            }
-            "alacritty" => {
-                // Alacritty 支持 CLI 参数直接执行命令，无需 System Events
-                // 直接调用 alacritty binary 启动新窗口执行脚本
-                let alacritty_bin = "/Applications/Alacritty.app/Contents/MacOS/alacritty";
-                let alacritty_result = Command::new(alacritty_bin)
-                    .suppress_console()
-                    .args(["-e", "sh", &script_path])
-                    .spawn();
-                match alacritty_result {
-                    Ok(_) => {}
-                    Err(e) => {
-                        return Err(format!("启动 {} 失败: 无法启动 Alacritty ({})", agent_id, e));
-                    }
-                }
-            }
-            "fig" => {
-                let script = format!(
-                    "tell application \"Fig\"\n\
-                     activate\n\
-                     delay 0.5\n\
-                     tell application \"System Events\"\n\
-                     keystroke \"source {}\" & return\n\
-                     end tell\n\
-                     end tell",
-                    script_path
-                );
-                let output = Command::new("osascript")
-                    .suppress_console()
-                    .args(["-e", &script])
-                    .output()
-                    .map_err(|e| format!("启动 {} 失败: {}", agent_id, e))?;
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    if stderr.contains("不允许发送按键") || stderr.contains("not allowed") || stderr.contains("1002") {
-                        return Err(format!(
-                            "启动 {} 失败: 需要辅助功能权限。请在「系统设置 → 隐私与安全性 → 辅助功能」中添加 AI Toolkit（或终端应用），然后重试。",
-                            agent_id
-                        ));
-                    }
-                    return Err(format!("启动 {} 失败: {}", agent_id, stderr));
-                }
-            }
-            "kaku" => {
-                let script = format!(
-                    "tell application \"Kaku\"\n\
-                     activate\n\
-                     delay 0.5\n\
-                     tell application \"System Events\"\n\
-                     keystroke \"source {}\" & return\n\
-                     end tell\n\
-                     end tell",
-                    script_path
-                );
-                let output = Command::new("osascript")
-                    .suppress_console()
-                    .args(["-e", &script])
-                    .output()
-                    .map_err(|e| format!("启动 {} 失败: {}", agent_id, e))?;
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    if stderr.contains("不允许发送按键") || stderr.contains("not allowed") || stderr.contains("1002") {
-                        return Err(format!(
-                            "启动 {} 失败: 需要辅助功能权限。请在「系统设置 → 隐私与安全性 → 辅助功能」中添加 AI Toolkit（或终端应用），然后重试。",
-                            agent_id
-                        ));
-                    }
-                    return Err(format!("启动 {} 失败: {}", agent_id, stderr));
-                }
-            }
-            _ => {
-                return Err(format!("不支持的终端: {}", term_id));
-            }
+        let script = format!(
+            "tell application \"Terminal\"\n\
+             do script \"source {0}\"\n\
+             end tell",
+            script_path
+        );
+        let output = Command::new("osascript")
+            .suppress_console()
+            .args(["-e", &script])
+            .output()
+            .map_err(|e| format!("启动 {} 失败: {}", agent_id, e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("启动 {} 失败: {}", agent_id, stderr));
         }
     }
 
@@ -703,76 +345,16 @@ pub async fn launch_agent(agent_id: String, terminal_id: Option<String>) -> Resu
             .to_string_lossy()
             .to_string();
 
-        match term_id.as_str() {
-            "windows-terminal" => {
-                // Windows Terminal 使用 PowerShell 语法
-                let full_cmd = format!(
-                    "cd '{}'; $env:PATH = '{};' + $env:PATH; {}",
-                    desktop_path,
-                    node_bin_dir,
-                    command
-                );
-                Command::new("wt")
-                    .args(["new-tab", "powershell", "-NoExit", "-c", &full_cmd])
-                    .spawn()
-                    .map_err(|e| format!("启动 {} 失败: {}", agent_id, e))?;
-            }
-            "pwsh" => {
-                let full_cmd = format!(
-                    "cd '{}'; $env:PATH = '{};' + $env:PATH; {}",
-                    desktop_path,
-                    node_bin_dir,
-                    command
-                );
-                Command::new("pwsh")
-                    .args(["-NoExit", "-c", &full_cmd])
-                    .spawn()
-                    .map_err(|e| format!("启动 {} 失败: {}", agent_id, e))?;
-            }
-            "powershell" => {
-                let full_cmd = format!(
-                    "cd '{}'; $env:PATH = '{};' + $env:PATH; {}",
-                    desktop_path,
-                    node_bin_dir,
-                    command
-                );
-                Command::new("powershell")
-                    .args(["-NoExit", "-c", &full_cmd])
-                    .spawn()
-                    .map_err(|e| format!("启动 {} 失败: {}", agent_id, e))?;
-            }
-            "cmd" => {
-                // start 命令的第一个带引号参数被当作窗口标题
-                let full_cmd = format!(
-                    "cd /d \"{}\" && set PATH={};%PATH% && {}",
-                    desktop_path,
-                    node_bin_dir,
-                    command
-                );
-                Command::new("cmd")
-                    .args(["/c", "start", &format!("启动 {}", agent_id), "cmd", "/k", &full_cmd])
-                    .spawn()
-                    .map_err(|e| format!("启动 {} 失败: {}", agent_id, e))?;
-            }
-            "git-bash" => {
-                let git_bash_path = get_git_bash_path()
-                    .ok_or("未找到 Git Bash，请确保已安装 Git")?;
-                // Git Bash 路径需要转为正斜杠，添加 exec bash 作为 fallback
-                let full_cmd = format!(
-                    "cd '{}'; export PATH=\"{}:$PATH\"; {}; exec bash",
-                    desktop_path.replace("\\", "/"),
-                    node_bin_dir.replace("\\", "/"),
-                    command
-                );
-                Command::new(git_bash_path)
-                    .args(["-c", &full_cmd])
-                    .spawn()
-                    .map_err(|e| format!("启动 {} 失败: {}", agent_id, e))?;
-            }
-            _ => {
-                return Err(format!("不支持的终端: {}", term_id));
-            }
-        }
+        let full_cmd = format!(
+            "cd '{}'; $env:PATH = '{};' + $env:PATH; {}",
+            desktop_path,
+            node_bin_dir,
+            command
+        );
+        Command::new("wt")
+            .args(["new-tab", "powershell", "-NoExit", "-c", &full_cmd])
+            .spawn()
+            .map_err(|e| format!("启动 {} 失败: {}", agent_id, e))?;
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]

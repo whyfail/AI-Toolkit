@@ -30,8 +30,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "ai-tool-manager"
-version = "1.2.9"
+name = "ai-toolkit"
+version = "1.3.0"
 dependencies = [
  "anyhow",
  "dirs",

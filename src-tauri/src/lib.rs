@@ -6,6 +6,7 @@ pub mod database;
 pub mod error;
 pub mod import;
 pub mod mcp;
+pub mod migration;
 pub mod services;
 pub mod skill_core;
 pub mod tool_detection;
@@ -58,6 +59,10 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            // 迁移旧数据目录 ~/.ai-tool-manager/ → ~/.ai-toolkit/
+            // 必须在数据库初始化之前执行
+            migration::migrate_from_old_dir();
+
             // 初始化数据库
             let db = Database::new()?;
             app.manage(AppState::new(db));
@@ -130,7 +135,6 @@ pub fn run() {
             commands::agents::sync_agent_mcp,
             commands::agents::open_config_file,
             commands::agents::launch_agent,
-            commands::agents::get_terminals,
             // 技能管理命令
             commands::skills::get_managed_skills,
             commands::skills::get_tool_status,

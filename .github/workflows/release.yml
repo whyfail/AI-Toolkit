@@ -355,7 +355,7 @@ jobs:
             MSI_SIG_CONTENT=$(cat "$MSI_SIG")
           fi
 
-          DOWNLOAD_BASE="https://github.com/whyfail/ai-tool-manager/releases/download/v${VERSION}"
+          DOWNLOAD_BASE="https://github.com/whyfail/ai-toolkit/releases/download/v${VERSION}"
 
           # Build latest.json using jq to avoid YAML/shell conflicts
           # Note: URLs point to updater bundles (.app.tar.gz) and installers (.msi)
@@ -366,7 +366,7 @@ jobs:
             --arg msi_sig "${MSI_SIG_CONTENT}" \
             --arg app_tar_aarch64_url "${DOWNLOAD_BASE}/AI_Toolkit-${VERSION}-macOS-aarch64.app.tar.gz" \
             --arg msi_url "${DOWNLOAD_BASE}/AI_Toolkit-${VERSION}-Windows-x64.msi" \
-            --arg notes "See changelog at https://github.com/whyfail/ai-tool-manager/releases/tag/v${VERSION}" \
+            --arg notes "See changelog at https://github.com/whyfail/ai-toolkit/releases/tag/v${VERSION}" \
             '{
               version: $ver,
               notes: $notes,
@@ -390,9 +390,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.get_version_release.outputs.VERSION }}
-          name: AI Tool Manager v${{ steps.get_version_release.outputs.VERSION }}
+            name: AI Toolkit v${{ steps.get_version_release.outputs.VERSION }}
           body: |
-            ## AI Tool Manager v${{ steps.get_version_release.outputs.VERSION }}
+            ## AI Toolkit v${{ steps.get_version_release.outputs.VERSION }}
 
             Universal MCP Server & Skills Manager for AI CLI tools.
 
@@ -406,8 +406,8 @@ jobs:
 
             ### 📥 Downloads
 
-            - **macOS (Apple Silicon)**: `AI_Tool_Manager-${{ steps.get_version_release.outputs.VERSION }}-macOS-aarch64.dmg`
-            - **Windows (x64)**: `AI_Tool_Manager-${{ steps.get_version_release.outputs.VERSION }}-Windows-x64.msi`
+            - **macOS (Apple Silicon)**: `AI_Toolkit-${{ steps.get_version_release.outputs.VERSION }}-macOS-aarch64.dmg`
+            - **Windows (x64)**: `AI_Toolkit-${{ steps.get_version_release.outputs.VERSION }}-Windows-x64.msi`
 
             **Note**: Auto-updater uses `.app.tar.gz` (macOS) and `.msi` (Windows) bundles which are included in this release.
 

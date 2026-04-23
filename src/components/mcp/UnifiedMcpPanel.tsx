@@ -29,6 +29,7 @@ const UnifiedMcpPanel: React.FC = () => {
   const [newAgents, setNewAgents] = useState<AgentInfo[] | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleteName, setDeleteName] = useState<string>('');
 
   // 使用共享的工具检测上下文
   const { installedAgents } = useInstalledTools();
@@ -129,8 +130,9 @@ const UnifiedMcpPanel: React.FC = () => {
     setIsFormOpen(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = (id: string, name: string) => {
     setDeleteId(id);
+    setDeleteName(name);
   };
 
   const confirmDelete = async () => {
@@ -299,7 +301,7 @@ const UnifiedMcpPanel: React.FC = () => {
             <div className="px-6 py-5 border-b border-[hsl(var(--border))]">
               <h3 className="text-lg font-semibold">确认删除？</h3>
               <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1 line-clamp-1">
-                服务器: {deleteId}
+                服务器: {deleteName || deleteId}
               </p>
             </div>
             <div className="px-6 py-4 flex justify-end gap-3">
@@ -311,9 +313,10 @@ const UnifiedMcpPanel: React.FC = () => {
               </button>
               <button
                 onClick={confirmDelete}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-red-500 hover:bg-red-600 text-white transition-colors"
+                disabled={deleteServerMutation.isPending}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-red-500 hover:bg-red-600 text-white transition-colors disabled:opacity-50"
               >
-                删除
+                {deleteServerMutation.isPending ? '删除中...' : '删除'}
               </button>
             </div>
           </div>
@@ -330,7 +333,7 @@ interface McpServerRowProps {
   installedAgents: AgentInfo[];
   onToggleApp: (serverId: string, app: string, enabled: boolean) => void;
   onEdit: (id: string) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string, name: string) => void;
 }
 
 const McpServerRow: React.FC<McpServerRowProps> = ({
@@ -369,7 +372,7 @@ const McpServerRow: React.FC<McpServerRowProps> = ({
             <Edit3 size={14} className="text-[hsl(var(--muted-foreground))]" />
           </button>
           <button
-            onClick={() => onDelete(id)}
+            onClick={() => onDelete(id, server.name)}
             className="p-2 hover:bg-red-500/10 rounded-lg transition-colors"
             title="删除"
           >

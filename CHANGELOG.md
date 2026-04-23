@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.3.0 (2026-04-23)
+
+### 新功能
+
+- **数据迁移**：从旧版 `ai-tool-manager` 升级时自动迁移数据目录 `~/.ai-tool-manager/` → `~/.ai-toolkit/`，包括数据库、检测状态和 Skills 仓库，迁移后旧目录备份为 `.ai-tool-manager.bak/`
+
+### 改进
+
+- **项目重命名完成**：修复 Cargo.toml `[lib] name`、`main.rs` 中残留的 `ai_tool_manager` 引用，统一更新为 `ai_toolkit`
+- **启动功能简化**：移除终端选择功能，统一使用系统默认终端（macOS: Terminal.app, Windows: Windows Terminal），避免辅助功能权限问题
+- **删除确认优化**：MCP 服务器和 Skills 删除弹窗增加 loading 状态，防止重复点击；MCP 删除确认弹窗显示服务器名称而非 ID
+- **项目描述更新**：package.json 和 Cargo.toml 的 description 更新为 "Universal MCP Server & Skills Manager for AI CLI Tools"
+- **Release 流程更新**：release.yml 中的发布名称和下载文件名统一为 AI Toolkit
+
+---
+
 ## v1.2.9 (2026-04-21)
 
 ### 改进
@@ -83,7 +99,7 @@
 
 ### 改进
 - **项目重命名**：项目更名为 AI Tool Manager
-- **数据库路径**：`~/.mcp-manager/` → `~/.ai-tool-manager/`
+- **数据库路径**：`~/.mcp-manager/` → `~/.ai-toolkit/`
 - **弹窗优化**：Skills 相关弹窗宽度优化，提升用户体验
 
 ### 修复
