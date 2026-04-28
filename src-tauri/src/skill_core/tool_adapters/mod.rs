@@ -246,15 +246,9 @@ pub fn is_tool_installed_by_binary(id: &ToolId) -> bool {
 
 /// 使用 binary 检测工具是否已安装（接受 ToolAdapter）
 pub fn is_tool_installed(adapter: &ToolAdapter) -> bool {
-    // 先尝试 binary 检测
+    // Primary: binary 检测（最可靠，CLI 工具卸载后 binary 会被移除）
     if is_tool_installed_by_binary(&adapter.id) {
         return true;
-    }
-
-    if let Ok(path) = resolve_detect_path(adapter) {
-        if path.exists() {
-            return true;
-        }
     }
 
     // Mac GUI 应用检测（通过检查 /Applications/*.app）
@@ -265,16 +259,26 @@ pub fn is_tool_installed(adapter: &ToolAdapter) -> bool {
             ToolId::TraeCn => "Trae CN.app",
             ToolId::TraeSoloCn => "TRAE SOLO CN.app",
             ToolId::Qoder => "Qoder.app",
-            _ => return false,
+            _ => "",
         };
-        return std::path::Path::new(&format!("/Applications/{}", app_name)).exists();
+        if !app_name.is_empty() {
+            if std::path::Path::new(&format!("/Applications/{}", app_name)).exists() {
+                return true;
+            }
+        }
     }
 
-    #[cfg(not(target_os = "macos"))]
+    // Windows GUI 应用检测
+    #[cfg(target_os = "windows")]
     {
-        let _ = adapter;
-        false
+        // TODO: Add Windows GUI app detection for ToolAdapter
     }
+
+    // 数据目录检测已移除
+    // 原因: CLI 工具卸载后数据目录仍会残留，导致误判为已安装
+    // 对于纯 GUI 应用（Trae/TraeCn/Qoder），通过 /Applications/*.app 检测已足够
+
+    false
 }
 
 pub fn scan_tool_dir(tool: &ToolAdapter, dir: &Path) -> Result<Vec<DetectedSkill>> {

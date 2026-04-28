@@ -85,6 +85,11 @@ export const toolApi = {
     return invoke("update_tool", { appType });
   },
 
+  // 卸载工具
+  async uninstallTool(appType: string): Promise<void> {
+    return invoke("uninstall_tool", { appType });
+  },
+
   // 获取工具主页 URL
   async getToolHomepage(appType: string): Promise<string> {
     return invoke<string>("get_tool_homepage", { appType });

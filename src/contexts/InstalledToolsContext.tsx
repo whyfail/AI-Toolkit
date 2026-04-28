@@ -44,6 +44,8 @@ interface InstalledToolsContextValue {
   report: InstalledToolsReport | null;
   isLoading: boolean;
   refresh: () => Promise<void>;
+  markAgentUninstalled: (agentId: string) => void;
+  markAgentInstalled: (agentId: string) => void;
   // 便捷访问
   installedAgents: AgentInfo[];
   toolStatuses: ToolStatus[];
@@ -88,6 +90,30 @@ export function InstalledToolsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const markAgentUninstalled = useCallback((agentId: string) => {
+    setReport(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        agents: prev.agents.map(a =>
+          a.id === agentId ? { ...a, exists: false } : a
+        ),
+      };
+    });
+  }, []);
+
+  const markAgentInstalled = useCallback((agentId: string) => {
+    setReport(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        agents: prev.agents.map(a =>
+          a.id === agentId ? { ...a, exists: true } : a
+        ),
+      };
+    });
+  }, []);
+
   useEffect(() => {
     loadReport();
   }, [loadReport]);
@@ -120,6 +146,8 @@ export function InstalledToolsProvider({ children }: { children: ReactNode }) {
         report,
         isLoading,
         refresh,
+        markAgentUninstalled,
+        markAgentInstalled,
         installedAgents,
         toolStatuses,
       }}

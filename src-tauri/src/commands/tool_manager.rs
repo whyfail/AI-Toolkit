@@ -93,6 +93,12 @@ pub async fn update_tool(app_type: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn uninstall_tool(app_type: String) -> Result<(), String> {
+    let app = AppType::from_str(&app_type)?;
+    ToolManagerService::uninstall(&app).await
+}
+
+#[tauri::command]
 pub fn get_tool_homepage(app_type: String) -> Result<String, String> {
     let app = AppType::from_str(&app_type)?;
     let install_info = app.get_install_info().ok_or("Unknown app type")?;

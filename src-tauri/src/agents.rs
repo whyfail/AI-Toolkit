@@ -253,21 +253,8 @@ fn is_agent_installed(app: &AppType) -> bool {
     use crate::services::tool_manager::which_binary;
     let binary_name = get_agent_binary_name(app);
 
-    // 先尝试 binary 检测
+    // Primary: binary 检测（CLI 工具卸载后 binary 会被移除，最可靠的判断依据）
     if which_binary(binary_name).is_some() {
-        return true;
-    }
-
-    // 检查应用数据目录是否存在（比配置文件更可靠，首次启动即创建）
-    if let Some(detect_dir) = get_agent_detect_dir(app) {
-        if detect_dir.exists() {
-            return true;
-        }
-    }
-
-    // 检查配置路径是否存在
-    let config_paths = get_agent_config_paths(app);
-    if config_paths.iter().any(|p| p.exists()) {
         return true;
     }
 
@@ -279,10 +266,12 @@ fn is_agent_installed(app: &AppType) -> bool {
             AppType::TraeCn => "Trae CN.app",
             AppType::TraeSoloCn => "TRAE SOLO CN.app",
             AppType::Qoder => "Qoder.app",
-            _ => return false,
+            _ => "",
         };
-        if std::path::Path::new(&format!("/Applications/{}", app_name)).exists() {
-            return true;
+        if !app_name.is_empty() {
+            if std::path::Path::new(&format!("/Applications/{}", app_name)).exists() {
+                return true;
+            }
         }
     }
 
@@ -293,6 +282,10 @@ fn is_agent_installed(app: &AppType) -> bool {
             return true;
         }
     }
+
+    // 数据目录/配置文件检测已移除
+    // 原因: CLI 工具卸载后数据目录（如 ~/.qodercli/）仍会残留，导致误判为已安装
+    // 对于纯 GUI 应用（Trae/TraeCn/Qoder），通过 /Applications/*.app 检测已足够
 
     false
 }

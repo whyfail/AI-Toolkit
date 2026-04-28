@@ -6,7 +6,7 @@ import { toolApi } from "@/lib/api";
 import { useInstalledTools } from "@/contexts/InstalledToolsContext";
 import { isLaunchable } from "@/lib/tools";
 import { open } from "@tauri-apps/plugin-shell";
-import { Loader2, Download, RefreshCw, ExternalLink, CheckCircle, AlertCircle, Play } from "lucide-react";
+import { Loader2, Download, RefreshCw, ExternalLink, CheckCircle, AlertCircle, Play, Trash2 } from "lucide-react";
 
 function compareVersions(current: string, latest: string): boolean {
   const parse = (v: string) => v.replace(/[^0-9.]/g, '').split('.').map(n => parseInt(n, 10) || 0);
@@ -95,10 +95,12 @@ const ToolCard: React.FC<{
   onUpdate: () => void;
   onScan: () => void;
   onLaunch: () => void;
+  onDelete: () => void;
   installing: boolean;
   updating: boolean;
   scanning: boolean;
-}> = ({ tool, onInstall, onUpdate, onScan, onLaunch, installing, updating, scanning }) => {
+  deleting: boolean;
+}> = ({ tool, onInstall, onUpdate, onScan, onLaunch, onDelete, installing, updating, scanning, deleting }) => {
   const [showMethods, setShowMethods] = useState(false);
   const hasUpdate = tool.installed && tool.version && tool.latest_version && compareVersions(tool.version, tool.latest_version);
 
@@ -109,6 +111,15 @@ const ToolCard: React.FC<{
           <Loader2 size={24} className="animate-spin text-[hsl(var(--primary))]" />
           <div className="text-center">
             <p className="text-sm font-medium">更新中...</p>
+            <p className="text-xs text-[hsl(var(--muted-foreground))]">请稍候</p>
+          </div>
+        </div>
+      )}
+      {deleting && (
+        <div className="absolute inset-0 bg-[hsl(var(--card))]/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 z-10">
+          <Loader2 size={24} className="animate-spin text-red-500" />
+          <div className="text-center">
+            <p className="text-sm font-medium">卸载中...</p>
             <p className="text-xs text-[hsl(var(--muted-foreground))]">请稍候</p>
           </div>
         </div>
@@ -157,16 +168,30 @@ const ToolCard: React.FC<{
             </p>
           </div>
         </div>
-        <button
-          onClick={() => open(tool.homepage).catch(console.error)}
-          className="p-1.5 rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
-          title="访问官网"
-        >
-          <ExternalLink
-            size={14}
-            className="text-[hsl(var(--muted-foreground))]"
-          />
-        </button>
+        <div className="flex items-center gap-1">
+          {tool.installed && tool.detected_method && tool.detected_method !== "下载安装" && (
+            <button
+              onClick={onDelete}
+              className="p-1.5 rounded-lg hover:bg-red-500/10 transition-colors"
+              title="卸载工具"
+            >
+              <Trash2
+                size={14}
+                className="text-[hsl(var(--muted-foreground))] hover:text-red-500"
+              />
+            </button>
+          )}
+          <button
+            onClick={() => open(tool.homepage).catch(console.error)}
+            className="p-1.5 rounded-lg hover:bg-[hsl(var(--muted))] transition-colors"
+            title="访问官网"
+          >
+            <ExternalLink
+              size={14}
+              className="text-[hsl(var(--muted-foreground))]"
+            />
+          </button>
+        </div>
       </div>
 
       <div className="flex gap-2">
@@ -307,14 +332,16 @@ const ToolManagerPanel: React.FC = () => {
     open: boolean;
     title: string;
     message: string;
+    confirmText: string;
     onConfirm: () => void;
   } | null>(null);
   const [updatingTool, setUpdatingTool] = useState<string | null>(null);
   const [installingTool, setInstallingTool] = useState<string | null>(null);
   const [scanningTool, setScanningTool] = useState<string | null>(null);
+  const [deletingTool, setDeletingTool] = useState<string | null>(null);
 
   // 使用共享的工具检测上下文
-  const { refresh: refreshInstalledTools } = useInstalledTools();
+  const { refresh: refreshInstalledTools, markAgentUninstalled, markAgentInstalled } = useInstalledTools();
 
   const { data: tools, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["tool-infos"],
@@ -350,17 +377,27 @@ const ToolManagerPanel: React.FC = () => {
   }, [tools, queryClient]);
 
   const installMutation = useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       appType,
       methodIndex,
     }: {
       appType: string;
       methodIndex: number;
-    }) => toolApi.installTool(appType, methodIndex),
-    onSuccess: () => {
+    }) => {
+      await toolApi.installTool(appType, methodIndex);
+      const updatedInfo = await toolApi.getToolInfo(appType);
+      return updatedInfo;
+    },
+    onSuccess: (updatedInfo) => {
       toast.success("安装成功");
       setInstallingTool(null);
-      queryClient.invalidateQueries({ queryKey: ["tool-infos"] });
+      queryClient.setQueryData(["tool-infos"], (old: any) => {
+        if (!old) return old;
+        return old.map((tool: any) =>
+          tool.app_type === updatedInfo.app_type ? updatedInfo : tool
+        );
+      });
+      markAgentInstalled(updatedInfo.app_type);
     },
     onError: (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
@@ -373,14 +410,19 @@ const ToolManagerPanel: React.FC = () => {
     mutationFn: async (appType: string) => {
       setUpdatingTool(appType);
       await toolApi.updateTool(appType);
-      // 等待二进制文件替换完成（npm postinstall/符号链接更新延迟）
       await new Promise(resolve => setTimeout(resolve, 2000));
+      const updatedInfo = await toolApi.getToolInfo(appType);
+      return updatedInfo;
     },
-    onSuccess: () => {
+    onSuccess: (updatedInfo) => {
       toast.success("更新成功");
       setUpdatingTool(null);
-      // 使用 invalidateQueries 让 TanStack Query 重新获取全量数据
-      queryClient.invalidateQueries({ queryKey: ["tool-infos"] });
+      queryClient.setQueryData(["tool-infos"], (old: any) => {
+        if (!old) return old;
+        return old.map((tool: any) =>
+          tool.app_type === updatedInfo.app_type ? updatedInfo : tool
+        );
+      });
     },
     onError: (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
@@ -411,6 +453,44 @@ const ToolManagerPanel: React.FC = () => {
     },
   });
 
+  const uninstallMutation = useMutation({
+    mutationFn: async (appType: string) => {
+      setDeletingTool(appType);
+      await toolApi.uninstallTool(appType);
+      const updatedInfo = await toolApi.getToolInfo(appType);
+      return updatedInfo;
+    },
+    onSuccess: (updatedInfo) => {
+      toast.success("卸载成功");
+      setDeletingTool(null);
+      queryClient.setQueryData(["tool-infos"], (old: any) => {
+        if (!old) return old;
+        return old.map((tool: any) =>
+          tool.app_type === updatedInfo.app_type ? updatedInfo : tool
+        );
+      });
+      markAgentUninstalled(updatedInfo.app_type);
+    },
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(`卸载失败: ${message}`);
+      setDeletingTool(null);
+    },
+  });
+
+  const handleDelete = (appType: string, toolName: string) => {
+    setConfirmDialog({
+      open: true,
+      title: "确认卸载",
+      message: `确定要卸载 ${toolName} 吗？此操作将从系统中移除该工具。`,
+      confirmText: "确认卸载",
+      onConfirm: () => {
+        setConfirmDialog(null);
+        uninstallMutation.mutate(appType);
+      },
+    });
+  };
+
   const handleInstall = async (
     appType: string,
     methodIndex: number,
@@ -422,6 +502,7 @@ const ToolManagerPanel: React.FC = () => {
         open: true,
         title: "确认安装",
         message: `即将执行以下命令:\n${command}\n\n这将运行一个来自互联网的安装脚本，请确保来源可靠。`,
+        confirmText: "继续安装",
         onConfirm: () => {
           setConfirmDialog(null);
           setInstallingTool(appType);
@@ -542,9 +623,11 @@ const ToolManagerPanel: React.FC = () => {
               onUpdate={() => handleUpdate(tool.app_type)}
               onScan={() => scanMutation.mutate(tool.app_type)}
               onLaunch={() => handleLaunch(tool.app_type)}
+              onDelete={() => handleDelete(tool.app_type, tool.name)}
               installing={installingTool === tool.app_type}
               updating={updatingTool === tool.app_type}
               scanning={scanningTool === tool.app_type}
+              deleting={deletingTool === tool.app_type}
             />
           ))}
         </div>
@@ -554,7 +637,7 @@ const ToolManagerPanel: React.FC = () => {
         open={confirmDialog?.open || false}
         title={confirmDialog?.title || ""}
         message={confirmDialog?.message || ""}
-        confirmText="继续安装"
+        confirmText={confirmDialog?.confirmText || "确认"}
         onConfirm={confirmDialog?.onConfirm || (() => {})}
         onCancel={() => setConfirmDialog(null)}
       />

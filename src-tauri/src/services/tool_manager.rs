@@ -227,6 +227,54 @@ pub fn which_binary(binary: &str) -> Option<String> {
 }
 
 #[cfg(not(windows))]
+fn is_nvmd_shim(path: &str, binary: &str) -> bool {
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
+    let nvmd_bin_dir = format!("{}/.nvmd/bin", home);
+    let nvmd_main = format!("{}/nvmd", nvmd_bin_dir);
+
+    // Check if path is inside ~/.nvmd/bin/
+    if !path.starts_with(&nvmd_bin_dir) {
+        return false;
+    }
+
+    // Case 1: symlink pointing to nvmd
+    if let Ok(meta) = std::fs::symlink_metadata(path) {
+        if meta.file_type().is_symlink() {
+            if let Ok(target) = std::fs::read_link(path) {
+                if target.file_name().map_or(false, |f| f == "nvmd") {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Case 2: hard copy with same size as nvmd binary
+    if let (Ok(shim_meta), Ok(nvmd_meta)) =
+        (std::fs::metadata(path), std::fs::metadata(&nvmd_main))
+    {
+        if shim_meta.len() == nvmd_meta.len() && shim_meta.len() > 1024 {
+            // Verify no real binary exists in any nvmd version directory
+            let nvmd_dir = format!("{}/.nvmd", home);
+            let versions_dir = format!("{}/versions", nvmd_dir);
+            if let Ok(entries) = std::fs::read_dir(&versions_dir) {
+                for entry in entries.flatten() {
+                    let real_bin = entry.path().join("bin").join(binary);
+                    if real_bin.exists() {
+                        return false; // Real binary exists, not a dangling shim
+                    }
+                }
+            }
+            return true;
+        }
+    }
+
+    false
+}
+
+#[cfg(not(windows))]
 pub fn which_binary(binary: &str) -> Option<String> {
     // First try system which
     let output = std::process::Command::new("sh")
@@ -237,6 +285,9 @@ pub fn which_binary(binary: &str) -> Option<String> {
     if output.status.success() {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !path.is_empty() {
+            if is_nvmd_shim(&path, binary) {
+                return None;
+            }
             return Some(path);
         }
     }
@@ -274,12 +325,7 @@ pub fn which_binary(binary: &str) -> Option<String> {
             }
         }
     }
-    // nvmd fallback: also check ~/.nvmd/bin/ (shim directory)
-    let nvmd_shim = format!("{}/bin/{}", nvmd_dir, binary);
-    if std::path::Path::new(&nvmd_shim).exists() {
-        return Some(nvmd_shim);
-    }
-    // nvmd fallback: iterate all version directories
+    // nvmd fallback: iterate all version directories (real binaries take priority)
     let nvmd_versions_dir = format!("{}/versions", nvmd_dir);
     if let Ok(entries) = std::fs::read_dir(&nvmd_versions_dir) {
         for entry in entries.flatten() {
@@ -288,6 +334,12 @@ pub fn which_binary(binary: &str) -> Option<String> {
                 return Some(bin_path.to_string_lossy().to_string());
             }
         }
+    }
+    // nvmd fallback: also check ~/.nvmd/bin/ (shim directory)
+    // This is checked last because shims persist even after package uninstall
+    let nvmd_shim = format!("{}/bin/{}", nvmd_dir, binary);
+    if std::path::Path::new(&nvmd_shim).exists() && !is_nvmd_shim(&nvmd_shim, binary) {
+        return Some(nvmd_shim);
     }
 
     // nvm: iterate version directories under ~/.nvm/versions/node/
@@ -931,6 +983,89 @@ impl ToolManagerService {
                     Err("未检测到安装方式，请尝试重新安装".into())
                 }
             }
+        }
+    }
+
+    pub async fn uninstall(app: &AppType) -> Result<(), String> {
+        let install_info = app.get_install_info().ok_or("未知工具类型")?;
+        let detected_method = Self::detect_install_method(app).await;
+
+        match detected_method {
+            #[cfg(not(windows))]
+            Some(InstallMethodType::Brew) => {
+                let package = install_info
+                    .methods
+                    .iter()
+                    .find_map(|m| {
+                        if let InstallMethod::Brew { package } = m {
+                            Some(package.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_else(|| app.name().to_lowercase());
+                let mut cmd = tokio::process::Command::new("brew");
+                cmd.suppress_console().arg("uninstall").arg(&package);
+                Self::execute_command(&mut cmd).await
+            }
+            Some(InstallMethodType::Npm) => {
+                let package = install_info
+                    .methods
+                    .iter()
+                    .find_map(|m| {
+                        if let InstallMethod::Npm { package } = m {
+                            Some(package.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .ok_or("未找到 npm 包信息")?;
+                #[cfg(windows)]
+                {
+                    let mut cmd = std::process::Command::new("cmd");
+                    cmd.suppress_console()
+                        .args(["/C", "npm", "uninstall", "-g", &package]);
+                    Self::execute_command_windows(&mut cmd).await
+                }
+                #[cfg(not(windows))]
+                {
+                    let mut cmd = tokio::process::Command::new("npm");
+                    cmd.suppress_console().arg("uninstall").arg("-g").arg(&package);
+                    Self::execute_command(&mut cmd).await
+                }
+            }
+            #[cfg(windows)]
+            Some(InstallMethodType::Winget) => {
+                let package = install_info
+                    .methods
+                    .iter()
+                    .find_map(|m| match m {
+                        InstallMethod::Brew { package } => Some(package.clone()),
+                        InstallMethod::Npm { package } => Some(package.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| app.name().to_lowercase());
+                let mut cmd = std::process::Command::new("winget");
+                cmd.suppress_console()
+                    .args(["uninstall", "--id", &package, "-e"]);
+                Self::execute_command_windows(&mut cmd).await
+            }
+            #[cfg(windows)]
+            Some(InstallMethodType::Scoop) => {
+                let package = install_info
+                    .methods
+                    .iter()
+                    .find_map(|m| match m {
+                        InstallMethod::Brew { package } => Some(package.clone()),
+                        InstallMethod::Npm { package } => Some(package.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| app.name().to_lowercase());
+                let mut cmd = std::process::Command::new("scoop");
+                cmd.suppress_console().args(["uninstall", &package]);
+                Self::execute_command_windows(&mut cmd).await
+            }
+            _ => Err("此工具不支持自动卸载，请手动删除".into()),
         }
     }
 
