@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { X, Loader2, Github, Folder, GitBranch } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ManagedSkill } from '../types';
+import { skillsApi } from '@/lib/api';
 
 interface GitSkillCandidate {
   name: string;
@@ -44,7 +44,7 @@ function EditSkillModal({ open, skill, onClose, onSkillEdited }: EditSkillModalP
   const doSave = async () => {
     setSaving(true);
     try {
-      await invoke('rename_skill', {
+      await skillsApi.renameSkill({
         skillId: skill.id,
         newName: name.trim(),
         newSourceRef: sourceRef.trim() || null,
@@ -69,9 +69,7 @@ function EditSkillModal({ open, skill, onClose, onSkillEdited }: EditSkillModalP
 
     setScanning(true);
     try {
-      const candidates = await invoke<GitSkillCandidate[]>('list_git_skills', {
-        repoUrl: trimmedSourceRef,
-      });
+      const candidates = await skillsApi.listGitSkills(trimmedSourceRef);
       if (candidates.length === 0) {
         toast.error('未在仓库中找到有效的技能');
       } else if (candidates.length === 1) {

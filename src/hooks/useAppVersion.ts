@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { appApi } from "@/lib/api";
 
 export function useAppVersion() {
   const [appVersion, setAppVersion] = useState("1.0.3");
 
   useEffect(() => {
-    invoke<{ version: string }>("get_version")
+    appApi.getVersion()
       .then((res) => setAppVersion(res.version))
       .catch(() => {});
   }, []);

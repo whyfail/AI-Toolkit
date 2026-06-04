@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { agentApi } from "@/lib/api";
 import {
   X,
   Check,
@@ -69,10 +69,7 @@ const NewAgentModal: React.FC<NewAgentModalProps> = ({
 
     const results = await Promise.allSettled(
       selectedAgentIds.map((agentId) =>
-        invoke<number>("sync_agent_mcp", {
-          agentId,
-          enabledApps,
-        })
+        agentApi.syncAgentMcp(agentId, enabledApps)
       )
     );
 

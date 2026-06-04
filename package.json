@@ -10,6 +10,7 @@
     "lint": "oxlint src",
     "check": "tsc --noEmit && oxlint src",
     "build": "tsc && vite build",
+    "version:sync": "node scripts/sync-version.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

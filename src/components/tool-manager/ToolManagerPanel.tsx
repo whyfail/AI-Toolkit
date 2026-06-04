@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { invoke } from "@tauri-apps/api/core";
-import { toolApi } from "@/lib/api";
+import { agentApi, toolApi } from "@/lib/api";
 import { useInstalledTools } from "@/contexts/InstalledToolsContext";
 import { getToolMeta, isLaunchable } from "@/lib/tools";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
@@ -555,7 +554,7 @@ const ToolManagerPanel: React.FC = () => {
 
   const handleLaunch = async (appType: string) => {
     try {
-      await invoke("launch_agent", { agentId: appType });
+      await agentApi.launchAgent(appType);
     } catch (e) {
       toast.error(`启动失败: ${e}`);
     }

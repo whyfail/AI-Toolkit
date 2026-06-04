@@ -46,7 +46,7 @@ export type ManagedSkill = {
 
 export type GitSkillCandidate = {
   name: string
-  description?: string | null
+  description: string | null
   subpath: string
 }
 
@@ -56,13 +56,6 @@ export type LocalSkillCandidate = {
   subpath: string
   valid: boolean
   reason?: string | null
-}
-
-export type InstallResultDto = {
-  skill_id: string
-  name: string
-  central_path: string
-  content_hash?: string | null
 }
 
 // 支持的工具 ID（与 README 和 AppType 保持一致）

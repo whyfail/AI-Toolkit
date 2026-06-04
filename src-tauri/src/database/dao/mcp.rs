@@ -118,7 +118,8 @@ impl Database {
                 "SELECT id, name, server_config, description, homepage, docs, tags,
                         enabled_qwen_code, enabled_claude, enabled_codex, enabled_gemini,
                         enabled_opencode, enabled_trae, enabled_trae_cn,
-                        enabled_trae_solo_cn, enabled_qoder, enabled_codebuddy
+                        enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
+                        enabled_codebuddy
                  FROM mcp_servers
                  ORDER BY name ASC, id ASC",
             )
@@ -142,7 +143,8 @@ impl Database {
                 let enabled_trae_cn: bool = row.get(13)?;
                 let enabled_trae_solo_cn: bool = row.get(14)?;
                 let enabled_qoder: bool = row.get(15)?;
-                let enabled_codebuddy: bool = row.get(16)?;
+                let enabled_qodercli: bool = row.get(16)?;
+                let enabled_codebuddy: bool = row.get(17)?;
 
                 let server: McpServerSpec =
                     serde_json::from_str(&server_config_str).unwrap_or_default();
@@ -164,7 +166,7 @@ impl Database {
                             trae_cn: enabled_trae_cn,
                             trae_solo_cn: enabled_trae_solo_cn,
                             qoder: enabled_qoder,
-                            qodercli: false,
+                            qodercli: enabled_qodercli,
                             codebuddy: enabled_codebuddy,
                         },
                         description,
@@ -192,8 +194,9 @@ impl Database {
                 id, name, server_config, description, homepage, docs, tags,
                 enabled_qwen_code, enabled_claude, enabled_codex, enabled_gemini,
                 enabled_opencode, enabled_trae, enabled_trae_cn,
-                enabled_trae_solo_cn, enabled_qoder, enabled_codebuddy, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+                enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
+                enabled_codebuddy, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
                       strftime('%s', 'now') * 1000)",
             rusqlite::params![
                 server.id,
@@ -215,6 +218,7 @@ impl Database {
                 server.apps.trae_cn,
                 server.apps.trae_solo_cn,
                 server.apps.qoder,
+                server.apps.qodercli,
                 server.apps.codebuddy,
             ],
         )

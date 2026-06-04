@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
 import * as dialog from '@tauri-apps/plugin-dialog';
 import { GitBranch, Folder, Search, X, ChevronRight, Loader2, Check, Globe, Star, ArrowLeft, ExternalLink, Eye, RotateCcw } from 'lucide-react';
@@ -7,6 +6,7 @@ import { toast } from 'sonner';
 import type { ToolOption, OnlineSkillDto } from '../types';
 import GitPickModal, { type GitSkillCandidate } from './GitPickModal';
 import { APP_COLORS } from '@/lib/tools';
+import { skillsApi } from '@/lib/api';
 
 interface FeaturedSkillDto {
   slug: string;
@@ -56,7 +56,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
       return;
     }
     try {
-      const result = await invoke<{ valid: boolean; reason: string | null }>('validate_local_skill', { path: path.trim() });
+      const result = await skillsApi.validateLocalSkill(path.trim());
       setLocalValid(result.valid);
       setLocalValidationError(result.valid ? null : result.reason);
     } catch (err) {
@@ -90,7 +90,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
   const loadFeaturedSkills = useCallback(async () => {
     setFeaturedLoading(true);
     try {
-      const skills = await invoke<FeaturedSkillDto[]>('get_featured_skills');
+      const skills = await skillsApi.getFeaturedSkills();
       setFeaturedSkills(skills);
     } catch (err) {
       console.error('Failed to load featured skills:', err);
@@ -126,9 +126,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
     setSelectedGitCandidates([]);
     setGitSkillNames({});
     try {
-      const candidates = await invoke<GitSkillCandidate[]>('list_git_skills', {
-        repoUrl: gitUrl.trim(),
-      });
+      const candidates = await skillsApi.listGitSkills(gitUrl.trim());
 
       if (candidates.length === 0) {
         setGitScanError('未在仓库中找到有效的技能');
@@ -238,17 +236,13 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
           : (gitSkillNames[candidate.subpath]?.trim() || candidate.name);
         const skillName = customName || candidate.name;
 
-        const created = await invoke<{
-          id: string;
-          name: string;
-          central_path: string;
-        }>('install_git_selection', {
+        const created = await skillsApi.installGitSelection({
           repoUrl: gitUrl.trim(),
           subpath: candidate.subpath,
           name: skillName,
         });
 
-        await Promise.all(selectedTools.map(tool => invoke('sync_skill_to_tool', {
+        await Promise.all(selectedTools.map(tool => skillsApi.syncToTool({
           skillId: created.id,
           skillName: created.name,
           tool: tool.id,
@@ -279,18 +273,14 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
     setLoading(true);
     setError(null);
     try {
-      const created = await invoke<{
-        id: string;
-        name: string;
-        central_path: string;
-      }>('install_local_selection', {
+      const created = await skillsApi.installLocalSelection({
         basePath: localPath.trim(),
         subpath: '',
         name: localName.trim() || undefined
       });
 
       const selectedTools = tools.filter(tool => syncTargets[tool.id]);
-      await Promise.all(selectedTools.map(tool => invoke('sync_skill_to_tool', {
+      await Promise.all(selectedTools.map(tool => skillsApi.syncToTool({
         skillId: created.id,
         skillName: created.name,
         tool: tool.id,
@@ -319,10 +309,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
     setSearchError(null);
     setSearchResults([]);
     try {
-      const results = await invoke<OnlineSkillDto[]>('search_skills_online', {
-        query: onlineQuery.trim(),
-        limit: 20
-      });
+      const results = await skillsApi.searchOnline(onlineQuery.trim());
       setSearchResults(results);
       if (results.length === 0) {
         setSearchError('未找到相关技能');

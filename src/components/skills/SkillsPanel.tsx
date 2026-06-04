@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { Plus, RefreshCw, Search, Folder, Upload, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import SkillsList from './SkillsList';
@@ -8,6 +7,7 @@ import ImportModal from './modals/ImportModal';
 import BatchSyncModal from './modals/BatchSyncModal';
 import EditSkillModal from './modals/EditSkillModal';
 import { useInstalledTools } from '@/contexts/InstalledToolsContext';
+import { skillsApi } from '@/lib/api';
 import type {
   ManagedSkill,
   OnboardingPlan,
@@ -33,14 +33,7 @@ function SkillsPanel() {
 
   const loadManagedSkills = useCallback(async () => {
     try {
-      // 10秒超时保护，防止命令挂起导致页面一直loading
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('加载超时，请尝试重启应用')), 10000);
-      });
-      const result = await Promise.race([
-        invoke<ManagedSkill[]>('get_managed_skills'),
-        timeoutPromise
-      ]);
+      const result = await skillsApi.getManagedSkills();
       setManagedSkills(result);
     } catch (err) {
       console.warn('Failed to load managed skills:', err);
@@ -52,14 +45,7 @@ function SkillsPanel() {
 
   const loadPlan = useCallback(async () => {
     try {
-      // 10秒超时保护
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('加载超时')), 10000);
-      });
-      await Promise.race([
-        invoke<OnboardingPlan>('get_onboarding_plan'),
-        timeoutPromise
-      ]).then(result => setPlan(result));
+      setPlan(await skillsApi.getOnboardingPlan());
     } catch (err) {
       console.warn('Failed to load onboarding plan:', err);
     }
@@ -157,7 +143,7 @@ function SkillsPanel() {
     try {
       setIsDeleting(true);
       toast.info(`正在删除技能: ${skill?.name || deleteSkillId}`);
-      await invoke('delete_managed_skill', { skillId: deleteSkillId, skillName: skill?.name || '' });
+      await skillsApi.deleteManagedSkill(deleteSkillId, skill?.name || '');
       toast.success(`技能 "${skill?.name}" 已删除`);
       setDeleteSkillId(null);
       loadManagedSkills();

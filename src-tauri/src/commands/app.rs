@@ -6,6 +6,7 @@ use crate::app_state::AppState;
 use crate::mcp::AppType;
 #[cfg(target_os = "windows")]
 use crate::services::tool_manager::which_binary;
+use crate::services::McpService;
 
 const DEFAULT_TERMINAL_SETTING_KEY: &str = "default_terminal";
 #[cfg(target_os = "macos")]
@@ -167,11 +168,11 @@ pub async fn get_app_configs(_state: State<'_, AppState>) -> Result<Vec<AppConfi
 /// 从指定应用导入 MCP
 #[tauri::command]
 pub async fn import_mcp_from_app(
-    _state: State<'_, AppState>,
-    _app_id: String,
+    state: State<'_, AppState>,
+    app_id: String,
 ) -> Result<usize, String> {
-    // TODO: 实现从单个应用导入
-    Ok(0)
+    let app = app_id.parse::<AppType>().map_err(|e| e.to_string())?;
+    McpService::import_from_app(&state, app).map_err(|e| e.to_string())
 }
 
 #[derive(Serialize, Deserialize)]

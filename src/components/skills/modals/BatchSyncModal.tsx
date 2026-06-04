@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { X, CheckSquare, Square, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ManagedSkill, ToolOption } from '../types';
 import { APP_COLORS } from '@/lib/tools';
+import { skillsApi } from '@/lib/api';
 
 interface BatchSyncModalProps {
   open: boolean;
@@ -62,7 +62,7 @@ function BatchSyncModal({
         Array.from(selectedTools).map((toolId) => ({
           skill,
           toolId,
-          promise: invoke('sync_skill_to_tool', {
+          promise: skillsApi.syncToTool({
               skillId: skill.id,
               skillName: skill.name,
               tool: toolId,

@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { X, ChevronRight, Loader2, FolderSearch } from 'lucide-react';
 import { toast } from 'sonner';
 import type { OnboardingPlan, ToolOption } from '../types';
+import { skillsApi } from '@/lib/api';
 
 interface ImportModalProps {
   open: boolean;
@@ -63,17 +63,10 @@ function ImportModal({ open, onClose, plan, tools, syncTargets, onSkillAdded }: 
         if (!chosenPath) return null;
 
         // Import the skill
-        const installResult = await invoke<{
-          id: string;
-          name: string;
-          central_path: string;
-        }>('import_existing_skill', {
-          source_path: chosenPath,
-          name: group.name
-        });
+        const installResult = await skillsApi.importExistingSkill(chosenPath, group.name);
 
         // Sync to selected tools
-        await Promise.all(selectedTools.map(tool => invoke('sync_skill_to_tool', {
+        await Promise.all(selectedTools.map(tool => skillsApi.syncToTool({
             skillId: installResult.id,
             skillName: installResult.name,
             tool: tool.id,

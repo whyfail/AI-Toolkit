@@ -69,6 +69,7 @@ impl Database {
                 enabled_trae_cn BOOLEAN DEFAULT FALSE,
                 enabled_trae_solo_cn BOOLEAN DEFAULT FALSE,
                 enabled_qoder BOOLEAN DEFAULT FALSE,
+                enabled_qodercli BOOLEAN DEFAULT FALSE,
                 enabled_codebuddy BOOLEAN DEFAULT FALSE,
                 created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
                 updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
@@ -131,6 +132,10 @@ impl Database {
         );
         let _ = conn.execute(
             "ALTER TABLE mcp_servers ADD COLUMN enabled_qoder BOOLEAN DEFAULT FALSE",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE mcp_servers ADD COLUMN enabled_qodercli BOOLEAN DEFAULT FALSE",
             [],
         );
         let _ = conn.execute(

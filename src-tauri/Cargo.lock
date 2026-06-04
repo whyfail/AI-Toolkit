@@ -55,6 +55,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-store",
  "tauri-plugin-updater",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "toml 0.8.2",

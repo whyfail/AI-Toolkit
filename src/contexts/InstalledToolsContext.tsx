@@ -1,8 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import type { ToolId } from "@/lib/tools";
+import { invokeWithTimeout, toolApi } from "@/lib/api";
 
 // 类型定义（与后端 InstalledToolsReport 对齐）
 export interface AgentInfo {
@@ -59,14 +59,7 @@ export function InstalledToolsProvider({ children }: { children: ReactNode }) {
 
   const loadReport = useCallback(async () => {
     try {
-      // 10秒超时保护
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('加载超时，请尝试重启应用')), 10000);
-      });
-      const data = await Promise.race([
-        invoke<InstalledToolsReport>("get_installed_tools"),
-        timeoutPromise
-      ]);
+      const data = await invokeWithTimeout<InstalledToolsReport>("get_installed_tools");
       setReport(data);
     } catch (err) {
       console.error("Failed to load installed tools:", err);
@@ -79,7 +72,7 @@ export function InstalledToolsProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await invoke<InstalledToolsReport>("refresh_installed_tools");
+      const data = await toolApi.refreshInstalledTools();
       setReport(data);
       toast.success("工具检测已刷新");
     } catch (err) {

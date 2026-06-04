@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { X, Check, AlertCircle, ClipboardPaste, ChevronDown, ChevronUp, Play, Loader2 } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
 import { useUpsertMcpServer } from "@/hooks/useMcp";
+import { mcpApi } from "@/lib/api";
 import type { McpServer, McpServerSpec } from "@/types";
 
 interface AgentInfo {
@@ -124,14 +124,12 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
     setIsTesting(true);
     setTestResult(null);
     try {
-      const result = await invoke("test_mcp_connection", {
-        params: {
-          command: parsedServer.server.command || "",
-          args: parsedServer.server.args || [],
-          env: parsedServer.server.env || {},
-        },
+      const result = await mcpApi.testConnection({
+        command: parsedServer.server.command || "",
+        args: parsedServer.server.args || [],
+        env: parsedServer.server.env || {},
       });
-      setTestResult(result as { success: boolean; message: string });
+      setTestResult(result);
     } catch (e: any) {
       setTestResult({ success: false, message: String(e) });
     } finally {

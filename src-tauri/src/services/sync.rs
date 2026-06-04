@@ -244,7 +244,7 @@ pub fn sync_all_live_configs(servers: &IndexMap<String, McpServer>) -> Result<()
     Ok(())
 }
 
-fn get_config_path_for_app(app: &AppType) -> Result<String, AppError> {
+pub(crate) fn get_config_path_for_app(app: &AppType) -> Result<String, AppError> {
     Ok(match app {
         AppType::QwenCode => "~/.qwen/settings.json",
         AppType::Claude => {

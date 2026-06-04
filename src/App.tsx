@@ -17,10 +17,9 @@ import {
   Sparkles,
   Share2,
 } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
 import { useAppVersion } from "@/hooks/useAppVersion";
-import { appApi } from "@/lib/api";
+import { appApi, updateApi } from "@/lib/api";
 import type { AppConfigInfo, LaunchPreferences } from "@/types";
 import appLogo from "../src-tauri/icons/128x128.png";
 
@@ -72,11 +71,7 @@ function App() {
 
     const checkStartupUpdate = async () => {
       try {
-        const result = await invoke<{
-          available: boolean;
-          version: string;
-          body: string | null;
-        }>("check_update");
+        const result = await updateApi.checkUpdate();
 
         if (!cancelled && result.available) {
           setStartupUpdateInfo({
@@ -100,7 +95,7 @@ function App() {
   const installStartupUpdate = async () => {
     setStartupInstalling(true);
     try {
-      await invoke("install_update");
+      await updateApi.installUpdate();
       toast.success("更新下载完成，正在重启应用...");
     } catch (err) {
       console.error("安装更新失败:", err);
@@ -298,11 +293,7 @@ const SettingsTab: React.FC = () => {
     setUpdateInfo(null);
     setIsLatest(false);
     try {
-      const result = await invoke<{
-        available: boolean;
-        version: string;
-        body: string | null;
-      }>("check_update");
+      const result = await updateApi.checkUpdate();
       if (result.available) {
         setUpdateInfo({
           version: result.version,
@@ -324,7 +315,7 @@ const SettingsTab: React.FC = () => {
   const installUpdate = async () => {
     setInstalling(true);
     try {
-      await invoke("install_update");
+      await updateApi.installUpdate();
       toast.success("更新下载完成，正在重启应用...");
     } catch (err) {
       console.error("安装更新失败:", err);

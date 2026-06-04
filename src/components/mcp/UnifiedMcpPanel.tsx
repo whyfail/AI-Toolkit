@@ -1,5 +1,4 @@
 import { useMemo, useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import {
   Server,
@@ -19,6 +18,7 @@ import {
 import { useInstalledTools, AgentInfo } from "@/contexts/InstalledToolsContext";
 import type { McpServer } from "@/types";
 import { APP_COLORS } from "@/lib/tools";
+import { agentApi, toolApi } from "@/lib/api";
 import McpFormModal from "./McpFormModal";
 import NewAgentModal from "./NewAgentModal";
 
@@ -41,7 +41,7 @@ const UnifiedMcpPanel: React.FC = () => {
   // 打开配置文件
   const handleOpenConfig = async (agentId: string) => {
     try {
-      await invoke("open_config_file", { agentId });
+      await agentApi.openConfigFile(agentId);
     } catch (e) {
       console.error(`Failed to open config for ${agentId}:`, e);
     }
@@ -68,7 +68,7 @@ const UnifiedMcpPanel: React.FC = () => {
     setIsScanning(true);
     try {
       // 调用全局刷新
-      const report = await invoke<{ agents: AgentInfo[] }>("refresh_installed_tools");
+      const report = await toolApi.refreshInstalledTools();
       const existing = report.agents.filter((a) => a.exists);
       if (existing.length > 0) {
         setNewAgents(existing);

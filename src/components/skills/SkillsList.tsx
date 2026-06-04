@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { GitBranch, Folder, Trash2, Sparkles, X, FileText, CheckSquare, Square, Github, RefreshCw, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ManagedSkill, ToolOption } from './types';
 import { APP_COLORS } from '@/lib/tools';
+import { skillsApi } from '@/lib/api';
 
 interface SkillsListProps {
   skills: ManagedSkill[];
@@ -83,7 +83,7 @@ function SkillsList({
     setReadmeContent(null);
     setReadmeLoading(true);
     try {
-      const content = await invoke<string>('get_skill_readme', { skillName: skill.name });
+      const content = await skillsApi.getReadme(skill.name);
       setReadmeContent(content);
     } catch (err) {
       console.error('Failed to load SKILL.md:', err);
@@ -99,7 +99,7 @@ function SkillsList({
     try {
       if (checked) {
         // 同步到工具
-        await invoke('sync_skill_to_tool', {
+        await skillsApi.syncToTool({
           skillId: skill.id,
           skillName: skill.name,
           tool: toolId,
@@ -108,10 +108,7 @@ function SkillsList({
         toast.success(`已同步到 ${toolId}`);
       } else {
         // 取消同步 - 只从指定工具目录删除技能文件夹，不删除 central repo
-        await invoke('unsync_skill_from_tool', {
-          skillName: skill.name,
-          tool: toolId,
-        });
+        await skillsApi.unsyncFromTool(skill.name, toolId);
         toast.success(`已从 ${toolId} 移除`);
       }
       onSkillSync?.();
@@ -131,9 +128,7 @@ function SkillsList({
     }
     setRefreshingSkill(skill.id);
     try {
-      await invoke('update_skill', {
-        skillId: skill.id,
-      });
+      await skillsApi.updateSkill(skill.id);
       toast.success(`技能 "${skill.name}" 已刷新`);
       onSkillSync?.();
     } catch (err) {

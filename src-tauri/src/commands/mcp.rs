@@ -1,7 +1,9 @@
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::time::Duration;
 use tauri::State;
 
 use crate::app_state::AppState;
@@ -74,6 +76,13 @@ pub async fn test_mcp_connection(
     let args = params.args.clone();
     let env = params.env.clone().unwrap_or_default();
 
+    if command.trim().is_empty() {
+        return Ok(TestConnectionResult {
+            success: false,
+            message: "当前连接测试仅支持 stdio MCP，请提供 command。".to_string(),
+        });
+    }
+
     tokio::task::spawn_blocking(move || {
         // 继承系统 PATH 环境变量，确保能找到 npx/node 等命令
         let mut cmd = Command::new(&command);
@@ -89,6 +98,31 @@ pub async fn test_mcp_connection(
             .spawn()
             .map_err(|e| format!("无法启动命令 '{}': {}", command, e))?;
 
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "无法读取 MCP 服务器 stdout".to_string())?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| "无法读取 MCP 服务器 stderr".to_string())?;
+
+        let (stdout_tx, stdout_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            let mut reader = BufReader::new(stdout);
+            let result = reader.read_line(&mut line).map(|_| line);
+            let _ = stdout_tx.send(result);
+        });
+
+        let (stderr_tx, stderr_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(stderr);
+            let mut buffer = String::new();
+            let _ = reader.read_line(&mut buffer);
+            let _ = stderr_tx.send(buffer);
+        });
+
         // 发送 MCP 初始化请求
         let init_request = serde_json::json!({
             "jsonrpc": "2.0",
@@ -101,60 +135,113 @@ pub async fn test_mcp_connection(
             }
         });
 
-        let request_str = format!("{}\n", serde_json::to_string(&init_request).unwrap());
+        let request_str = format!(
+            "{}\n",
+            serde_json::to_string(&init_request).map_err(|e| e.to_string())?
+        );
 
         if let Some(ref mut stdin) = child.stdin {
             stdin
                 .write_all(request_str.as_bytes())
                 .map_err(|e| format!("写入 stdin 失败: {}", e))?;
+            stdin
+                .flush()
+                .map_err(|e| format!("刷新 stdin 失败: {}", e))?;
         }
 
-        // 尝试读取一行响应（超时 5s 由 wait_with_output 内部处理其实不太对，我们这里用 wait_timeout）
-        // 由于标准库没有 wait_timeout，我们简单等待一下然后 kill，或者直接 try_recv
+        match stdout_rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(Ok(line)) => {
+                let is_initialize_result = serde_json::from_str::<serde_json::Value>(&line)
+                    .ok()
+                    .and_then(|value| value.get("result").cloned())
+                    .is_some();
+                let _ = child.kill();
+                let _ = child.wait();
 
-        // 简化版：等待进程退出或读取 stderr/stdout
-        // 很多 MCP server 启动后不会立刻退出，所以这里我们检查是否成功启动并能接收输入
-
-        std::thread::sleep(std::time::Duration::from_secs(2));
-
-        // 检查进程是否还在运行
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                // 进程已退出
-                let output = child.wait_with_output().unwrap();
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let stdout = String::from_utf8_lossy(&output.stdout);
-
-                if status.success() || stdout.contains("result") || !stdout.is_empty() {
+                if is_initialize_result {
                     Ok(TestConnectionResult {
                         success: true,
-                        message: format!(
-                            "连接成功。输出: {}",
-                            stdout.chars().take(150).collect::<String>()
-                        ),
+                        message: "连接成功！服务器返回了 MCP 初始化响应。".to_string(),
                     })
                 } else {
                     Ok(TestConnectionResult {
                         success: false,
                         message: format!(
-                            "进程异常退出: {}",
-                            stderr.chars().take(200).collect::<String>()
+                            "服务器响应不是有效的 MCP 初始化结果: {}",
+                            line.chars().take(200).collect::<String>()
                         ),
                     })
                 }
             }
-            Ok(None) => {
-                // 进程仍在运行，说明连接成功
+            Ok(Err(e)) => {
                 let _ = child.kill();
+                let _ = child.wait();
                 Ok(TestConnectionResult {
-                    success: true,
-                    message: "连接成功！服务器正在运行。".to_string(),
+                    success: false,
+                    message: format!("读取 stdout 失败: {}", e),
                 })
             }
-            Err(e) => Ok(TestConnectionResult {
-                success: false,
-                message: format!("检查状态失败: {}", e),
-            }),
+            Err(mpsc::RecvTimeoutError::Timeout) => match child.try_wait() {
+                Ok(Some(status)) => {
+                    let stderr = stderr_rx.try_recv().unwrap_or_default();
+                    let _ = child.wait();
+                    Ok(TestConnectionResult {
+                        success: false,
+                        message: format!(
+                            "进程已退出但未返回 MCP 初始化响应: {}{}",
+                            status,
+                            if stderr.is_empty() {
+                                String::new()
+                            } else {
+                                format!("，错误: {}", stderr.chars().take(200).collect::<String>())
+                            }
+                        ),
+                    })
+                }
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    Ok(TestConnectionResult {
+                        success: false,
+                        message: "连接超时：服务器启动了，但 5 秒内没有返回 MCP 初始化响应。"
+                            .to_string(),
+                    })
+                }
+                Err(e) => Ok(TestConnectionResult {
+                    success: false,
+                    message: format!("检查状态失败: {}", e),
+                }),
+            },
+            Err(mpsc::RecvTimeoutError::Disconnected) => match child.try_wait() {
+                Ok(Some(status)) => {
+                    let stderr = stderr_rx.try_recv().unwrap_or_default();
+                    let _ = child.wait();
+                    Ok(TestConnectionResult {
+                        success: false,
+                        message: format!(
+                            "进程异常退出: {}{}",
+                            status,
+                            if stderr.is_empty() {
+                                String::new()
+                            } else {
+                                format!("，错误: {}", stderr.chars().take(200).collect::<String>())
+                            }
+                        ),
+                    })
+                }
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    Ok(TestConnectionResult {
+                        success: false,
+                        message: "stdout 读取已结束，但服务器没有返回初始化响应。".to_string(),
+                    })
+                }
+                Err(e) => Ok(TestConnectionResult {
+                    success: false,
+                    message: format!("检查状态失败: {}", e),
+                }),
+            },
         }
     })
     .await

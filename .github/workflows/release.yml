@@ -55,6 +55,11 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Run quality checks
+        run: |
+          pnpm check
+          cargo test --manifest-path src-tauri/Cargo.toml
+
       - name: Build Tauri App (macOS)
         shell: bash
         timeout-minutes: 60
@@ -197,6 +202,11 @@ jobs:
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Run quality checks
+        run: |
+          pnpm check
+          cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Build Tauri App (Windows)
         shell: pwsh
