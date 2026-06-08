@@ -123,13 +123,11 @@ function App() {
         {/* Logo */}
         <div className="px-6 pt-6 pb-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/70 bg-white/70 shadow-lg shadow-blue-500/15 backdrop-blur-xl">
-              <img
-                src={appLogo}
-                alt="AI Toolkit"
-                className="h-8 w-8 rounded-xl"
-              />
-            </div>
+            <img
+              src={appLogo}
+              alt="AI Toolkit"
+              className="h-11 w-11 rounded-2xl"
+            />
             <div>
               <h1 className="text-base font-semibold tracking-tight text-slate-950 dark:text-white">
                 AI Toolkit
