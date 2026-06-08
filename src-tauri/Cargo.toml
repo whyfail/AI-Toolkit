@@ -1,6 +1,6 @@
 [package]
 name = "ai-toolkit"
-version = "1.5.5"
+version = "1.5.6"
 description = "Universal MCP Server & Skills Manager for AI CLI Tools"
 authors = ["you"]
 edition = "2021"
@@ -40,6 +40,7 @@ log = "0.4"
 uuid = { version = "1", features = ["v4"] }
 futures = "0.3"
 junction = "0.2"
+zip = "2"
 
 [dev-dependencies]
 tempfile = "3"

@@ -93,6 +93,8 @@ export type ImportPreview = {
 export type ImportResult = {
   imported_mcp: number;
   skipped_mcp: number;
+  imported_skill: number;
+  skipped_skill: number;
 };
 
 export type LaunchPreset = {
@@ -103,6 +105,15 @@ export type LaunchPreset = {
   enabled_mcp_servers: string[];
   created_at: number;
   updated_at: number;
+};
+
+export type SkillsInstallPreferences = {
+  selected: string;
+  options: Array<{
+    id: string;
+    label: string;
+    path: string;
+  }>;
 };
 
 export type TaskLogEntry = {
@@ -237,6 +248,14 @@ export const appApi = {
     return invoke("set_default_terminal", { terminalId });
   },
 
+  async getSkillsInstallPreferences(): Promise<SkillsInstallPreferences> {
+    return invoke<SkillsInstallPreferences>("get_skills_install_preferences");
+  },
+
+  async setSkillsInstallLocation(locationId: string): Promise<void> {
+    return invoke("set_skills_install_location_preference", { locationId });
+  },
+
   // 从指定应用导入
   async importFromApp(appId: string): Promise<number> {
     return invoke<number>("import_mcp_from_app", { appId });
@@ -266,8 +285,8 @@ export const toolApi = {
   },
 
   // 更新工具
-  async updateTool(appType: string): Promise<void> {
-    return invoke("update_tool", { appType });
+  async updateTool(appType: string, updateKind: "cli" | "desktop" = "cli"): Promise<void> {
+    return invoke("update_tool", { appType, updateKind });
   },
 
   // 卸载工具
@@ -310,8 +329,12 @@ export const agentApi = {
     return invoke<number>("sync_agent_mcp", { agentId, enabledApps });
   },
 
-  async launchAgent(agentId: string, workingDir?: string): Promise<void> {
-    return invoke("launch_agent", { agentId, workingDir });
+  async launchAgent(
+    agentId: string,
+    workingDir?: string,
+    launchKind?: "auto" | "cli" | "desktop"
+  ): Promise<void> {
+    return invoke("launch_agent", { agentId, workingDir, launchKind });
   },
 };
 
@@ -405,10 +428,6 @@ export const skillsApi = {
     return invoke<ManagedSkill>("install_local_selection", params);
   },
 
-  async importExistingSkill(sourcePath: string, name: string): Promise<ManagedSkill> {
-    return invoke<ManagedSkill>("import_existing_skill", { sourcePath, name });
-  },
-
   async renameSkill(params: {
     skillId: string;
     newName: string;
@@ -447,12 +466,24 @@ export const enhancementApi = {
     return invoke<ToolkitExport>("export_toolkit_config");
   },
 
+  async exportToolkitPackage(outputPath: string): Promise<ToolkitExport> {
+    return invoke<ToolkitExport>("export_toolkit_package", { outputPath });
+  },
+
   async previewToolkitImport(content: string): Promise<ImportPreview> {
     return invoke<ImportPreview>("preview_toolkit_import", { content });
   },
 
+  async previewToolkitPackage(packagePath: string): Promise<ImportPreview> {
+    return invoke<ImportPreview>("preview_toolkit_package", { packagePath });
+  },
+
   async importToolkitConfig(content: string, overwrite: boolean): Promise<ImportResult> {
     return invoke<ImportResult>("import_toolkit_config", { content, overwrite });
+  },
+
+  async importToolkitPackage(packagePath: string, overwrite: boolean): Promise<ImportResult> {
+    return invoke<ImportResult>("import_toolkit_package", { packagePath, overwrite });
   },
 
   async scanSecurityFindings(): Promise<SecurityFinding[]> {

@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-1.5.5-blue.svg)](https://github.com)
+[![Version](https://img.shields.io/badge/version-1.5.6-blue.svg)](https://github.com)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B-lightgrey.svg)](https://github.com)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -27,7 +27,8 @@ AI Toolkit是一款**通用的 AI 编程工具管理工具**，支持统一管�
 
 ### 🧰 Skills 技能管理
 - **Skills 面板**：独立的 Skills 管理界面，集中管理所有已安装的技能
-- **批量同步**：支持选择多个 Skills 同步到多个目标工具
+- **安装位置切换**：支持在官方 `~/.agents/skills/` 与 `~/.ai-toolkit/skills/` 之间切换中心 Skills 目录
+- **批量同步**：支持在弹窗中点击选择多个 Skills，同步到多个目标工具
 - **Git 安装**：支持从 GitHub/GitLab 仓库安装 Skills，自动解析仓库结构
 - **在线搜索**：从 skills.sh 搜索热门 Skills
 - **精选推荐**：浏览精选 Skills 列表，包含安装量和星标信息
@@ -36,9 +37,9 @@ AI Toolkit是一款**通用的 AI 编程工具管理工具**，支持统一管�
 - **同步进度与冲突策略**：批量同步展示逐项进度，安装/重命名同名技能时支持重命名、跳过或覆盖
 
 ### 🛡️ 增强中心
-- **配置备份与回滚**：MCP 配置变更前自动快照，支持一键恢复
+- **MCP 与工具配置文件快照**：备份 MCP Server 数据和各工具 MCP 配置文件，支持一键恢复
 - **健康检查**：检测 MCP 命令、环境变量、配置文件和同步状态
-- **配置导入导出**：导出整套 MCP/Skills/设置配置，敏感字段默认脱敏
+- **配置压缩包导入导出**：以 `.zip` 导出 MCP、Skills 文件和设置，避免大文件内容塞入页面
 - **任务日志**：记录工具安装、更新、扫描、Skills 同步和导入等操作结果
 - **Agent 启动预设**：保存工具、工作目录和 MCP 组合，一键按预设启动
 
@@ -55,8 +56,9 @@ AI Toolkit是一款**通用的 AI 编程工具管理工具**，支持统一管�
 
 ### 📦 工具管理
 - **安装向导**：显示各工具的多种安装方式 (Homebrew, npm, curl 脚本)
-- **版本检测**：自动检测已安装工具的版本
-- **一键更新**：快速更新已安装的工具
+- **CLI / 桌面端识别**：同时检测 CLI 和桌面端，支持 OpenCode、Claude Code、Codex 等工具分别启动
+- **版本检测**：自动检测 CLI 版本和桌面端版本
+- **一键更新**：CLI 更新走包管理器，桌面端更新打开官方更新页面
 - **使用文档**：每个工具卡片提供官方文档入口，便于快速查看用法
 - **并发更新**：支持多个工具同时更新，并独立显示更新进度
 

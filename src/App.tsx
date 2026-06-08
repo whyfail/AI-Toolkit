@@ -22,6 +22,7 @@ import {
 import { open } from "@tauri-apps/plugin-shell";
 import { useAppVersion } from "@/hooks/useAppVersion";
 import { appApi, updateApi } from "@/lib/api";
+import type { SkillsInstallPreferences } from "@/lib/api";
 import type { AppConfigInfo, LaunchPreferences } from "@/types";
 import appLogo from "../src-tauri/icons/128x128.png";
 
@@ -201,11 +202,15 @@ const SettingsTab: React.FC = () => {
   const [apps, setApps] = useState<AppConfigInfo[]>([]);
   const [launchPreferences, setLaunchPreferences] = useState<LaunchPreferences | null>(null);
   const [savingTerminal, setSavingTerminal] = useState(false);
+  const [skillsInstallPreferences, setSkillsInstallPreferences] = useState<SkillsInstallPreferences | null>(null);
+  const [savingSkillsLocation, setSavingSkillsLocation] = useState(false);
   const appVersion = useAppVersion();
   const isWindows = navigator.userAgent.includes("Windows");
   const isMac = navigator.userAgent.includes("Mac");
   const dbPath = isWindows ? "%USERPROFILE%\\.ai-toolkit\\ai-toolkit.db" : "~/.ai-toolkit/ai-toolkit.db";
-  const skillsPath = isWindows ? "%USERPROFILE%\\.ai-toolkit\\skills\\" : "~/.ai-toolkit/skills/";
+  const selectedSkillsPath = skillsInstallPreferences?.options.find(
+    (option) => option.id === skillsInstallPreferences.selected
+  )?.path;
 
   const copyShareUrl = async () => {
     try {
@@ -220,21 +225,25 @@ const SettingsTab: React.FC = () => {
   useEffect(() => {
     let cancelled = false;
 
-    const loadAppConfigs = async () => {
+    const loadSettings = async () => {
       try {
-        const configs = await appApi.getAppConfigs();
+        const [configs, skillsPreferences] = await Promise.all([
+          appApi.getAppConfigs(),
+          appApi.getSkillsInstallPreferences(),
+        ]);
         if (!cancelled) {
           setApps(configs);
+          setSkillsInstallPreferences(skillsPreferences);
         }
       } catch (err) {
-        console.error("获取应用配置失败:", err);
+        console.error("获取设置失败:", err);
         if (!cancelled) {
-          toast.error(`获取应用配置失败: ${err}`);
+          toast.error(`获取设置失败: ${err}`);
         }
       }
     };
 
-    loadAppConfigs();
+    loadSettings();
 
     return () => {
       cancelled = true;
@@ -287,6 +296,30 @@ const SettingsTab: React.FC = () => {
       toast.error(`保存默认终端失败: ${err}`);
     } finally {
       setSavingTerminal(false);
+    }
+  };
+
+  const handleSkillsLocationChange = async (locationId: string) => {
+    if (!skillsInstallPreferences) return;
+
+    const previous = skillsInstallPreferences.selected;
+    setSkillsInstallPreferences({
+      ...skillsInstallPreferences,
+      selected: locationId,
+    });
+    setSavingSkillsLocation(true);
+    try {
+      await appApi.setSkillsInstallLocation(locationId);
+      toast.success("Skills 安装位置已更新");
+    } catch (err) {
+      console.error("保存 Skills 安装位置失败:", err);
+      setSkillsInstallPreferences({
+        ...skillsInstallPreferences,
+        selected: previous,
+      });
+      toast.error(`保存 Skills 安装位置失败: ${err}`);
+    } finally {
+      setSavingSkillsLocation(false);
     }
   };
 
@@ -406,10 +439,32 @@ const SettingsTab: React.FC = () => {
               </div>
               <div>
                 <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                  Skills 列表路径
+                  Skills 安装位置
                 </p>
+                {skillsInstallPreferences && (
+                  <div
+                    className={`mt-2 grid grid-cols-2 rounded-xl border border-white/70 bg-white/45 p-1 shadow-inner shadow-slate-200/40 backdrop-blur-xl dark:border-white/10 dark:bg-white/8 dark:shadow-black/10 ${
+                      savingSkillsLocation ? "pointer-events-none opacity-60" : ""
+                    }`}
+                  >
+                    {skillsInstallPreferences.options.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => handleSkillsLocationChange(option.id)}
+                        className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition-all ${
+                          skillsInstallPreferences.selected === option.id
+                            ? "bg-gradient-to-r from-blue-600 to-sky-500 text-white shadow-md shadow-blue-500/20"
+                            : "text-slate-500 hover:bg-white/65 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-white"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <code className={codeBlock}>
-                  {skillsPath}
+                  {selectedSkillsPath || "加载中..."}
                 </code>
               </div>
             </div>

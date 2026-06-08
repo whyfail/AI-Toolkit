@@ -5,7 +5,7 @@ import { agentApi, enhancementApi, toolApi } from "@/lib/api";
 import { useInstalledTools } from "@/contexts/InstalledToolsContext";
 import { getToolMeta, isLaunchable } from "@/lib/tools";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
-import { Loader2, Download, RefreshCw, ExternalLink, CheckCircle, AlertCircle, Play, Trash2, BookOpen, Package } from "lucide-react";
+import { Loader2, Download, RefreshCw, ExternalLink, CheckCircle, AlertCircle, Play, Trash2, BookOpen, Package, Settings, CheckSquare, Square } from "lucide-react";
 
 const glassSurface =
   "border border-white/60 bg-white/70 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/55 dark:shadow-[0_18px_60px_rgba(0,0,0,0.35)]";
@@ -15,6 +15,7 @@ const primaryButton =
   "flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-sky-500 px-3 py-2 text-xs font-semibold text-white shadow-[0_10px_24px_rgba(37,99,235,0.22)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(37,99,235,0.28)] disabled:translate-y-0 disabled:opacity-50 disabled:shadow-none";
 const secondaryButton =
   "flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-white/60 bg-white/65 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:bg-white/85 hover:text-slate-950 disabled:translate-y-0 disabled:opacity-50 dark:border-white/10 dark:bg-white/8 dark:text-slate-200 dark:hover:bg-white/12";
+const toolVisibilityStorageKey = "ai-toolkit-tool-manager-hidden-tools";
 
 const parseVersion = (v: string) => v.replace(/[^0-9.]/g, '').split('.').map(n => parseInt(n, 10) || 0);
 
@@ -91,7 +92,10 @@ const ToolCard: React.FC<{
     app_type: string;
     name: string;
     installed: boolean;
+    has_cli: boolean;
+    has_desktop_app: boolean;
     version: string | null;
+    desktop_version: string | null;
     latest_version: string | null;
     detected_method: string | null;
     methods: Array<{
@@ -105,9 +109,9 @@ const ToolCard: React.FC<{
     homepage: string;
   };
   onInstall: (methodIndex: number, needsConfirm: boolean, command: string) => void;
-  onUpdate: () => void;
+  onUpdate: (updateKind: "cli" | "desktop") => void;
   onScan: () => void;
-  onLaunch: () => void;
+  onLaunch: (launchKind: "cli" | "desktop") => void;
   onDelete: () => void;
   installing: boolean;
   updating: boolean;
@@ -117,6 +121,13 @@ const ToolCard: React.FC<{
   const [showMethods, setShowMethods] = useState(false);
   const hasUpdate = tool.installed && tool.version && tool.latest_version && compareVersions(tool.version, tool.latest_version);
   const docsUrl = getToolMeta(tool.app_type)?.docsUrl;
+  const installBadgeLabel = tool.has_cli && tool.has_desktop_app
+    ? "CLI + 桌面端"
+    : tool.has_cli
+      ? "CLI"
+      : tool.has_desktop_app
+        ? "桌面端"
+        : "已安装";
 
   return (
     <div className={`group relative overflow-hidden rounded-2xl p-5 transition-all duration-300 hover:-translate-y-1 hover:border-white/80 hover:shadow-[0_24px_70px_rgba(15,23,42,0.13)] dark:hover:border-white/20 ${glassSurface}`}>
@@ -161,9 +172,18 @@ const ToolCard: React.FC<{
                 <span className="flex items-center gap-1.5 flex-wrap">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                   <span className="rounded-full border border-emerald-200/70 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:border-emerald-300/20 dark:text-emerald-300">
-                    {tool.detected_method || tool.methods[0]?.name || "CLI"}
+                    {installBadgeLabel}
                   </span>
-                  <span>{tool.version || ""}</span>
+                  {tool.version && (
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-white/8 dark:text-slate-300">
+                      CLI {tool.version}
+                    </span>
+                  )}
+                  {tool.desktop_version && (
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-white/8 dark:text-slate-300">
+                      桌面端 {tool.desktop_version}
+                    </span>
+                  )}
                   {hasUpdate && (
                     <span className="flex items-center gap-0.5 text-red-500" title={`有新版本 ${tool.latest_version}`}>
                       <AlertCircle size={12} />
@@ -224,14 +244,24 @@ const ToolCard: React.FC<{
             {tool.methods.length > 0 &&
             tool.methods[0].method_type !== "download" ? (
               <>
-                {isLaunchable(tool.app_type) && (
+                {isLaunchable(tool.app_type) && tool.has_cli && (
                   <button
-                    onClick={onLaunch}
+                    onClick={() => onLaunch("cli")}
                     className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-3 py-2 text-xs font-semibold text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(16,185,129,0.28)]"
-                    title="启动工具"
+                    title="启动 CLI"
                   >
                     <Play size={14} />
-                    启动
+                    启动 CLI
+                  </button>
+                )}
+                {isLaunchable(tool.app_type) && tool.has_desktop_app && (
+                  <button
+                    onClick={() => onLaunch("desktop")}
+                    className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-blue-500 px-3 py-2 text-xs font-semibold text-white shadow-[0_10px_24px_rgba(59,130,246,0.22)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(59,130,246,0.28)]"
+                    title="启动桌面端"
+                  >
+                    <Play size={14} />
+                    启动桌面端
                   </button>
                 )}
                 <button
@@ -246,18 +276,31 @@ const ToolCard: React.FC<{
                   />
                   {scanning ? "扫描中..." : "扫描"}
                 </button>
-                <button
-                  onClick={onUpdate}
-                  disabled={updating}
-                  className={primaryButton}
-                >
-                  {updating ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
+                {tool.has_cli && (
+                  <button
+                    onClick={() => onUpdate("cli")}
+                    disabled={updating}
+                    className={primaryButton}
+                    title="更新 CLI"
+                  >
+                    {updating ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <RefreshCw size={14} />
+                    )}
+                    {updating ? "更新中..." : "更新 CLI"}
+                  </button>
+                )}
+                {tool.has_desktop_app && (
+                  <button
+                    onClick={() => onUpdate("desktop")}
+                    className={primaryButton}
+                    title="更新桌面端"
+                  >
                     <RefreshCw size={14} />
-                  )}
-                  {updating ? "更新中..." : "更新"}
-                </button>
+                    更新桌面端
+                  </button>
+                )}
               </>
             ) : (
               <button
@@ -363,6 +406,16 @@ const ToolManagerPanel: React.FC = () => {
   const [installingTool, setInstallingTool] = useState<string | null>(null);
   const [scanningTool, setScanningTool] = useState<string | null>(null);
   const [deletingTool, setDeletingTool] = useState<string | null>(null);
+  const [showToolSettings, setShowToolSettings] = useState(false);
+  const [hiddenTools, setHiddenTools] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(toolVisibilityStorageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : []);
+    } catch {
+      return new Set();
+    }
+  });
 
   // 使用共享的工具检测上下文
   const { refresh: refreshInstalledTools, markAgentUninstalled, markAgentInstalled } = useInstalledTools();
@@ -373,6 +426,24 @@ const ToolManagerPanel: React.FC = () => {
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
   });
+  const sortedTools = tools?.slice().sort((a, b) => a.name.localeCompare(b.name)) || [];
+  const visibleTools = sortedTools.filter((tool) => !hiddenTools.has(tool.app_type));
+
+  useEffect(() => {
+    localStorage.setItem(toolVisibilityStorageKey, JSON.stringify(Array.from(hiddenTools)));
+  }, [hiddenTools]);
+
+  const toggleToolVisibility = (appType: string) => {
+    setHiddenTools((prev) => {
+      const next = new Set(prev);
+      if (next.has(appType)) {
+        next.delete(appType);
+      } else {
+        next.add(appType);
+      }
+      return next;
+    });
+  };
 
   // 首次加载完成后，自动后台扫描版本号
   const versionScanStarted = useRef(false);
@@ -391,6 +462,7 @@ const ToolManagerPanel: React.FC = () => {
           return {
             ...tool,
             version: scanned.version ?? tool.version,
+            desktop_version: scanned.desktop_version ?? tool.desktop_version,
             latest_version: scanned.latest_version ?? tool.latest_version,
           };
         });
@@ -443,18 +515,24 @@ const ToolManagerPanel: React.FC = () => {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async (appType: string) => {
+    mutationFn: async ({
+      appType,
+      updateKind,
+    }: {
+      appType: string;
+      updateKind: "cli" | "desktop";
+    }) => {
       setUpdatingTools((prev) => new Set(prev).add(appType));
-      await toolApi.updateTool(appType);
+      await toolApi.updateTool(appType, updateKind);
       await new Promise(resolve => setTimeout(resolve, 2000));
       const updatedInfo = await toolApi.getToolInfo(appType);
-      return updatedInfo;
+      return { updatedInfo, updateKind };
     },
-    onSuccess: (updatedInfo) => {
-      toast.success("更新成功");
+    onSuccess: ({ updatedInfo }) => {
+      toast.success("CLI 更新成功");
       enhancementApi.recordTaskLog({
         kind: "update",
-        title: `更新成功: ${updatedInfo.name}`,
+        title: `CLI 更新: ${updatedInfo.name}`,
         detail: `当前版本: ${updatedInfo.version || "未知"}`,
         status: "success",
       }).catch(console.error);
@@ -470,18 +548,18 @@ const ToolManagerPanel: React.FC = () => {
         );
       });
     },
-    onError: (error: unknown, appType) => {
+    onError: (error: unknown, variables) => {
       const message = error instanceof Error ? error.message : String(error);
       toast.error(`更新失败: ${message}`);
       enhancementApi.recordTaskLog({
         kind: "update",
-        title: `更新失败: ${appType}`,
+        title: `更新失败: ${variables.appType}`,
         detail: message,
         status: "error",
       }).catch(console.error);
       setUpdatingTools((prev) => {
         const next = new Set(prev);
-        next.delete(appType);
+        next.delete(variables.appType);
         return next;
       });
     },
@@ -497,7 +575,7 @@ const ToolManagerPanel: React.FC = () => {
       enhancementApi.recordTaskLog({
         kind: "scan",
         title: `扫描完成: ${scannedInfo.name}`,
-        detail: `已安装: ${scannedInfo.installed ? "是" : "否"}，当前版本: ${scannedInfo.version || "未知"}，最新版本: ${scannedInfo.latest_version || "未知"}`,
+        detail: `已安装: ${scannedInfo.installed ? "是" : "否"}，CLI 版本: ${scannedInfo.version || "未知"}，桌面端版本: ${scannedInfo.desktop_version || "未知"}，最新版本: ${scannedInfo.latest_version || "未知"}`,
         status: "success",
       }).catch(console.error);
       setScanningTool(null);
@@ -595,14 +673,20 @@ const ToolManagerPanel: React.FC = () => {
     }
   };
 
-  const handleUpdate = (appType: string) => {
+  const handleUpdate = (appType: string, updateKind: "cli" | "desktop") => {
+    if (updateKind === "desktop") {
+      toolApi.updateTool(appType, "desktop").catch((e) => {
+        toast.error(`打开更新页面失败: ${e}`);
+      });
+      return;
+    }
     if (updatingTools.has(appType)) return;
-    updateMutation.mutate(appType);
+    updateMutation.mutate({ appType, updateKind });
   };
 
-  const handleLaunch = async (appType: string) => {
+  const handleLaunch = async (appType: string, launchKind: "cli" | "desktop") => {
     try {
-      await agentApi.launchAgent(appType);
+      await agentApi.launchAgent(appType, undefined, launchKind);
     } catch (e) {
       toast.error(`启动失败: ${e}`);
     }
@@ -682,6 +766,13 @@ const ToolManagerPanel: React.FC = () => {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowToolSettings((open) => !open)}
+              className={iconButton}
+              title="管理工具展示"
+            >
+              <Settings size={18} />
+            </button>
+            <button
               onClick={async () => {
                 // 调用全局刷新，刷新后所有模块共享结果
                 await refreshInstalledTools();
@@ -696,28 +787,75 @@ const ToolManagerPanel: React.FC = () => {
             </button>
           </div>
         </div>
+        {showToolSettings && (
+          <div className={`mt-5 rounded-2xl p-4 ${glassSurface}`}>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold">工具列表展示</h3>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  已展示 {visibleTools.length}/{sortedTools.length} 个工具
+                </p>
+              </div>
+              <button
+                onClick={() => setHiddenTools(new Set())}
+                className="glass-secondary-button min-h-8 flex-none px-3 py-1 text-xs"
+              >
+                全部展示
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+              {sortedTools.map((tool) => {
+                const visible = !hiddenTools.has(tool.app_type);
+                return (
+                  <button
+                    key={tool.app_type}
+                    onClick={() => toggleToolVisibility(tool.app_type)}
+                    className={`inline-flex min-h-9 items-center gap-2 rounded-xl border px-3 text-left text-xs font-semibold transition-all ${
+                      visible
+                        ? "border-blue-200/70 bg-blue-500/10 text-blue-700 dark:border-sky-300/20 dark:text-sky-300"
+                        : "border-white/55 bg-white/45 text-slate-400 hover:text-slate-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-500 dark:hover:text-slate-300"
+                    }`}
+                  >
+                    {visible ? <CheckSquare size={14} /> : <Square size={14} />}
+                    <span className="min-w-0 truncate">{tool.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="relative flex-1 overflow-y-auto px-8 pb-8 pt-2">
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-          {tools?.slice().sort((a, b) => a.name.localeCompare(b.name)).map((tool) => (
-            <ToolCard
-              key={tool.app_type}
-              tool={tool}
-              onInstall={(methodIndex, needsConfirm, command) =>
-                handleInstall(tool.app_type, methodIndex, needsConfirm, command)
-              }
-              onUpdate={() => handleUpdate(tool.app_type)}
-              onScan={() => scanMutation.mutate(tool.app_type)}
-              onLaunch={() => handleLaunch(tool.app_type)}
-              onDelete={() => handleDelete(tool.app_type, tool.name)}
-              installing={installingTool === tool.app_type}
-              updating={updatingTools.has(tool.app_type)}
-              scanning={scanningTool === tool.app_type}
-              deleting={deletingTool === tool.app_type}
-            />
-          ))}
-        </div>
+        {visibleTools.length === 0 ? (
+          <div className={`flex min-h-64 flex-col items-center justify-center rounded-2xl p-6 text-center ${glassSurface}`}>
+            <Package size={28} className="mb-3 text-slate-400" />
+            <p className="text-sm font-semibold">暂无展示的工具</p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              点击顶部设置图标选择要展示的工具
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+            {visibleTools.map((tool) => (
+              <ToolCard
+                key={tool.app_type}
+                tool={tool}
+                onInstall={(methodIndex, needsConfirm, command) =>
+                  handleInstall(tool.app_type, methodIndex, needsConfirm, command)
+                }
+                onUpdate={(updateKind) => handleUpdate(tool.app_type, updateKind)}
+                onScan={() => scanMutation.mutate(tool.app_type)}
+                onLaunch={(launchKind) => handleLaunch(tool.app_type, launchKind)}
+                onDelete={() => handleDelete(tool.app_type, tool.name)}
+                installing={installingTool === tool.app_type}
+                updating={updatingTools.has(tool.app_type)}
+                scanning={scanningTool === tool.app_type}
+                deleting={deletingTool === tool.app_type}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <ConfirmDialog

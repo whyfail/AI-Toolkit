@@ -39,27 +39,49 @@ fn get_binary_name(app: &AppType) -> String {
     }
 }
 
-fn is_app_installed_mac(app: &AppType) -> bool {
-    let app_name = match app {
-        AppType::Trae => "Trae.app",
-        AppType::TraeCn => "Trae CN.app",
-        AppType::TraeSoloCn => "TRAE SOLO CN.app",
-        AppType::Qoder => "Qoder.app",
-        _ => return false,
-    };
-    std::path::Path::new(&format!("/Applications/{}", app_name)).exists()
+pub fn mac_app_names(app: &AppType) -> &'static [&'static str] {
+    match app {
+        AppType::Claude => &["Claude.app", "Claude Code.app"],
+        AppType::Codex => &["Codex.app"],
+        AppType::OpenCode => &["OpenCode.app"],
+        AppType::Trae => &["Trae.app"],
+        AppType::TraeCn => &["Trae CN.app"],
+        AppType::TraeSoloCn => &["TRAE SOLO CN.app"],
+        AppType::Qoder => &["Qoder.app"],
+        _ => &[],
+    }
+}
+
+pub fn mac_app_name(app: &AppType) -> Option<&'static str> {
+    mac_app_names(app).first().copied()
+}
+
+pub fn is_app_installed_mac(app: &AppType) -> bool {
+    mac_app_names(app)
+        .iter()
+        .any(|app_name| std::path::Path::new(&format!("/Applications/{}", app_name)).exists())
 }
 
 pub fn is_app_installed_windows(app: &AppType) -> bool {
     if !cfg!(windows) {
         return false;
     }
+    find_app_executable_windows(app).is_some()
+}
+
+pub fn find_app_executable_windows(app: &AppType) -> Option<std::path::PathBuf> {
+    if !cfg!(windows) {
+        return None;
+    }
     let candidates: &[&str] = match app {
+        AppType::Claude => &["Claude.exe", "Claude Code.exe", "ClaudeCode.exe"],
+        AppType::Codex => &["Codex.exe", "OpenAI Codex.exe", "OpenAICodex.exe"],
+        AppType::OpenCode => &["OpenCode.exe", "opencode.exe"],
         AppType::Trae => &["Trae.exe"],
         AppType::TraeCn => &["Trae.exe", "Trae CN.exe"],
         AppType::TraeSoloCn => &["Trae.exe", "TRAE SOLO CN.exe"],
         AppType::Qoder => &["Qoder.exe"],
-        _ => return false,
+        _ => return None,
     };
 
     let base_paths = [
@@ -73,13 +95,31 @@ pub fn is_app_installed_windows(app: &AppType) -> bool {
     let common_subdirs = [
         "",
         "Programs",
+        "Claude",
+        "Claude Code",
+        "ClaudeCode",
+        "AnthropicClaude",
+        "Codex",
+        "OpenAI Codex",
+        "OpenAICodex",
         "Trae",
         "Trae CN",
         "TRAE SOLO CN",
+        "OpenCode",
+        "opencode",
         "Qoder",
+        "Programs\\Claude",
+        "Programs\\Claude Code",
+        "Programs\\ClaudeCode",
+        "Programs\\AnthropicClaude",
+        "Programs\\Codex",
+        "Programs\\OpenAI Codex",
+        "Programs\\OpenAICodex",
         "Programs\\Trae",
         "Programs\\Trae CN",
         "Programs\\TRAE SOLO CN",
+        "Programs\\OpenCode",
+        "Programs\\opencode",
         "Programs\\Qoder",
         "Microsoft\\WindowsApps",
     ];
@@ -93,13 +133,19 @@ pub fn is_app_installed_windows(app: &AppType) -> bool {
                 base.join(subdir)
             };
             for exe in candidates {
-                if dir.join(exe).exists() {
-                    return true;
+                let path = dir.join(exe);
+                if path.exists() {
+                    return Some(path);
                 }
             }
         }
     }
-    false
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn powershell_escape_single_quoted(input: &str) -> String {
+    input.replace('\'', "''")
 }
 
 fn ensure_npm_path_in_shell_config() -> Result<(), String> {
@@ -534,19 +580,30 @@ fn npm_list_global(package: &str) -> Option<bool> {
 }
 
 impl ToolManagerService {
-    pub async fn is_installed(app: &AppType) -> bool {
-        if cfg!(windows) {
-            if is_app_installed_windows(app) {
-                return true;
-            }
-        } else {
-            if is_app_installed_mac(app) {
-                return true;
-            }
-        }
-
+    pub fn has_cli(app: &AppType) -> bool {
         let binary_name = get_binary_name(app);
         which_binary(&binary_name).is_some()
+    }
+
+    pub fn has_desktop_app(app: &AppType) -> bool {
+        if cfg!(windows) {
+            return is_app_installed_windows(app);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            return is_app_installed_mac(app);
+        }
+        #[cfg(not(any(target_os = "macos", windows)))]
+        {
+            false
+        }
+    }
+
+    pub async fn is_installed(app: &AppType) -> bool {
+        if Self::has_desktop_app(app) {
+            return true;
+        }
+        Self::has_cli(app)
     }
 
     pub async fn detect_install_method(app: &AppType) -> Option<InstallMethodType> {
@@ -758,6 +815,59 @@ impl ToolManagerService {
                 .stderr(Stdio::piped())
                 .output()
                 .await
+                .ok()?;
+            if output.status.success() {
+                let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !version.is_empty() {
+                    return Some(version);
+                }
+            }
+        }
+
+        None
+    }
+
+    pub async fn get_desktop_version(app: &AppType) -> Option<String> {
+        #[cfg(target_os = "macos")]
+        {
+            for app_name in mac_app_names(app) {
+                let plist_path = format!("/Applications/{}/Contents/Info.plist", app_name);
+                if !std::path::Path::new(&plist_path).exists() {
+                    continue;
+                }
+
+                let output = tokio::process::Command::new("/usr/libexec/PlistBuddy")
+                    .suppress_console()
+                    .args(["-c", "Print :CFBundleShortVersionString", &plist_path])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .output()
+                    .await
+                    .ok()?;
+                if output.status.success() {
+                    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !version.is_empty() {
+                        return Some(version);
+                    }
+                }
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            let exe_path = find_app_executable_windows(app)?;
+            let exe_path = exe_path.to_string_lossy().to_string();
+            let escaped_exe_path = powershell_escape_single_quoted(&exe_path);
+            let script = format!(
+                "(Get-Item -LiteralPath '{}').VersionInfo.ProductVersion",
+                escaped_exe_path
+            );
+            let output = std::process::Command::new("powershell")
+                .suppress_console()
+                .args(["-NoProfile", "-Command", &script])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output()
                 .ok()?;
             if output.status.success() {
                 let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -1089,6 +1199,44 @@ impl ToolManagerService {
         }
     }
 
+    pub async fn update_desktop(app: &AppType) -> Result<(), String> {
+        let install_info = app.get_install_info().ok_or("Unknown app type")?;
+        let url = install_info.homepage;
+
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .suppress_console()
+                .arg(&url)
+                .spawn()
+                .map_err(|e| format!("打开桌面端更新页面失败: {}", e))?;
+            return Ok(());
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("cmd")
+                .suppress_console()
+                .args(["/C", "start", "", &url])
+                .spawn()
+                .map_err(|e| format!("打开桌面端更新页面失败: {}", e))?;
+            return Ok(());
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            std::process::Command::new("xdg-open")
+                .suppress_console()
+                .arg(&url)
+                .spawn()
+                .map_err(|e| format!("打开桌面端更新页面失败: {}", e))?;
+            return Ok(());
+        }
+
+        #[allow(unreachable_code)]
+        Err("当前系统不支持打开桌面端更新页面".into())
+    }
+
     pub async fn uninstall(app: &AppType) -> Result<(), String> {
         let install_info = app.get_install_info().ok_or("未知工具类型")?;
         let detected_method = Self::detect_install_method(app).await;
@@ -1302,7 +1450,9 @@ fn is_progress_noise_line(line: &str) -> bool {
 
 pub async fn build_tool_info(app: &AppType) -> Option<crate::commands::tool_manager::ToolInfo> {
     let install_info = app.get_install_info()?;
-    let installed = ToolManagerService::is_installed(app).await;
+    let has_cli = ToolManagerService::has_cli(app);
+    let has_desktop_app = ToolManagerService::has_desktop_app(app);
+    let installed = has_cli || has_desktop_app;
 
     let methods: Vec<crate::commands::tool_manager::ToolMethodInfo> = install_info
         .methods
@@ -1348,7 +1498,10 @@ pub async fn build_tool_info(app: &AppType) -> Option<crate::commands::tool_mana
         app_type: app.name().to_string(),
         name: install_info.name,
         installed,
+        has_cli,
+        has_desktop_app,
         version: None,
+        desktop_version: None,
         latest_version: None,
         detected_method,
         methods,

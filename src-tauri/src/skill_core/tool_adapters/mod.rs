@@ -254,15 +254,16 @@ pub fn is_tool_installed(adapter: &ToolAdapter) -> bool {
     // Mac GUI 应用检测（通过检查 /Applications/*.app）
     #[cfg(target_os = "macos")]
     {
-        let app_name = match adapter.id {
-            ToolId::Trae => "Trae.app",
-            ToolId::TraeCn => "Trae CN.app",
-            ToolId::TraeSoloCn => "TRAE SOLO CN.app",
-            ToolId::Qoder => "Qoder.app",
-            _ => "",
+        let app = match adapter.id {
+            ToolId::OpenCode => Some(crate::mcp::AppType::OpenCode),
+            ToolId::Trae => Some(crate::mcp::AppType::Trae),
+            ToolId::TraeCn => Some(crate::mcp::AppType::TraeCn),
+            ToolId::TraeSoloCn => Some(crate::mcp::AppType::TraeSoloCn),
+            ToolId::Qoder => Some(crate::mcp::AppType::Qoder),
+            _ => None,
         };
-        if !app_name.is_empty() {
-            if std::path::Path::new(&format!("/Applications/{}", app_name)).exists() {
+        if let Some(app) = app {
+            if crate::services::tool_manager::is_app_installed_mac(&app) {
                 return true;
             }
         }
@@ -271,7 +272,19 @@ pub fn is_tool_installed(adapter: &ToolAdapter) -> bool {
     // Windows GUI 应用检测
     #[cfg(target_os = "windows")]
     {
-        // TODO: Add Windows GUI app detection for ToolAdapter
+        let app = match adapter.id {
+            ToolId::OpenCode => Some(crate::mcp::AppType::OpenCode),
+            ToolId::Trae => Some(crate::mcp::AppType::Trae),
+            ToolId::TraeCn => Some(crate::mcp::AppType::TraeCn),
+            ToolId::TraeSoloCn => Some(crate::mcp::AppType::TraeSoloCn),
+            ToolId::Qoder => Some(crate::mcp::AppType::Qoder),
+            _ => None,
+        };
+        if let Some(app) = app {
+            if crate::services::tool_manager::is_app_installed_windows(&app) {
+                return true;
+            }
+        }
     }
 
     // 数据目录检测已移除

@@ -427,14 +427,61 @@ fn get_agent_launch_command(app: &AppType) -> Option<String> {
     }
 }
 
+fn launch_desktop_agent(app_type: &AppType) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        for app_name in crate::services::tool_manager::mac_app_names(app_type) {
+            let app_path = format!("/Applications/{}", app_name);
+            if std::path::Path::new(&app_path).exists() {
+                Command::new("open")
+                    .suppress_console()
+                    .arg(&app_path)
+                    .spawn()
+                    .map_err(|e| format!("启动 {} 失败: {}", get_agent_name(app_type), e))?;
+                return Ok(true);
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(exe_path) = crate::services::tool_manager::find_app_executable_windows(app_type)
+        {
+            let exe_path = exe_path.to_string_lossy().to_string();
+            let escaped_exe_path = powershell_escape_single_quoted(&exe_path);
+            Command::new("powershell")
+                .suppress_console()
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    &format!("Start-Process -FilePath '{}'", escaped_exe_path),
+                ])
+                .spawn()
+                .map_err(|e| format!("启动 {} 失败: {}", get_agent_name(app_type), e))?;
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
 /// 启动 Agent 工具（打开默认终端并运行命令）
 #[tauri::command]
 pub async fn launch_agent(
     state: State<'_, AppState>,
     agent_id: String,
     working_dir: Option<String>,
+    launch_kind: Option<String>,
 ) -> Result<(), String> {
     let app_type = AppType::from_str(&agent_id).map_err(|e| e.to_string())?;
+    let launch_kind = launch_kind.unwrap_or_else(|| "auto".to_string());
+
+    if launch_kind == "desktop" {
+        if launch_desktop_agent(&app_type)? {
+            return Ok(());
+        }
+        return Err(format!("未检测到 {} 桌面端", get_agent_name(&app_type)));
+    }
 
     let Some(command) = get_agent_launch_command(&app_type) else {
         return Err(format!(
@@ -443,15 +490,24 @@ pub async fn launch_agent(
         ));
     };
 
+    let resolved_command = match which_binary(&command) {
+        Some(path) => path,
+        None => {
+            if launch_kind == "auto" {
+                if launch_desktop_agent(&app_type)? {
+                    return Ok(());
+                }
+            }
+            return Err(format!(
+                "未检测到 {} 可执行文件，请先安装 {}",
+                command,
+                get_agent_name(&app_type)
+            ));
+        }
+    };
+
     // 检测 Node.js 环境
     let node_bin_dir = detect_node_environment().map_err(|e| format!("{}: 请先安装 Node.js", e))?;
-    let resolved_command = which_binary(&command).ok_or_else(|| {
-        format!(
-            "未检测到 {} 可执行文件，请先安装 {}",
-            command,
-            get_agent_name(&app_type)
-        )
-    })?;
 
     #[cfg(target_os = "macos")]
     {

@@ -4,6 +4,7 @@ use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
+use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
@@ -11,10 +12,15 @@ use tauri::State;
 
 use crate::agents::resolve_path;
 use crate::app_state::AppState;
-use crate::database::{McpServer, SkillRecord};
+use crate::core::central_repo::{
+    ensure_central_repo, resolve_central_repo_path, SKILLS_INSTALL_LOCATION_SETTING_KEY,
+};
+use crate::database::McpServer;
 use crate::mcp::AppType;
 use crate::services::sync;
 use crate::utils::SuppressConsole;
+
+const TOOLKIT_PACKAGE_MANIFEST: &str = "manifest.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnhancementSnapshot {
@@ -76,6 +82,14 @@ pub struct ExportedSkill {
     pub source_ref: Option<String>,
     pub source_subpath: Option<String>,
     pub central_path: String,
+    #[serde(default)]
+    pub files: Vec<ExportedSkillFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportedSkillFile {
+    pub path: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,6 +104,8 @@ pub struct ImportPreview {
 pub struct ImportResult {
     pub imported_mcp: usize,
     pub skipped_mcp: usize,
+    pub imported_skill: usize,
+    pub skipped_skill: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -331,19 +347,124 @@ fn redact_servers(servers: &IndexMap<String, McpServer>) -> IndexMap<String, Mcp
     redacted
 }
 
-fn exported_skills(records: Vec<SkillRecord>) -> Vec<ExportedSkill> {
-    records
-        .into_iter()
-        .map(|skill| ExportedSkill {
-            id: skill.id,
-            name: skill.name,
-            description: skill.description,
-            source_type: skill.source_type,
-            source_ref: skill.source_ref,
-            source_subpath: skill.source_subpath,
-            central_path: skill.central_path,
+fn should_skip_skill_export_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| {
+            name == ".git"
+                || name == "node_modules"
+                || name == "target"
+                || name == ".DS_Store"
+                || name.starts_with('.')
         })
-        .collect()
+        .unwrap_or(false)
+}
+
+fn zip_path(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
+fn write_skill_dir_to_zip<W: Write + Seek>(
+    zip: &mut zip::ZipWriter<W>,
+    skill_name: &str,
+    root: &Path,
+    current: &Path,
+) -> Result<(), String> {
+    if !root.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(current).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if should_skip_skill_export_path(&path) {
+            continue;
+        }
+        if path.is_dir() {
+            write_skill_dir_to_zip(zip, skill_name, root, &path)?;
+            continue;
+        }
+        if !path.is_file() {
+            continue;
+        }
+
+        let relative_path = path
+            .strip_prefix(root)
+            .map_err(|e| e.to_string())?
+            .to_string_lossy()
+            .to_string();
+        let package_path = format!("skills/{}/{}", skill_name, zip_path(&relative_path));
+        zip.start_file(package_path, zip::write::SimpleFileOptions::default())
+            .map_err(|e| e.to_string())?;
+        let mut file = fs::File::open(&path).map_err(|e| e.to_string())?;
+        std::io::copy(&mut file, zip).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn read_package_manifest<R: Read + Seek>(
+    zip: &mut zip::ZipArchive<R>,
+) -> Result<ToolkitExport, String> {
+    let mut manifest = zip
+        .by_name(TOOLKIT_PACKAGE_MANIFEST)
+        .map_err(|e| format!("配置包缺少 manifest.json: {}", e))?;
+    let mut content = String::new();
+    manifest
+        .read_to_string(&mut content)
+        .map_err(|e| e.to_string())?;
+    serde_json::from_str(&content).map_err(|e| e.to_string())
+}
+
+fn safe_skill_name(name: &str) -> Result<&str, String> {
+    if name.trim().is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name == "."
+        || name == ".."
+    {
+        return Err(format!("非法 Skill 名称: {}", name));
+    }
+    Ok(name)
+}
+
+fn safe_exported_skill_file_path(root: &Path, relative_path: &str) -> Result<PathBuf, String> {
+    let relative = Path::new(relative_path);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(format!("非法 Skill 文件路径: {}", relative_path));
+    }
+    Ok(root.join(relative))
+}
+
+fn import_exported_skill_files(skill: &ExportedSkill, overwrite: bool) -> Result<bool, String> {
+    if skill.files.is_empty() {
+        return Ok(false);
+    }
+
+    let skill_name = safe_skill_name(&skill.name)?;
+    let central_dir = resolve_central_repo_path().map_err(|e| e.to_string())?;
+    fs::create_dir_all(&central_dir).map_err(|e| e.to_string())?;
+    let skill_dir = central_dir.join(skill_name);
+
+    if skill_dir.exists() && !overwrite {
+        return Ok(false);
+    }
+    if skill_dir.exists() {
+        fs::remove_dir_all(&skill_dir).map_err(|e| e.to_string())?;
+    }
+    fs::create_dir_all(&skill_dir).map_err(|e| e.to_string())?;
+
+    for file in &skill.files {
+        let path = safe_exported_skill_file_path(&skill_dir, &file.path)?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        fs::write(path, &file.content).map_err(|e| e.to_string())?;
+    }
+
+    Ok(true)
 }
 
 #[tauri::command]
@@ -507,24 +628,88 @@ pub async fn run_mcp_health_check(
 #[tauri::command]
 pub async fn export_toolkit_config(state: State<'_, AppState>) -> Result<ToolkitExport, String> {
     let servers = state.db.get_all_mcp_servers().map_err(|e| e.to_string())?;
-    let skills = state.db.get_all_skills().map_err(|e| e.to_string())?;
+    let skills = crate::commands::skills::get_managed_skills(state.clone()).await?;
     let mut settings = HashMap::new();
     if let Ok(Some(default_terminal)) = state.db.get_setting("default_terminal") {
         settings.insert("default_terminal".to_string(), default_terminal);
     }
+    if let Ok(Some(skills_install_location)) =
+        state.db.get_setting(SKILLS_INSTALL_LOCATION_SETTING_KEY)
+    {
+        settings.insert(
+            SKILLS_INSTALL_LOCATION_SETTING_KEY.to_string(),
+            skills_install_location,
+        );
+    }
     let findings = scan_security_findings_for_servers(&servers);
-    let warnings = findings
+    let warnings: Vec<String> = findings
         .into_iter()
         .map(|finding| format!("{}: {}", finding.scope, finding.message))
+        .collect();
+    let exported_skills = skills
+        .into_iter()
+        .map(|skill| ExportedSkill {
+            id: skill.id,
+            name: skill.name,
+            description: skill.description,
+            source_type: skill.source_type,
+            source_ref: skill.source_ref,
+            source_subpath: skill.source_subpath,
+            central_path: skill.central_path,
+            files: Vec::new(),
+        })
         .collect();
     Ok(ToolkitExport {
         version: 1,
         exported_at: now_ms(),
         mcp_servers: redact_servers(&servers),
-        skills: exported_skills(skills),
+        skills: exported_skills,
         settings,
         warnings,
     })
+}
+
+#[tauri::command]
+pub async fn export_toolkit_package(
+    state: State<'_, AppState>,
+    output_path: String,
+) -> Result<ToolkitExport, String> {
+    let export = export_toolkit_config(state).await?;
+    let package_path = PathBuf::from(output_path);
+    if let Some(parent) = package_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let file = fs::File::create(&package_path).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipWriter::new(file);
+    zip.start_file(
+        TOOLKIT_PACKAGE_MANIFEST,
+        zip::write::SimpleFileOptions::default(),
+    )
+    .map_err(|e| e.to_string())?;
+    let manifest = serde_json::to_vec_pretty(&export).map_err(|e| e.to_string())?;
+    zip.write_all(&manifest).map_err(|e| e.to_string())?;
+
+    for skill in &export.skills {
+        let skill_name = safe_skill_name(&skill.name)?;
+        let central_path = PathBuf::from(&skill.central_path);
+        write_skill_dir_to_zip(&mut zip, skill_name, &central_path, &central_path)?;
+    }
+
+    zip.finish().map_err(|e| e.to_string())?;
+    append_task_log(
+        "export",
+        "已导出配置压缩包",
+        &format!(
+            "导出 {} 个 MCP、{} 个 Skill 到 {}",
+            export.mcp_servers.len(),
+            export.skills.len(),
+            package_path.display()
+        ),
+        "success",
+    )
+    .ok();
+    Ok(export)
 }
 
 #[tauri::command]
@@ -533,6 +718,13 @@ pub async fn preview_toolkit_import(
     content: String,
 ) -> Result<ImportPreview, String> {
     let parsed: ToolkitExport = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    preview_toolkit_export(state, parsed).await
+}
+
+async fn preview_toolkit_export(
+    state: State<'_, AppState>,
+    parsed: ToolkitExport,
+) -> Result<ImportPreview, String> {
     let current = state.db.get_all_mcp_servers().map_err(|e| e.to_string())?;
     let mut conflicts = Vec::new();
     for (id, incoming) in &parsed.mcp_servers {
@@ -556,6 +748,17 @@ pub async fn preview_toolkit_import(
 }
 
 #[tauri::command]
+pub async fn preview_toolkit_package(
+    state: State<'_, AppState>,
+    package_path: String,
+) -> Result<ImportPreview, String> {
+    let file = fs::File::open(package_path).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+    let parsed = read_package_manifest(&mut zip)?;
+    preview_toolkit_export(state, parsed).await
+}
+
+#[tauri::command]
 pub async fn import_toolkit_config(
     state: State<'_, AppState>,
     content: String,
@@ -566,6 +769,8 @@ pub async fn import_toolkit_config(
     let current = state.db.get_all_mcp_servers().map_err(|e| e.to_string())?;
     let mut imported_mcp = 0;
     let mut skipped_mcp = 0;
+    let mut imported_skill = 0;
+    let mut skipped_skill = 0;
     for (id, server) in parsed.mcp_servers {
         if current.contains_key(&id) && !overwrite {
             skipped_mcp += 1;
@@ -577,18 +782,127 @@ pub async fn import_toolkit_config(
             .map_err(|e| e.to_string())?;
         imported_mcp += 1;
     }
+    for skill in parsed.skills {
+        if import_exported_skill_files(&skill, overwrite)? {
+            imported_skill += 1;
+        } else {
+            skipped_skill += 1;
+        }
+    }
     let servers = state.db.get_all_mcp_servers().map_err(|e| e.to_string())?;
     sync::sync_all_live_configs(&servers).map_err(|e| e.to_string())?;
     append_task_log(
         "import",
         "已导入配置包",
-        &format!("导入 {imported_mcp} 个 MCP，跳过 {skipped_mcp} 个"),
+        &format!(
+            "导入 {imported_mcp} 个 MCP、{imported_skill} 个 Skill，跳过 {skipped_mcp} 个 MCP、{skipped_skill} 个 Skill"
+        ),
         "success",
     )
     .ok();
     Ok(ImportResult {
         imported_mcp,
         skipped_mcp,
+        imported_skill,
+        skipped_skill,
+    })
+}
+
+#[tauri::command]
+pub async fn import_toolkit_package(
+    state: State<'_, AppState>,
+    package_path: String,
+    overwrite: bool,
+) -> Result<ImportResult, String> {
+    create_snapshot_for_state(&state, "导入配置压缩包前自动备份")?;
+    let file = fs::File::open(&package_path).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+    let parsed = read_package_manifest(&mut zip)?;
+    let current = state.db.get_all_mcp_servers().map_err(|e| e.to_string())?;
+    let mut imported_mcp = 0;
+    let mut skipped_mcp = 0;
+    let mut imported_skill = 0;
+    let mut skipped_skill = 0;
+    let mut imported_skill_names: HashSet<String> = HashSet::new();
+
+    for (id, server) in parsed.mcp_servers {
+        if current.contains_key(&id) && !overwrite {
+            skipped_mcp += 1;
+            continue;
+        }
+        state
+            .db
+            .save_mcp_server(&server)
+            .map_err(|e| e.to_string())?;
+        imported_mcp += 1;
+    }
+
+    let central_dir = resolve_central_repo_path().map_err(|e| e.to_string())?;
+    ensure_central_repo(&central_dir).map_err(|e| e.to_string())?;
+    for skill in &parsed.skills {
+        let skill_name = safe_skill_name(&skill.name)?;
+        let skill_dir = central_dir.join(skill_name);
+        if skill_dir.exists() && !overwrite {
+            skipped_skill += 1;
+            continue;
+        }
+        if skill_dir.exists() {
+            fs::remove_dir_all(&skill_dir).map_err(|e| e.to_string())?;
+        }
+        fs::create_dir_all(&skill_dir).map_err(|e| e.to_string())?;
+        imported_skill_names.insert(skill_name.to_string());
+        imported_skill += 1;
+    }
+
+    for index in 0..zip.len() {
+        let mut file = zip.by_index(index).map_err(|e| e.to_string())?;
+        let Some(enclosed_name) = file.enclosed_name() else {
+            continue;
+        };
+        let path = enclosed_name.to_path_buf();
+        let mut components = path.components();
+        if components.next() != Some(std::path::Component::Normal(std::ffi::OsStr::new("skills"))) {
+            continue;
+        }
+        let Some(std::path::Component::Normal(skill_name_os)) = components.next() else {
+            continue;
+        };
+        let skill_name = skill_name_os.to_string_lossy().to_string();
+        if !imported_skill_names.contains(&skill_name) {
+            continue;
+        }
+        let relative_path: PathBuf = components.collect();
+        if relative_path.as_os_str().is_empty() {
+            continue;
+        }
+        let output_path = central_dir.join(&skill_name).join(relative_path);
+        if file.is_dir() {
+            fs::create_dir_all(&output_path).map_err(|e| e.to_string())?;
+            continue;
+        }
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let mut output = fs::File::create(&output_path).map_err(|e| e.to_string())?;
+        std::io::copy(&mut file, &mut output).map_err(|e| e.to_string())?;
+    }
+
+    let servers = state.db.get_all_mcp_servers().map_err(|e| e.to_string())?;
+    sync::sync_all_live_configs(&servers).map_err(|e| e.to_string())?;
+    append_task_log(
+        "import",
+        "已导入配置压缩包",
+        &format!(
+            "导入 {imported_mcp} 个 MCP、{imported_skill} 个 Skill，跳过 {skipped_mcp} 个 MCP、{skipped_skill} 个 Skill"
+        ),
+        "success",
+    )
+    .ok();
+    Ok(ImportResult {
+        imported_mcp,
+        skipped_mcp,
+        imported_skill,
+        skipped_skill,
     })
 }
 
@@ -703,7 +1017,6 @@ pub async fn get_onboarding_checklist(
     state: State<'_, AppState>,
 ) -> Result<Vec<OnboardingChecklistItem>, String> {
     let servers = state.db.get_all_mcp_servers().map_err(|e| e.to_string())?;
-    let skills = state.db.get_all_skills().map_err(|e| e.to_string())?;
     let snapshots = list_config_snapshots().await.unwrap_or_default();
     let has_terminal = state
         .db
@@ -715,6 +1028,9 @@ pub async fn get_onboarding_checklist(
         .read()
         .map(|report| report.agents.iter().filter(|agent| agent.exists).count())
         .unwrap_or(0);
+    let managed_skill_count = crate::commands::skills::get_managed_skills(state)
+        .await
+        .map(|skills| skills.len())?;
     Ok(vec![
         OnboardingChecklistItem {
             id: "scan-tools".to_string(),
@@ -731,8 +1047,8 @@ pub async fn get_onboarding_checklist(
         OnboardingChecklistItem {
             id: "skills".to_string(),
             title: "安装或导入 Skills".to_string(),
-            done: !skills.is_empty(),
-            detail: format!("当前管理 {} 个 Skill", skills.len()),
+            done: managed_skill_count > 0,
+            detail: format!("当前管理 {} 个 Skill", managed_skill_count),
         },
         OnboardingChecklistItem {
             id: "terminal".to_string(),

@@ -261,17 +261,8 @@ fn is_agent_installed(app: &AppType) -> bool {
     // macOS GUI 应用检测（通过检查 /Applications/*.app）
     #[cfg(target_os = "macos")]
     {
-        let app_name = match app {
-            AppType::Trae => "Trae.app",
-            AppType::TraeCn => "Trae CN.app",
-            AppType::TraeSoloCn => "TRAE SOLO CN.app",
-            AppType::Qoder => "Qoder.app",
-            _ => "",
-        };
-        if !app_name.is_empty() {
-            if std::path::Path::new(&format!("/Applications/{}", app_name)).exists() {
-                return true;
-            }
+        if crate::services::tool_manager::is_app_installed_mac(app) {
+            return true;
         }
     }
 

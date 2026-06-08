@@ -116,6 +116,7 @@ pub fn run() {
 
             // 自动导入所有已存在的 MCP 配置
             let state = app.state::<AppState>();
+            commands::app::init_skills_install_location(&state);
             let imported_servers = import::import_all();
             for (_, server) in imported_servers {
                 let _ = state.db.save_mcp_server(&server);
@@ -185,8 +186,11 @@ pub fn run() {
             commands::enhancements::restore_config_snapshot,
             commands::enhancements::run_mcp_health_check,
             commands::enhancements::export_toolkit_config,
+            commands::enhancements::export_toolkit_package,
             commands::enhancements::preview_toolkit_import,
+            commands::enhancements::preview_toolkit_package,
             commands::enhancements::import_toolkit_config,
+            commands::enhancements::import_toolkit_package,
             commands::enhancements::scan_security_findings,
             commands::enhancements::detect_config_conflicts,
             commands::enhancements::list_task_logs,
@@ -201,8 +205,10 @@ pub fn run() {
             // 应用配置命令
             commands::app::get_app_configs,
             commands::app::get_launch_preferences,
+            commands::app::get_skills_install_preferences,
             commands::app::import_mcp_from_app,
             commands::app::set_default_terminal,
+            commands::app::set_skills_install_location_preference,
             // Agent 检测命令
             commands::agents::detect_agents,
             commands::agents::sync_agent_mcp,
@@ -222,7 +228,6 @@ pub fn run() {
             commands::skills::install_local_selection,
             commands::skills::sync_skill_to_tool,
             commands::skills::unsync_skill_from_tool,
-            commands::skills::import_existing_skill,
             commands::skills::delete_managed_skill,
             commands::skills::update_skill,
             commands::skills::rename_skill,

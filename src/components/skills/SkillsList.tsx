@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { GitBranch, Folder, Trash2, Sparkles, X, FileText, CheckSquare, Square, Github, RefreshCw, Pencil, AlertTriangle, Info, ExternalLink } from 'lucide-react';
+import { GitBranch, Folder, Trash2, Sparkles, X, FileText, Github, RefreshCw, Pencil, AlertTriangle, Info, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ManagedSkill, ToolOption } from './types';
 import type { SkillDeletePreview, SkillHealthItem } from '@/lib/api';
@@ -13,9 +13,6 @@ type SkillFilter = 'all' | 'git' | 'local' | 'synced' | 'unsynced' | 'needsAtten
 interface SkillsListProps {
   skills: ManagedSkill[];
   tools: ToolOption[];
-  selectedSkills: Set<string>;
-  onSelectionChange: (skillId: string, selected: boolean) => void;
-  onSelectAll: (selected: boolean) => void;
   searchQuery: string;
   onDeleteSkill: (skill: ManagedSkill) => void;
   onEditSkill: (skill: ManagedSkill) => void;
@@ -52,9 +49,6 @@ const isToolSynced = (skill: ManagedSkill, toolId: string): boolean => {
 function SkillsList({
   skills,
   tools,
-  selectedSkills,
-  onSelectionChange,
-  onSelectAll,
   searchQuery,
   onDeleteSkill,
   onEditSkill,
@@ -95,9 +89,6 @@ function SkillsList({
     })
     .filter(skill => !toolFilter || skill.targets.some(target => target.tool === toolFilter))
     .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-
-  const allSelected = filteredSkills.length > 0 && filteredSkills.every(s => selectedSkills.has(s.id));
-  const someSelected = filteredSkills.some(s => selectedSkills.has(s.id)) && !allSelected;
 
   const deleteSkill = onDeleteId ? skills.find(s => s.id === onDeleteId) : null;
   const detailHealthItems = detailSkill
@@ -187,48 +178,14 @@ function SkillsList({
             </p>
           </div>
         ) : (
-          <>
-            {/* 全选栏 */}
-            <div className="flex items-center gap-2 px-3 sm:px-5 py-2 mb-2">
-              <button
-                onClick={() => onSelectAll(!allSelected)}
-                className="flex items-center gap-2 text-sm text-slate-500 transition-colors hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
-              >
-                {someSelected ? (
-                  <CheckSquare size={16} className="text-[hsl(var(--primary))]" />
-                ) : allSelected ? (
-                  <CheckSquare size={16} className="text-[hsl(var(--primary))]" />
-                ) : (
-                  <Square size={16} />
-                )}
-                <span>全选</span>
-              </button>
-              {selectedSkills.size > 0 && (
-                <span className="glass-pill">
-                  已选择 {selectedSkills.size} 项
-                </span>
-              )}
-            </div>
-            {filteredSkills.map(skill => (
+          filteredSkills.map(skill => (
             <div
               key={skill.id}
-              className={`glass-card group overflow-hidden ${
-                selectedSkills.has(skill.id) ? 'ring-2 ring-blue-500/40' : ''
-              }`}
+              className="glass-card group overflow-hidden"
             >
               {/* 技能头部 */}
               <div className="px-3 sm:px-5 py-3 sm:py-4 flex items-start justify-between gap-3">
                 <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-                  <button
-                    onClick={() => onSelectionChange(skill.id, !selectedSkills.has(skill.id))}
-                    className="glass-icon-button flex-shrink-0"
-                  >
-                    {selectedSkills.has(skill.id) ? (
-                      <CheckSquare size={18} className="text-[hsl(var(--primary))]" />
-                    ) : (
-                      <Square size={18} className="text-[hsl(var(--muted-foreground))]" />
-                    )}
-                  </button>
                   <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-sky-500 shadow-lg shadow-blue-500/15">
                     {isGitHubUrl(skill.source_ref) ? (
                       <Github size={16} className="text-white" />
@@ -318,8 +275,7 @@ function SkillsList({
                 </div>
               </div>
             </div>
-          ))}
-          </>
+          ))
         )}
       </div>
 

@@ -20,13 +20,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import * as dialog from "@tauri-apps/plugin-dialog";
 import {
   enhancementApi,
   type BulkMcpServerInput,
   type ConflictItem,
   type EnhancementSnapshot,
   type HealthCheckItem,
-  type ImportPreview,
   type LaunchPreset,
   type OnboardingChecklistItem,
   type SecurityFinding,
@@ -50,8 +50,8 @@ type PanelKey =
 
 const panelItems: Array<{ key: PanelKey; label: string; icon: LucideIcon }> = [
   { key: "onboarding", label: "首次引导", icon: Rocket },
-  { key: "bulkImport", label: "批量导入", icon: ClipboardPaste },
-  { key: "backup", label: "备份回滚", icon: Archive },
+  { key: "bulkImport", label: "MCP 批量导入", icon: ClipboardPaste },
+  { key: "backup", label: "MCP 配置快照", icon: Archive },
   { key: "health", label: "健康检查", icon: Activity },
   { key: "skills", label: "Skills 更新", icon: RefreshCw },
   { key: "portable", label: "导入导出", icon: FileJson },
@@ -123,8 +123,7 @@ export default function EnhancementsPanel() {
   const [skillUpdates, setSkillUpdates] = useState<Array<Record<string, unknown>>>([]);
   const [bulkJson, setBulkJson] = useState("");
   const [bulkOverwrite, setBulkOverwrite] = useState(false);
-  const [portableJson, setPortableJson] = useState("");
-  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
+  const [packagePath, setPackagePath] = useState("");
   const [presets, setPresets] = useState<LaunchPreset[]>([]);
   const [presetName, setPresetName] = useState("");
   const [presetAgent, setPresetAgent] = useState("");
@@ -253,11 +252,18 @@ export default function EnhancementsPanel() {
   const handleExport = async () => {
     setLoading(true);
     try {
-      const exported = await enhancementApi.exportToolkitConfig();
-      const content = JSON.stringify(exported, null, 2);
-      setPortableJson(content);
-      await navigator.clipboard?.writeText(content);
-      toast.success("配置包已生成并复制到剪贴板");
+      const selected = await dialog.save({
+        title: "导出配置压缩包",
+        defaultPath: `ai-toolkit-config-${new Date().toISOString().slice(0, 10)}.zip`,
+        filters: [{ name: "AI Toolkit 配置包", extensions: ["zip"] }],
+      });
+      if (!selected) return;
+      const exported = await enhancementApi.exportToolkitPackage(selected);
+      setPackagePath(selected);
+      toast.success(`配置压缩包已导出: ${exported.mcp_servers ? Object.keys(exported.mcp_servers).length : 0} 个 MCP、${exported.skills.length} 个 Skill`);
+      if (exported.warnings.length > 0) {
+        toast.warning(`导出包含 ${exported.warnings.length} 条提醒`);
+      }
     } catch (err) {
       toast.error(`导出失败: ${err}`);
     } finally {
@@ -265,24 +271,17 @@ export default function EnhancementsPanel() {
     }
   };
 
-  const handlePreviewImport = async () => {
+  const handlePickPackage = async () => {
     try {
-      setImportPreview(await enhancementApi.previewToolkitImport(portableJson));
+      const selected = await dialog.open({
+        multiple: false,
+        title: "选择配置压缩包",
+        filters: [{ name: "AI Toolkit 配置包", extensions: ["zip"] }],
+      });
+      if (!selected || Array.isArray(selected)) return;
+      setPackagePath(selected);
     } catch (err) {
-      toast.error(`预览导入失败: ${err}`);
-    }
-  };
-
-  const handleImport = async (overwrite: boolean) => {
-    setLoading(true);
-    try {
-      const result = await enhancementApi.importToolkitConfig(portableJson, overwrite);
-      toast.success(`导入 ${result.imported_mcp} 个 MCP，跳过 ${result.skipped_mcp} 个`);
-      await Promise.all([refetchMcp(), loadAll()]);
-    } catch (err) {
-      toast.error(`导入失败: ${err}`);
-    } finally {
-      setLoading(false);
+      toast.error(`选择压缩包失败: ${err}`);
     }
   };
 
@@ -348,7 +347,7 @@ export default function EnhancementsPanel() {
               增强中心
             </h2>
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 sm:text-sm">
-              批量导入、备份回滚、健康检查、安全分享和启动预设
+              MCP 批量导入、MCP 配置快照、健康检查、安全分享和启动预设
             </p>
           </div>
           <button onClick={loadAll} disabled={loading} className="glass-secondary-button">
@@ -356,12 +355,12 @@ export default function EnhancementsPanel() {
             刷新
           </button>
         </div>
-        <div className="mt-5 flex gap-2 overflow-x-auto pb-1">
+        <div className="mt-5 flex flex-wrap gap-2">
           {panelItems.map((item) => (
             <button
               key={item.key}
               onClick={() => setActive(item.key)}
-              className={`inline-flex min-h-9 flex-shrink-0 items-center gap-2 rounded-xl px-3 text-xs font-semibold transition ${
+              className={`inline-flex min-h-9 items-center gap-2 whitespace-nowrap rounded-xl px-3 text-xs font-semibold transition ${
                 active === item.key
                   ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20"
                   : "border border-white/60 bg-white/55 text-slate-600 hover:bg-white/80"
@@ -401,13 +400,16 @@ export default function EnhancementsPanel() {
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               <button onClick={refresh} className="glass-secondary-button">扫描工具</button>
-              <button onClick={handleCreateSnapshot} className="glass-secondary-button">创建快照</button>
+              <button onClick={handleCreateSnapshot} className="glass-secondary-button">创建 MCP 配置快照</button>
             </div>
           </SectionCard>
         )}
 
         {active === "bulkImport" && (
-          <SectionCard title="MCP 多配置导入">
+          <SectionCard title="MCP Server 批量导入">
+            <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+              仅导入 MCP Server 配置，并同步到当前已安装工具的配置文件。
+            </p>
             <textarea
               value={bulkJson}
               onChange={(event) => setBulkJson(event.target.value)}
@@ -432,10 +434,13 @@ export default function EnhancementsPanel() {
         )}
 
         {active === "backup" && (
-          <SectionCard title="配置备份与回滚">
+          <SectionCard title="MCP 与工具配置文件快照">
+            <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+              备份 MCP Server 数据和各工具 MCP 配置文件，可在配置改坏后恢复。
+            </p>
             <button onClick={handleCreateSnapshot} className="glass-primary-button">
               <Archive size={16} />
-              创建当前快照
+              创建 MCP 配置快照
             </button>
             <div className="mt-4 space-y-2">
               {snapshots.map((snapshot) => (
@@ -495,37 +500,24 @@ export default function EnhancementsPanel() {
         )}
 
         {active === "portable" && (
-          <SectionCard title="整套配置导入 / 导出">
+          <SectionCard title="配置压缩包导入 / 导出">
             <div className="flex flex-wrap gap-2">
               <button onClick={handleExport} className="glass-primary-button">
                 <Download size={16} />
-                导出并复制
+                导出压缩包
               </button>
-              <button onClick={handlePreviewImport} className="glass-secondary-button">
+              <button onClick={handlePickPackage} className="glass-secondary-button">
                 <Upload size={16} />
-                预览导入
-              </button>
-              <button onClick={() => handleImport(false)} className="glass-secondary-button">
-                仅导入新增
-              </button>
-              <button onClick={() => handleImport(true)} className="glass-danger-button">
-                覆盖导入
+                选择压缩包
               </button>
             </div>
-            <textarea
-              value={portableJson}
-              onChange={(event) => setPortableJson(event.target.value)}
-              className="glass-input mt-3 min-h-56 w-full p-3 font-mono text-xs"
-              placeholder="这里会显示导出的配置包，也可以粘贴配置包后预览导入"
-            />
-            {importPreview && (
-              <div className="mt-3 rounded-xl border border-white/60 bg-white/45 p-3 text-sm">
-                将导入 {importPreview.mcp_count} 个 MCP、{importPreview.skill_count} 个 Skill 元数据。
-                {importPreview.conflicts.length > 0 && (
-                  <p className="mt-1 text-amber-700">发现 {importPreview.conflicts.length} 个冲突。</p>
-                )}
-              </div>
-            )}
+            <div className="mt-3 rounded-xl border border-white/60 bg-white/45 p-3 text-sm text-slate-600 dark:border-white/10 dark:bg-white/8 dark:text-slate-300">
+              {packagePath ? (
+                <span className="break-all">{packagePath}</span>
+              ) : (
+                <span>请选择或导出一个 .zip 配置压缩包</span>
+              )}
+            </div>
           </SectionCard>
         )}
 

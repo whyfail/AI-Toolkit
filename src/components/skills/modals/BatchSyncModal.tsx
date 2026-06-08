@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, CheckSquare, Square, Upload, Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ManagedSkill, ToolOption } from '../types';
@@ -8,7 +8,6 @@ import { enhancementApi, skillsApi } from '@/lib/api';
 interface BatchSyncModalProps {
   open: boolean;
   onClose: () => void;
-  selectedSkills: Set<string>;
   skills: ManagedSkill[];
   tools: ToolOption[];
   onSyncComplete: () => void;
@@ -17,12 +16,12 @@ interface BatchSyncModalProps {
 function BatchSyncModal({
   open,
   onClose,
-  selectedSkills,
   skills,
   tools,
   onSyncComplete,
 }: BatchSyncModalProps) {
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
+  const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set());
   const [syncing, setSyncing] = useState(false);
   const [taskStates, setTaskStates] = useState<Record<string, {
     skillName: string;
@@ -31,11 +30,32 @@ function BatchSyncModal({
     message?: string;
   }>>({});
 
+  useEffect(() => {
+    if (open) {
+      setSelectedSkills(new Set(skills.map(skill => skill.id)));
+      setTaskStates({});
+    }
+  }, [open, skills]);
+
   if (!open) return null;
 
-  const selectedSkillsList = skills.filter(s => selectedSkills.has(s.id));
+  const selectedSkillsList = skills.filter(skill => selectedSkills.has(skill.id));
+
+  const toggleSkill = (skillId: string) => {
+    if (syncing) return;
+    setSelectedSkills(prev => {
+      const next = new Set(prev);
+      if (next.has(skillId)) {
+        next.delete(skillId);
+      } else {
+        next.add(skillId);
+      }
+      return next;
+    });
+  };
 
   const toggleTool = (toolId: string) => {
+    if (syncing) return;
     setSelectedTools(prev => {
       const next = new Set(prev);
       if (next.has(toolId)) {
@@ -56,6 +76,10 @@ function BatchSyncModal({
   };
 
   const handleSync = async () => {
+    if (selectedSkills.size === 0) {
+      toast.warning('请选择至少一个 Skill');
+      return;
+    }
     if (selectedTools.size === 0) {
       toast.warning('请选择至少一个目标工具');
       return;
@@ -121,12 +145,12 @@ function BatchSyncModal({
       await enhancementApi.recordTaskLog({
         kind: 'skill-batch-sync',
         title: '批量同步 Skills 完成',
-        detail: `${successCount} 成功，${failCount} 失败`,
+        detail: `${selectedSkillsList.length} 个 Skill，${successCount} 成功，${failCount} 失败`,
         status: failCount === 0 ? 'success' : 'warn',
       });
 
       if (failCount === 0) {
-        toast.success(`成功同步 ${successCount} 个技能到 ${selectedTools.size} 个工具`);
+        toast.success(`成功同步 ${selectedSkillsList.length} 个 Skill 到 ${selectedTools.size} 个工具`);
       } else {
         toast.warning(`同步完成: ${successCount} 成功, ${failCount} 失败`);
       }
@@ -144,6 +168,7 @@ function BatchSyncModal({
 
   const allToolsSelected = selectedTools.size === tools.length;
   const someToolsSelected = selectedTools.size > 0 && !allToolsSelected;
+  const allSkillsSelected = selectedSkills.size === skills.length;
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
@@ -153,11 +178,12 @@ function BatchSyncModal({
           <div>
             <h3 className="text-lg font-semibold">批量同步技能</h3>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              将 {selectedSkills.size} 个技能同步到目标工具
+              将 {selectedSkills.size}/{skills.length} 个 Skill 同步到目标工具
             </p>
           </div>
           <button
             onClick={onClose}
+            disabled={syncing}
             className="glass-icon-button"
           >
             <X size={18} />
@@ -166,14 +192,57 @@ function BatchSyncModal({
 
         {/* 已选技能 */}
         <div className="border-b border-white/50 px-6 py-4 dark:border-white/10">
-          <div className="flex items-center gap-2 mb-3">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+              选择 Skill ({selectedSkills.size}/{skills.length})
+            </p>
             <button
-              onClick={toggleAllTools}
+              onClick={() => setSelectedSkills(allSkillsSelected ? new Set() : new Set(skills.map(skill => skill.id)))}
+              disabled={syncing}
               className="flex items-center gap-2 text-sm text-slate-500 transition-colors hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
             >
-              {someToolsSelected ? (
+              {allSkillsSelected ? (
                 <CheckSquare size={16} className="text-[hsl(var(--primary))]" />
-              ) : allToolsSelected ? (
+              ) : (
+                <Square size={16} />
+              )}
+              <span className="font-medium">{allSkillsSelected ? '取消全选' : '全选 Skill'}</span>
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {skills.map(skill => {
+              const isSelected = selectedSkills.has(skill.id);
+              return (
+                <button
+                  key={skill.id}
+                  onClick={() => toggleSkill(skill.id)}
+                  disabled={syncing}
+                  className={`inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-all disabled:cursor-not-allowed ${
+                    isSelected
+                      ? 'border-blue-200/70 bg-blue-500/10 text-blue-700 shadow-sm shadow-blue-500/10 dark:border-sky-300/20 dark:text-sky-300'
+                      : 'border-white/55 bg-white/45 text-slate-400 hover:text-slate-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-500 dark:hover:text-slate-300'
+                  }`}
+                >
+                  {isSelected ? <CheckSquare size={13} /> : <Square size={13} />}
+                  {skill.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 工具列表 */}
+        <div className="px-6 py-4 max-h-64 overflow-y-auto">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+              选择目标工具 ({selectedTools.size}/{tools.length})
+            </p>
+            <button
+              onClick={toggleAllTools}
+              disabled={syncing}
+              className="flex items-center gap-2 text-sm text-slate-500 transition-colors hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
+            >
+              {someToolsSelected || allToolsSelected ? (
                 <CheckSquare size={16} className="text-[hsl(var(--primary))]" />
               ) : (
                 <Square size={16} />
@@ -181,23 +250,6 @@ function BatchSyncModal({
               <span className="font-medium">选择全部工具</span>
             </button>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {selectedSkillsList.map(skill => (
-              <span
-                key={skill.id}
-                className="glass-pill"
-              >
-                {skill.name}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* 工具列表 */}
-        <div className="px-6 py-4 max-h-64 overflow-y-auto">
-          <p className="mb-3 text-sm font-medium text-slate-500 dark:text-slate-400">
-            选择目标工具 ({selectedTools.size}/{tools.length})
-          </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {tools.map(tool => {
               const isSelected = selectedTools.has(tool.id);
@@ -264,7 +316,7 @@ function BatchSyncModal({
           </button>
           <button
             onClick={handleSync}
-            disabled={syncing || selectedTools.size === 0}
+            disabled={syncing || selectedTools.size === 0 || selectedSkills.size === 0}
             className="glass-primary-button"
           >
             <Upload size={14} />

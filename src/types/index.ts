@@ -83,7 +83,10 @@ export interface ToolInfo {
   app_type: string;
   name: string;
   installed: boolean;
+  has_cli: boolean;
+  has_desktop_app: boolean;
   version: string | null;
+  desktop_version: string | null;
   latest_version: string | null;
   detected_method: string | null;
   methods: ToolMethodInfo[];

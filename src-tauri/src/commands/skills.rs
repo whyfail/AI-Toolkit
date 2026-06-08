@@ -886,65 +886,6 @@ pub async fn sync_skill_to_tool(
 }
 
 #[tauri::command]
-pub async fn import_existing_skill(
-    source_path: String,
-    name: String,
-) -> Result<ManagedSkill, String> {
-    eprintln!(
-        "[DEBUG] import_existing_skill called: source={}, name={}",
-        source_path, name
-    );
-
-    let result: ManagedSkill =
-        tokio::task::spawn_blocking(move || -> Result<ManagedSkill, String> {
-            use crate::core::central_repo::{ensure_central_repo, resolve_central_repo_path};
-            use crate::core::sync_engine::copy_dir_recursive;
-
-            let source = PathBuf::from(&source_path);
-            if !source.exists() {
-                return Err(format!("Source path does not exist: {}", source_path));
-            }
-
-            let central_dir = resolve_central_repo_path().map_err(|e| e.to_string())?;
-            ensure_central_repo(&central_dir).map_err(|e| e.to_string())?;
-
-            let central_path = central_dir.join(&name);
-            if central_path.exists() {
-                return Err(format!(
-                    "Skill already exists in central repo: {:?}",
-                    central_path
-                ));
-            }
-
-            copy_dir_recursive(&source, &central_path).map_err(|e| e.to_string())?;
-
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-
-            Ok(ManagedSkill {
-                id: format!("local-{}", name),
-                name: name,
-                description: None,
-                source_type: "local".to_string(),
-                source_ref: Some(source_path),
-                source_subpath: None,
-                central_path: central_path.to_string_lossy().to_string(),
-                created_at: now,
-                updated_at: now,
-                last_sync_at: None,
-                status: "active".to_string(),
-                targets: vec![],
-            })
-        })
-        .await
-        .map_err(|e| e.to_string())??;
-
-    Ok(result)
-}
-
-#[tauri::command]
 pub async fn delete_managed_skill(
     state: State<'_, AppState>,
     skill_id: String,
@@ -1124,52 +1065,67 @@ pub async fn update_skill(state: State<'_, AppState>, skill_id: String) -> Resul
             let source_subpath = skill_record.source_subpath.clone();
 
             let skill_id_clone = skill_id.clone();
-            tokio::task::spawn_blocking(move || -> Result<(), String> {
-                // 先删除旧的技能目录
-                let central_path_buf = PathBuf::from(&central_path);
-                if central_path_buf.exists() {
-                    eprintln!(
-                        "[DEBUG] Removing existing skill directory: {:?}",
-                        central_path_buf
-                    );
-                    // Check if the path is a junction / symlink — if so, only remove
-                    // the link itself, not the target contents.
-                    let is_link = central_path_buf.is_symlink()
-                        || cfg!(windows)
-                            && central_path_buf.is_dir()
-                            && is_junction(&central_path_buf);
-                    if is_link {
-                        safe_remove(&central_path_buf)
-                            .map_err(|e| format!("Failed to remove old skill link: {}", e))?;
-                    } else {
-                        std::fs::remove_dir_all(&central_path_buf)
-                            .map_err(|e| format!("Failed to remove old skill: {}", e))?;
+            let new_central_path =
+                tokio::task::spawn_blocking(move || -> Result<String, String> {
+                    // 先删除旧的技能目录
+                    let central_path_buf = PathBuf::from(&central_path);
+                    if central_path_buf.exists() {
+                        eprintln!(
+                            "[DEBUG] Removing existing skill directory: {:?}",
+                            central_path_buf
+                        );
+                        // Check if the path is a junction / symlink — if so, only remove
+                        // the link itself, not the target contents.
+                        let is_link = central_path_buf.is_symlink()
+                            || cfg!(windows)
+                                && central_path_buf.is_dir()
+                                && is_junction(&central_path_buf);
+                        if is_link {
+                            safe_remove(&central_path_buf)
+                                .map_err(|e| format!("Failed to remove old skill link: {}", e))?;
+                        } else {
+                            std::fs::remove_dir_all(&central_path_buf)
+                                .map_err(|e| format!("Failed to remove old skill: {}", e))?;
+                        }
                     }
-                }
-                // 重新安装（可能因 APFS 延迟而报 "already exists"，此时重试一次）
-                let name_for_retry = name.clone();
-                if let Err(e) = install_git_skill(&repo_url, Some(name), source_subpath.as_deref())
-                {
-                    let err_msg = format!("{:?}", e);
-                    if err_msg.contains("already exists") {
-                        eprintln!("[DEBUG] Race condition detected, retrying after delay...");
-                        std::thread::sleep(std::time::Duration::from_millis(200));
-                        install_git_skill(
-                            &repo_url,
-                            Some(name_for_retry),
-                            source_subpath.as_deref(),
-                        )
-                        .map_err(|e| format!("{:?}", e))?;
-                    } else {
-                        return Err(err_msg);
-                    }
-                }
-                Ok(())
-            })
-            .await
-            .map_err(|e| e.to_string())??;
+                    // 重新安装（可能因 APFS 延迟而报 "already exists"，此时重试一次）
+                    let name_for_retry = name.clone();
+                    let result =
+                        match install_git_skill(&repo_url, Some(name), source_subpath.as_deref()) {
+                            Ok(result) => result,
+                            Err(e) => {
+                                let err_msg = format!("{:?}", e);
+                                if err_msg.contains("already exists") {
+                                    eprintln!(
+                                        "[DEBUG] Race condition detected, retrying after delay..."
+                                    );
+                                    std::thread::sleep(std::time::Duration::from_millis(200));
+                                    install_git_skill(
+                                        &repo_url,
+                                        Some(name_for_retry),
+                                        source_subpath.as_deref(),
+                                    )
+                                    .map_err(|e| format!("{:?}", e))?
+                                } else {
+                                    return Err(err_msg);
+                                }
+                            }
+                        };
+                    Ok(result.central_path.to_string_lossy().to_string())
+                })
+                .await
+                .map_err(|e| e.to_string())??;
 
             // 更新数据库记录的时间戳
+            state
+                .db
+                .update_skill_metadata(
+                    &skill_id_clone,
+                    &skill_record.name,
+                    skill_record.source_ref.as_deref(),
+                    &new_central_path,
+                )
+                .map_err(|e| e.to_string())?;
             state
                 .db
                 .update_skill_sync_time(&skill_id_clone)

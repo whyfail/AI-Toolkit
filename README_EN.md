@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-1.5.5-blue.svg)](https://github.com)
+[![Version](https://img.shields.io/badge/version-1.5.6-blue.svg)](https://github.com)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B-lightgrey.svg)](https://github.com)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -27,7 +27,8 @@ AI Toolkit is a **universal AI programming tools management tool** that supports
 
 ### 🧰 Skills Management
 - **Skills Panel**: Dedicated Skills management interface for centralized skill management
-- **Batch Sync**: Select multiple Skills and sync to multiple target tools at once
+- **Install Location Switch**: Choose the official `~/.agents/skills/` directory or `~/.ai-toolkit/skills/` as the central Skills location
+- **Batch Sync**: Click to select multiple Skills in the sync modal and sync them to multiple target tools at once
 - **Git Installation**: Install Skills from GitHub/GitLab repositories with automatic repository structure parsing
 - **Online Search**: Search trending Skills from skills.sh
 - **Featured Recommendations**: Browse featured Skills with install counts and star information
@@ -36,9 +37,9 @@ AI Toolkit is a **universal AI programming tools management tool** that supports
 - **Sync Progress and Conflict Strategy**: Batch sync shows per-item progress; duplicate Skill names can be renamed, skipped, or overwritten
 
 ### 🛡️ Enhancement Center
-- **Config Backup and Restore**: Automatic snapshots before MCP config changes with one-click restore
+- **MCP and Tool Config Snapshots**: Back up MCP Server data and tool MCP config files with one-click restore
 - **Health Checks**: Validate MCP commands, environment variables, config files, and sync status
-- **Config Import/Export**: Export MCP, Skills, and settings as a portable package with sensitive fields redacted
+- **Zip Package Import/Export**: Export MCP, Skills files, and settings as a `.zip` package without pushing large file contents into the page
 - **Task Logs**: Track tool install/update/scan, Skills sync, and import results
 - **Agent Launch Presets**: Save tool, working directory, and MCP combinations for one-click launches
 
@@ -55,8 +56,9 @@ AI Toolkit is a **universal AI programming tools management tool** that supports
 
 ### 📦 Tool Management
 - **Installation Wizard**: Shows multiple installation methods (Homebrew, npm, curl scripts)
-- **Version Detection**: Auto-detect installed tool versions
-- **One-Click Update**: Quickly update installed tools
+- **CLI / Desktop Detection**: Detect CLI and desktop app installs separately, with separate launch actions for OpenCode, Claude Code, Codex, and more
+- **Version Detection**: Auto-detect CLI versions and desktop app versions
+- **One-Click Update**: CLI updates use package managers; desktop updates open the official update page
 - **Usage Docs**: Each tool card links to official documentation for quick reference
 - **Concurrent Updates**: Update multiple tools at the same time with independent progress states
 

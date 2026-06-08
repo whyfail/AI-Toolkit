@@ -3,6 +3,11 @@ use tauri::State;
 
 use crate::agents::{get_agent_config_paths, get_agent_name};
 use crate::app_state::AppState;
+use crate::core::central_repo::{
+    get_skills_install_location, normalize_skills_install_location,
+    resolve_central_repo_path_for_location, set_skills_install_location, AGENTS_SKILLS_LOCATION_ID,
+    AI_TOOLKIT_SKILLS_LOCATION_ID, SKILLS_INSTALL_LOCATION_SETTING_KEY,
+};
 use crate::mcp::AppType;
 #[cfg(target_os = "windows")]
 use crate::services::tool_manager::which_binary;
@@ -115,6 +120,32 @@ pub struct LaunchPreferences {
     pub available_terminals: Vec<TerminalOption>,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsInstallLocationOption {
+    pub id: String,
+    pub label: String,
+    pub path: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsInstallPreferences {
+    pub selected: String,
+    pub options: Vec<SkillsInstallLocationOption>,
+}
+
+pub fn init_skills_install_location(state: &AppState) {
+    let stored = state
+        .db
+        .get_setting(SKILLS_INSTALL_LOCATION_SETTING_KEY)
+        .ok()
+        .flatten()
+        .and_then(|id| normalize_skills_install_location(&id).map(str::to_string))
+        .unwrap_or_else(|| AGENTS_SKILLS_LOCATION_ID.to_string());
+    let _ = set_skills_install_location(&stored);
+}
+
 #[tauri::command]
 pub async fn get_launch_preferences(
     state: State<'_, AppState>,
@@ -144,6 +175,47 @@ pub async fn set_default_terminal(
     state
         .db
         .set_setting(DEFAULT_TERMINAL_SETTING_KEY, &normalized)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_skills_install_preferences() -> Result<SkillsInstallPreferences, String> {
+    let options = [
+        (
+            AGENTS_SKILLS_LOCATION_ID,
+            "官方 Skills 目录（.agents/skills）",
+        ),
+        (
+            AI_TOOLKIT_SKILLS_LOCATION_ID,
+            "AI Toolkit 目录（.ai-toolkit/skills）",
+        ),
+    ]
+    .into_iter()
+    .map(|(id, label)| {
+        resolve_central_repo_path_for_location(id).map(|path| SkillsInstallLocationOption {
+            id: id.to_string(),
+            label: label.to_string(),
+            path: path.to_string_lossy().to_string(),
+        })
+    })
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| e.to_string())?;
+
+    Ok(SkillsInstallPreferences {
+        selected: get_skills_install_location(),
+        options,
+    })
+}
+
+#[tauri::command]
+pub async fn set_skills_install_location_preference(
+    state: State<'_, AppState>,
+    location_id: String,
+) -> Result<(), String> {
+    let normalized = set_skills_install_location(&location_id).map_err(|e| e.to_string())?;
+    state
+        .db
+        .set_setting(SKILLS_INSTALL_LOCATION_SETTING_KEY, &normalized)
         .map_err(|e| e.to_string())
 }
 

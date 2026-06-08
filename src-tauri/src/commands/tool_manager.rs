@@ -19,7 +19,10 @@ pub struct ToolInfo {
     pub app_type: String,
     pub name: String,
     pub installed: bool,
+    pub has_cli: bool,
+    pub has_desktop_app: bool,
     pub version: Option<String>,
+    pub desktop_version: Option<String>,
     pub latest_version: Option<String>,
     pub detected_method: Option<String>,
     pub methods: Vec<ToolMethodInfo>,
@@ -66,6 +69,7 @@ pub async fn get_tool_info(app_type: String) -> Result<ToolInfo, String> {
     let mut info = build_tool_info(&app).await.ok_or("Unknown app type")?;
     if info.installed {
         info.version = ToolManagerService::get_version(&app).await;
+        info.desktop_version = ToolManagerService::get_desktop_version(&app).await;
         info.latest_version = ToolManagerService::get_latest_version(&app).await;
         info.detected_method = ToolManagerService::detect_install_method(&app)
             .await
@@ -86,8 +90,11 @@ pub async fn install_tool(app_type: String, method_index: usize) -> Result<(), S
 }
 
 #[tauri::command]
-pub async fn update_tool(app_type: String) -> Result<(), String> {
+pub async fn update_tool(app_type: String, update_kind: Option<String>) -> Result<(), String> {
     let app = AppType::from_str(&app_type)?;
+    if update_kind.as_deref() == Some("desktop") {
+        return ToolManagerService::update_desktop(&app).await;
+    }
     ToolManagerService::update(&app).await
 }
 
@@ -120,6 +127,7 @@ pub async fn scan_all_tool_versions() -> Result<Vec<ToolInfo>, String> {
             };
             if info.installed {
                 info.version = ToolManagerService::get_version(app).await;
+                info.desktop_version = ToolManagerService::get_desktop_version(app).await;
                 info.latest_version = ToolManagerService::get_latest_version(app).await;
             }
             Some(info)
