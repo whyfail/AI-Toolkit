@@ -4,6 +4,7 @@ import UnifiedMcpPanel from "@/components/mcp/UnifiedMcpPanel";
 import UpdateModal from "@/components/mcp/UpdateModal";
 import SkillsPanel from "@/components/skills/SkillsPanel";
 import ToolManagerPanel from "@/components/tool-manager/ToolManagerPanel";
+import EnhancementsPanel from "@/components/enhancements/EnhancementsPanel";
 import {
   Database,
   Settings,
@@ -16,6 +17,7 @@ import {
   Package,
   Sparkles,
   Share2,
+  Wrench,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-shell";
 import { useAppVersion } from "@/hooks/useAppVersion";
@@ -23,7 +25,7 @@ import { appApi, updateApi } from "@/lib/api";
 import type { AppConfigInfo, LaunchPreferences } from "@/types";
 import appLogo from "../src-tauri/icons/128x128.png";
 
-type Tab = "mcp" | "skills" | "tools" | "settings" | "about";
+type Tab = "mcp" | "skills" | "tools" | "enhancements" | "settings" | "about";
 const GITHUB_REPO_URL = "https://github.com/whyfail/ai-toolkit";
 const OFFICIAL_WEBSITE_URL = "https://whyfail.github.io/ai-toolkit-website/";
 let startupUpdateCheckStarted = false;
@@ -109,6 +111,7 @@ function App() {
     { id: "tools" as Tab, label: "工具管理", icon: Package },
     { id: "skills" as Tab, label: "Skills 管理", icon: Sparkles },
     { id: "mcp" as Tab, label: "MCP 服务器", icon: Database },
+    { id: "enhancements" as Tab, label: "增强中心", icon: Wrench },
     { id: "settings" as Tab, label: "设置", icon: Settings },
     { id: "about" as Tab, label: "关于", icon: Info },
   ];
@@ -167,6 +170,7 @@ function App() {
         {activeTab === "tools" && <ToolManagerPanel />}
         {activeTab === "skills" && <SkillsPanel />}
         {activeTab === "mcp" && <UnifiedMcpPanel />}
+        {activeTab === "enhancements" && <EnhancementsPanel />}
         {activeTab === "settings" && <SettingsTab />}
         {activeTab === "about" && <AboutTab />}
       </main>

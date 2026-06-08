@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-1.5.4-blue.svg)](https://github.com)
+[![Version](https://img.shields.io/badge/version-1.5.5-blue.svg)](https://github.com)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B-lightgrey.svg)](https://github.com)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -22,6 +22,7 @@ AI Toolkit is a **universal AI programming tools management tool** that supports
 - Automatically detects installed AI tools on your system and prompts for MCP sync when new tools are discovered
 - Toggle switches **sync in real-time** to the corresponding tool's configuration file
 - **JSON Paste Mode**: Copy JSON configuration directly from an MCP introduction page and paste to recognize
+- **Batch Import Preview**: Paste multiple MCP Server configs and import selected entries at once
 - **Connection Testing**: Built-in test connection function to ensure server configurations are valid before saving
 
 ### 🧰 Skills Management
@@ -31,6 +32,15 @@ AI Toolkit is a **universal AI programming tools management tool** that supports
 - **Online Search**: Search trending Skills from skills.sh
 - **Featured Recommendations**: Browse featured Skills with install counts and star information
 - **One-Click Update**: Auto-detect Skills with updates available and quick update support
+- **Health Check and Delete Preview**: Check Skill docs, paths, sync targets, and preview affected paths before deletion
+- **Sync Progress and Conflict Strategy**: Batch sync shows per-item progress; duplicate Skill names can be renamed, skipped, or overwritten
+
+### 🛡️ Enhancement Center
+- **Config Backup and Restore**: Automatic snapshots before MCP config changes with one-click restore
+- **Health Checks**: Validate MCP commands, environment variables, config files, and sync status
+- **Config Import/Export**: Export MCP, Skills, and settings as a portable package with sensitive fields redacted
+- **Task Logs**: Track tool install/update/scan, Skills sync, and import results
+- **Agent Launch Presets**: Save tool, working directory, and MCP combinations for one-click launches
 
 ### 🔧 Developer Friendly
 - Click on a tool name to quickly open the corresponding configuration file

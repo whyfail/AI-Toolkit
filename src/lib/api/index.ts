@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { McpServer, AppConfigInfo, LaunchPreferences, ToolInfo } from "@/types";
+import type { McpServer, McpServerSpec, AppConfigInfo, LaunchPreferences, ToolInfo } from "@/types";
 import type { AgentInfo, ToolStatus, ToolAdapter, DetectedSkill, InstalledToolsReport } from "@/contexts/InstalledToolsContext";
 import type {
   FeaturedSkillDto,
@@ -36,6 +36,132 @@ type TestConnectionResult = {
 type LocalSkillValidation = {
   valid: boolean;
   reason: string | null;
+};
+
+export type EnhancementSnapshot = {
+  id: string;
+  reason: string;
+  created_at: number;
+  server_count: number;
+  config_count: number;
+};
+
+export type SnapshotDetail = {
+  snapshot: EnhancementSnapshot;
+  servers: Record<string, McpServer>;
+  configs: Record<string, string>;
+};
+
+export type HealthCheckItem = {
+  id: string;
+  name: string;
+  scope: string;
+  status: "ok" | "warn" | "error" | string;
+  message: string;
+};
+
+export type ConflictItem = {
+  key: string;
+  scope: string;
+  message: string;
+  severity: string;
+};
+
+export type SecurityFinding = {
+  scope: string;
+  key: string;
+  message: string;
+  severity: string;
+};
+
+export type ToolkitExport = {
+  version: number;
+  exported_at: number;
+  mcp_servers: Record<string, McpServer>;
+  skills: Array<Record<string, unknown>>;
+  settings: Record<string, string>;
+  warnings: string[];
+};
+
+export type ImportPreview = {
+  mcp_count: number;
+  skill_count: number;
+  conflicts: ConflictItem[];
+  warnings: string[];
+};
+
+export type ImportResult = {
+  imported_mcp: number;
+  skipped_mcp: number;
+};
+
+export type LaunchPreset = {
+  id: string;
+  name: string;
+  agent_id: string;
+  working_dir: string;
+  enabled_mcp_servers: string[];
+  created_at: number;
+  updated_at: number;
+};
+
+export type TaskLogEntry = {
+  id: string;
+  kind: string;
+  title: string;
+  detail: string;
+  status: string;
+  created_at: number;
+};
+
+export type OnboardingChecklistItem = {
+  id: string;
+  title: string;
+  done: boolean;
+  detail: string;
+};
+
+export type BulkMcpServerInput = {
+  id: string;
+  name: string;
+  server: McpServerSpec;
+};
+
+export type SkillDeletePreview = {
+  skill_id: string;
+  skill_name: string;
+  central_path: string;
+  central_exists: boolean;
+  affected_paths: Array<{
+    tool: string;
+    path: string;
+    is_link: boolean;
+    exists: boolean;
+  }>;
+  warnings: string[];
+};
+
+export type SkillHealthItem = {
+  skill_id: string;
+  skill_name: string;
+  scope: string;
+  status: "ok" | "warn" | "error" | string;
+  message: string;
+};
+
+export type SkillConflictItem = {
+  name: string;
+  scope: string;
+  message: string;
+  paths: string[];
+};
+
+export type SkillSyncTarget = {
+  tool: string;
+  mode: string;
+  status: string;
+  target_path: string;
+  synced_at?: number | null;
 };
 
 export function invokeWithTimeout<T>(
@@ -184,14 +310,33 @@ export const agentApi = {
     return invoke<number>("sync_agent_mcp", { agentId, enabledApps });
   },
 
-  async launchAgent(agentId: string): Promise<void> {
-    return invoke("launch_agent", { agentId });
+  async launchAgent(agentId: string, workingDir?: string): Promise<void> {
+    return invoke("launch_agent", { agentId, workingDir });
   },
 };
 
 export const skillsApi = {
   async getManagedSkills(): Promise<ManagedSkill[]> {
     return invokeWithTimeout<ManagedSkill[]>("get_managed_skills");
+  },
+
+  async openSkillPath(path: string): Promise<void> {
+    return invoke("open_skill_path", { path });
+  },
+
+  async previewDelete(skillId: string, skillName: string): Promise<SkillDeletePreview> {
+    return invoke<SkillDeletePreview>("preview_skill_delete", {
+      skillId,
+      skillName,
+    });
+  },
+
+  async runHealthCheck(): Promise<SkillHealthItem[]> {
+    return invoke<SkillHealthItem[]>("run_skill_health_check");
+  },
+
+  async detectNameConflicts(): Promise<SkillConflictItem[]> {
+    return invoke<SkillConflictItem[]>("detect_skill_name_conflicts");
   },
 
   async getOnboardingPlan(): Promise<OnboardingPlan> {
@@ -216,8 +361,8 @@ export const skillsApi = {
     skillName: string;
     tool: string;
     sourcePath: string;
-  }): Promise<void> {
-    return invoke("sync_skill_to_tool", params);
+  }): Promise<SkillSyncTarget> {
+    return invoke<SkillSyncTarget>("sync_skill_to_tool", params);
   },
 
   async unsyncFromTool(skillName: string, tool: string): Promise<void> {
@@ -274,5 +419,106 @@ export const skillsApi = {
 
   async searchOnline(query: string): Promise<OnlineSkillDto[]> {
     return invoke<OnlineSkillDto[]>("search_skills_online", { query });
+  },
+};
+
+export const enhancementApi = {
+  async createSnapshot(reason: string): Promise<EnhancementSnapshot> {
+    return invoke<EnhancementSnapshot>("create_config_snapshot", { reason });
+  },
+
+  async listSnapshots(): Promise<EnhancementSnapshot[]> {
+    return invoke<EnhancementSnapshot[]>("list_config_snapshots");
+  },
+
+  async getSnapshot(id: string): Promise<SnapshotDetail> {
+    return invoke<SnapshotDetail>("get_config_snapshot", { id });
+  },
+
+  async restoreSnapshot(id: string): Promise<void> {
+    return invoke("restore_config_snapshot", { id });
+  },
+
+  async runHealthCheck(): Promise<HealthCheckItem[]> {
+    return invoke<HealthCheckItem[]>("run_mcp_health_check");
+  },
+
+  async exportToolkitConfig(): Promise<ToolkitExport> {
+    return invoke<ToolkitExport>("export_toolkit_config");
+  },
+
+  async previewToolkitImport(content: string): Promise<ImportPreview> {
+    return invoke<ImportPreview>("preview_toolkit_import", { content });
+  },
+
+  async importToolkitConfig(content: string, overwrite: boolean): Promise<ImportResult> {
+    return invoke<ImportResult>("import_toolkit_config", { content, overwrite });
+  },
+
+  async scanSecurityFindings(): Promise<SecurityFinding[]> {
+    return invoke<SecurityFinding[]>("scan_security_findings");
+  },
+
+  async detectConfigConflicts(): Promise<ConflictItem[]> {
+    return invoke<ConflictItem[]>("detect_config_conflicts");
+  },
+
+  async listTaskLogs(): Promise<TaskLogEntry[]> {
+    return invoke<TaskLogEntry[]>("list_task_logs");
+  },
+
+  async recordTaskLog(params: {
+    kind: string;
+    title: string;
+    detail: string;
+    status: string;
+  }): Promise<void> {
+    return invoke("record_task_log", params);
+  },
+
+  async getOnboardingChecklist(): Promise<OnboardingChecklistItem[]> {
+    return invoke<OnboardingChecklistItem[]>("get_onboarding_checklist");
+  },
+
+  async listLaunchPresets(): Promise<LaunchPreset[]> {
+    return invoke<LaunchPreset[]>("list_launch_presets");
+  },
+
+  async saveLaunchPreset(params: {
+    id?: string;
+    name: string;
+    agentId: string;
+    workingDir: string;
+    enabledMcpServers: string[];
+  }): Promise<LaunchPreset> {
+    return invoke<LaunchPreset>("save_launch_preset", {
+      params: {
+        id: params.id,
+        name: params.name,
+        agent_id: params.agentId,
+        working_dir: params.workingDir,
+        enabled_mcp_servers: params.enabledMcpServers,
+      },
+    });
+  },
+
+  async deleteLaunchPreset(id: string): Promise<void> {
+    return invoke("delete_launch_preset", { id });
+  },
+
+  async bulkImportMcpServers(params: {
+    servers: BulkMcpServerInput[];
+    apps: Record<string, boolean>;
+    overwrite: boolean;
+  }): Promise<{ imported: number; overwritten: number }> {
+    return invoke("bulk_import_mcp_servers", params);
+  },
+
+  async previewSkillUpdates(): Promise<Array<Record<string, unknown>>> {
+    return invoke<Array<Record<string, unknown>>>("preview_skill_updates");
+  },
+
+  async buildSharePackageSummary(): Promise<Record<string, unknown>> {
+    return invoke<Record<string, unknown>>("build_share_package_summary");
   },
 };

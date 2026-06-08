@@ -1,5 +1,6 @@
 use crate::agents::resolve_path;
 use crate::app_state::AppState;
+use crate::commands::enhancements::create_snapshot_for_state;
 use crate::database::{McpApps, McpServer, McpServerSpec};
 use crate::error::AppError;
 use crate::mcp::AppType;
@@ -24,6 +25,7 @@ impl McpService {
         state: &tauri::State<AppState>,
         server: McpServer,
     ) -> Result<(), AppError> {
+        let _ = create_snapshot_for_state(state, "保存 MCP Server 前自动备份");
         state.db.save_mcp_server(&server)?;
         // 同步到配置文件
         let servers = state.db.get_all_mcp_servers()?;
@@ -33,6 +35,7 @@ impl McpService {
 
     /// 删除 MCP 服务器
     pub fn delete_server(state: &tauri::State<AppState>, id: &str) -> Result<(), AppError> {
+        let _ = create_snapshot_for_state(state, "删除 MCP Server 前自动备份");
         state.db.delete_mcp_server(id)?;
         // 同步到配置文件
         let servers = state.db.get_all_mcp_servers()?;
@@ -50,6 +53,7 @@ impl McpService {
         let mut servers = state.db.get_all_mcp_servers()?;
 
         if let Some(server) = servers.get_mut(server_id) {
+            let _ = create_snapshot_for_state(state, "切换 MCP 同步目标前自动备份");
             server.apps.set_enabled_for(&app, enabled);
             state.db.save_mcp_server(server)?;
             // 同步到配置文件

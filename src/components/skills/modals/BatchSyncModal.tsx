@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { X, CheckSquare, Square, Upload } from 'lucide-react';
+import { X, CheckSquare, Square, Upload, Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ManagedSkill, ToolOption } from '../types';
 import { APP_COLORS } from '@/lib/tools';
-import { skillsApi } from '@/lib/api';
+import { enhancementApi, skillsApi } from '@/lib/api';
 
 interface BatchSyncModalProps {
   open: boolean;
@@ -24,6 +24,12 @@ function BatchSyncModal({
 }: BatchSyncModalProps) {
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
   const [syncing, setSyncing] = useState(false);
+  const [taskStates, setTaskStates] = useState<Record<string, {
+    skillName: string;
+    toolId: string;
+    status: 'waiting' | 'syncing' | 'success' | 'error';
+    message?: string;
+  }>>({});
 
   if (!open) return null;
 
@@ -56,32 +62,67 @@ function BatchSyncModal({
     }
 
     setSyncing(true);
+    const taskList = selectedSkillsList.flatMap((skill) =>
+      Array.from(selectedTools).map((toolId) => ({
+        id: `${skill.id}-${toolId}`,
+        skill,
+        toolId,
+      }))
+    );
+    setTaskStates(Object.fromEntries(taskList.map((task) => [
+      task.id,
+      {
+        skillName: task.skill.name,
+        toolId: task.toolId,
+        status: 'waiting' as const,
+      },
+    ])));
 
     try {
-      const tasks = selectedSkillsList.flatMap((skill) =>
-        Array.from(selectedTools).map((toolId) => ({
-          skill,
-          toolId,
-          promise: skillsApi.syncToTool({
-              skillId: skill.id,
-              skillName: skill.name,
-              tool: toolId,
-              sourcePath: skill.central_path,
-          }),
-        }))
-      );
-
-      const results = await Promise.allSettled(tasks.map((task) => task.promise));
-      let successCount = 0;
-      let failCount = 0;
-      results.forEach((result, index) => {
-        if (result.status === 'fulfilled') {
-          successCount++;
-        } else {
-          const task = tasks[index];
-          console.error(`Failed to sync ${task.skill.name} to ${task.toolId}:`, result.reason);
-          failCount++;
+      const results = await Promise.all(taskList.map(async (task) => {
+        setTaskStates((prev) => ({
+          ...prev,
+          [task.id]: { ...prev[task.id], status: 'syncing' },
+        }));
+        try {
+          const result = await skillsApi.syncToTool({
+              skillId: task.skill.id,
+              skillName: task.skill.name,
+              tool: task.toolId,
+              sourcePath: task.skill.central_path,
+          });
+          setTaskStates((prev) => ({
+            ...prev,
+            [task.id]: {
+              ...prev[task.id],
+              status: 'success',
+              message: `${result.mode} · ${result.target_path}`,
+            },
+          }));
+          return { ok: true };
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`Failed to sync ${task.skill.name} to ${task.toolId}:`, err);
+          setTaskStates((prev) => ({
+            ...prev,
+            [task.id]: {
+              ...prev[task.id],
+              status: 'error',
+              message,
+            },
+          }));
+          return { ok: false };
         }
+      }));
+
+      const successCount = results.filter(result => result.ok).length;
+      const failCount = results.length - successCount;
+
+      await enhancementApi.recordTaskLog({
+        kind: 'skill-batch-sync',
+        title: '批量同步 Skills 完成',
+        detail: `${successCount} 成功，${failCount} 失败`,
+        status: failCount === 0 ? 'success' : 'warn',
       });
 
       if (failCount === 0) {
@@ -91,7 +132,9 @@ function BatchSyncModal({
       }
 
       onSyncComplete();
-      onClose();
+      if (failCount === 0) {
+        onClose();
+      }
     } catch (err) {
       toast.error(`同步失败: ${err}`);
     } finally {
@@ -185,6 +228,30 @@ function BatchSyncModal({
               );
             })}
           </div>
+          {Object.keys(taskStates).length > 0 && (
+            <div className="mt-4 space-y-2 rounded-xl border border-white/60 bg-white/35 p-3 dark:border-white/10 dark:bg-white/8">
+              <p className="text-sm font-semibold">同步进度</p>
+              <div className="max-h-40 space-y-1 overflow-y-auto">
+                {Object.entries(taskStates).map(([id, task]) => (
+                  <div key={id} className="flex items-center gap-2 rounded-lg bg-white/45 px-2 py-1.5 text-xs dark:bg-white/8">
+                    {task.status === 'syncing' ? (
+                      <Loader2 size={13} className="animate-spin text-blue-600" />
+                    ) : task.status === 'success' ? (
+                      <CheckCircle2 size={13} className="text-emerald-600" />
+                    ) : task.status === 'error' ? (
+                      <AlertTriangle size={13} className="text-red-500" />
+                    ) : (
+                      <Square size={13} className="text-slate-400" />
+                    )}
+                    <span className="font-medium">{task.skillName}</span>
+                    <span className="text-slate-400">→</span>
+                    <span>{task.toolId}</span>
+                    {task.message && <span className="truncate text-slate-500">{task.message}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 底部 */}

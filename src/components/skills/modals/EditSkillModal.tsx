@@ -26,6 +26,7 @@ function EditSkillModal({ open, skill, onClose, onSkillEdited }: EditSkillModalP
   const [gitCandidates, setGitCandidates] = useState<GitSkillCandidate[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<GitSkillCandidate | null>(null);
   const [pendingSourceRef, setPendingSourceRef] = useState('');
+  const [existingSkillNames, setExistingSkillNames] = useState<Set<string>>(new Set());
 
   // Sync state when skill changes
   useEffect(() => {
@@ -39,17 +40,43 @@ function EditSkillModal({ open, skill, onClose, onSkillEdited }: EditSkillModalP
     }
   }, [skill]);
 
+  useEffect(() => {
+    if (!open) return;
+    skillsApi.getManagedSkills()
+      .then((skills) => setExistingSkillNames(new Set(skills.map((item) => item.name.toLowerCase()))))
+      .catch(() => setExistingSkillNames(new Set()));
+  }, [open]);
+
   if (!open || !skill) return null;
 
   const doSave = async () => {
+    let finalName = name.trim();
+    if (finalName.toLowerCase() !== skill.name.toLowerCase() && existingSkillNames.has(finalName.toLowerCase())) {
+      const choice = window.prompt(
+        `技能 "${finalName}" 已存在，请输入处理方式：\n2 自动重命名\n3 取消保存`,
+        '2'
+      );
+      if (choice !== '2') {
+        return;
+      }
+      let index = 2;
+      let nextName = `${finalName}-${index}`;
+      while (existingSkillNames.has(nextName.toLowerCase())) {
+        index++;
+        nextName = `${finalName}-${index}`;
+      }
+      finalName = nextName;
+      setName(nextName);
+    }
+
     setSaving(true);
     try {
       await skillsApi.renameSkill({
         skillId: skill.id,
-        newName: name.trim(),
+        newName: finalName,
         newSourceRef: sourceRef.trim() || null,
       });
-      toast.success(`技能 "${name}" 已更新`);
+      toast.success(`技能 "${finalName}" 已更新`);
       onSkillEdited();
       onClose();
     } catch (err) {

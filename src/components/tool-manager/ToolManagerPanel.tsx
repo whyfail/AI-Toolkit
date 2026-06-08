@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { agentApi, toolApi } from "@/lib/api";
+import { agentApi, enhancementApi, toolApi } from "@/lib/api";
 import { useInstalledTools } from "@/contexts/InstalledToolsContext";
 import { getToolMeta, isLaunchable } from "@/lib/tools";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
@@ -414,6 +414,12 @@ const ToolManagerPanel: React.FC = () => {
     },
     onSuccess: (updatedInfo) => {
       toast.success("安装成功");
+      enhancementApi.recordTaskLog({
+        kind: "install",
+        title: `安装成功: ${updatedInfo.name}`,
+        detail: `当前版本: ${updatedInfo.version || "未知"}`,
+        status: "success",
+      }).catch(console.error);
       setInstallingTool(null);
       queryClient.setQueryData(["tool-infos"], (old: any) => {
         if (!old) return old;
@@ -423,9 +429,15 @@ const ToolManagerPanel: React.FC = () => {
       });
       markAgentInstalled(updatedInfo.app_type);
     },
-    onError: (error: unknown) => {
+    onError: (error: unknown, variables) => {
       const message = error instanceof Error ? error.message : String(error);
       toast.error(`安装失败: ${message}`);
+      enhancementApi.recordTaskLog({
+        kind: "install",
+        title: `安装失败: ${variables.appType}`,
+        detail: message,
+        status: "error",
+      }).catch(console.error);
       setInstallingTool(null);
     },
   });
@@ -440,6 +452,12 @@ const ToolManagerPanel: React.FC = () => {
     },
     onSuccess: (updatedInfo) => {
       toast.success("更新成功");
+      enhancementApi.recordTaskLog({
+        kind: "update",
+        title: `更新成功: ${updatedInfo.name}`,
+        detail: `当前版本: ${updatedInfo.version || "未知"}`,
+        status: "success",
+      }).catch(console.error);
       setUpdatingTools((prev) => {
         const next = new Set(prev);
         next.delete(updatedInfo.app_type);
@@ -455,6 +473,12 @@ const ToolManagerPanel: React.FC = () => {
     onError: (error: unknown, appType) => {
       const message = error instanceof Error ? error.message : String(error);
       toast.error(`更新失败: ${message}`);
+      enhancementApi.recordTaskLog({
+        kind: "update",
+        title: `更新失败: ${appType}`,
+        detail: message,
+        status: "error",
+      }).catch(console.error);
       setUpdatingTools((prev) => {
         const next = new Set(prev);
         next.delete(appType);
@@ -470,6 +494,12 @@ const ToolManagerPanel: React.FC = () => {
       return scannedInfo;
     },
     onSuccess: (scannedInfo) => {
+      enhancementApi.recordTaskLog({
+        kind: "scan",
+        title: `扫描完成: ${scannedInfo.name}`,
+        detail: `已安装: ${scannedInfo.installed ? "是" : "否"}，当前版本: ${scannedInfo.version || "未知"}，最新版本: ${scannedInfo.latest_version || "未知"}`,
+        status: "success",
+      }).catch(console.error);
       setScanningTool(null);
       queryClient.setQueryData(["tool-infos"], (old: any) => {
         if (!old) return old;
@@ -481,6 +511,12 @@ const ToolManagerPanel: React.FC = () => {
     onError: (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       toast.error(`扫描失败: ${message}`);
+      enhancementApi.recordTaskLog({
+        kind: "scan",
+        title: "扫描失败",
+        detail: message,
+        status: "error",
+      }).catch(console.error);
       setScanningTool(null);
     },
   });
@@ -494,6 +530,12 @@ const ToolManagerPanel: React.FC = () => {
     },
     onSuccess: (updatedInfo) => {
       toast.success("卸载成功");
+      enhancementApi.recordTaskLog({
+        kind: "uninstall",
+        title: `卸载成功: ${updatedInfo.name}`,
+        detail: "工具已从系统移除或不再可检测",
+        status: "success",
+      }).catch(console.error);
       setDeletingTool(null);
       queryClient.setQueryData(["tool-infos"], (old: any) => {
         if (!old) return old;
@@ -506,6 +548,12 @@ const ToolManagerPanel: React.FC = () => {
     onError: (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       toast.error(`卸载失败: ${message}`);
+      enhancementApi.recordTaskLog({
+        kind: "uninstall",
+        title: "卸载失败",
+        detail: message,
+        status: "error",
+      }).catch(console.error);
       setDeletingTool(null);
     },
   });

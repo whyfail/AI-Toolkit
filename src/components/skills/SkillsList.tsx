@@ -1,11 +1,14 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { GitBranch, Folder, Trash2, Sparkles, X, FileText, CheckSquare, Square, Github, RefreshCw, Pencil } from 'lucide-react';
+import { GitBranch, Folder, Trash2, Sparkles, X, FileText, CheckSquare, Square, Github, RefreshCw, Pencil, AlertTriangle, Info, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ManagedSkill, ToolOption } from './types';
+import type { SkillDeletePreview, SkillHealthItem } from '@/lib/api';
 import { APP_COLORS } from '@/lib/tools';
 import { skillsApi } from '@/lib/api';
+
+type SkillFilter = 'all' | 'git' | 'local' | 'synced' | 'unsynced' | 'needsAttention';
 
 interface SkillsListProps {
   skills: ManagedSkill[];
@@ -16,9 +19,14 @@ interface SkillsListProps {
   searchQuery: string;
   onDeleteSkill: (skill: ManagedSkill) => void;
   onEditSkill: (skill: ManagedSkill) => void;
+  filter: SkillFilter;
+  toolFilter: string;
+  attentionSkillIds: Set<string>;
+  healthItems: SkillHealthItem[];
   onDeleteId: string | null;
   onConfirmDelete: () => void;
   onCancelDelete: () => void;
+  deletePreview: SkillDeletePreview | null;
   onSkillSync?: () => void;
   isDeleting?: boolean;
 }
@@ -50,9 +58,14 @@ function SkillsList({
   searchQuery,
   onDeleteSkill,
   onEditSkill,
+  filter,
+  toolFilter,
+  attentionSkillIds,
+  healthItems,
   onDeleteId,
   onConfirmDelete,
   onCancelDelete,
+  deletePreview,
   onSkillSync,
   isDeleting,
 }: SkillsListProps) {
@@ -71,12 +84,25 @@ function SkillsList({
         skill.source_type.toLowerCase().includes(query)
       );
     })
+    .filter(skill => {
+      if (filter === 'all') return true;
+      if (filter === 'git') return isGitHubUrl(skill.source_ref) || skill.source_type === 'git';
+      if (filter === 'local') return skill.source_type === 'local' || skill.source_type === 'link';
+      if (filter === 'synced') return skill.targets.length > 0;
+      if (filter === 'unsynced') return skill.targets.length === 0;
+      if (filter === 'needsAttention') return attentionSkillIds.has(skill.id);
+      return true;
+    })
+    .filter(skill => !toolFilter || skill.targets.some(target => target.tool === toolFilter))
     .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
 
   const allSelected = filteredSkills.length > 0 && filteredSkills.every(s => selectedSkills.has(s.id));
   const someSelected = filteredSkills.some(s => selectedSkills.has(s.id)) && !allSelected;
 
   const deleteSkill = onDeleteId ? skills.find(s => s.id === onDeleteId) : null;
+  const detailHealthItems = detailSkill
+    ? healthItems.filter(item => item.skill_id === detailSkill.id && item.status !== 'ok')
+    : [];
 
   const handleOpenDetail = async (skill: ManagedSkill) => {
     setDetailSkill(skill);
@@ -126,6 +152,10 @@ function SkillsList({
       toast.error('该技能没有 GitHub 地址');
       return;
     }
+    const confirmed = window.confirm(
+      `刷新 "${skill.name}" 会覆盖中央仓库内容，并影响 ${skill.targets.length} 个已同步目标。是否继续？`
+    );
+    if (!confirmed) return;
     setRefreshingSkill(skill.id);
     try {
       await skillsApi.updateSkill(skill.id);
@@ -217,11 +247,18 @@ function SkillsList({
                     </button>
                     <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                       {sourceTypeLabel(skill.source_type)}
+                      {skill.targets.length > 0 && ` · ${skill.targets.length} 个同步目标`}
                     </p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
+                  {attentionSkillIds.has(skill.id) && (
+                    <span className="glass-pill text-amber-700" title="健康检查发现需处理项">
+                      <AlertTriangle size={12} />
+                      需处理
+                    </span>
+                  )}
                   {isGitHubUrl(skill.source_ref) && (
                     <button
                       onClick={() => handleRefreshGitSkill(skill)}
@@ -319,6 +356,47 @@ function SkillsList({
 
             {/* 内容 */}
             <div className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-5">
+              <div className="mb-4 grid gap-2 rounded-xl border border-white/60 bg-white/45 p-3 text-xs dark:border-white/10 dark:bg-white/8 sm:grid-cols-2">
+                <div>
+                  <span className="text-slate-400">来源</span>
+                  <p className="mt-0.5 break-all font-medium">{detailSkill.source_ref || detailSkill.central_path}</p>
+                </div>
+                <div>
+                  <span className="text-slate-400">中央路径</span>
+                  <p className="mt-0.5 break-all font-medium">{detailSkill.central_path}</p>
+                  <button
+                    type="button"
+                    onClick={() => skillsApi.openSkillPath(detailSkill.central_path).catch((err) => toast.error(`打开目录失败: ${err}`))}
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline"
+                  >
+                    <ExternalLink size={12} />
+                    打开目录
+                  </button>
+                </div>
+                <div>
+                  <span className="text-slate-400">同步目标</span>
+                  <p className="mt-0.5 font-medium">{detailSkill.targets.length} 个</p>
+                </div>
+                <div>
+                  <span className="text-slate-400">最近同步</span>
+                  <p className="mt-0.5 font-medium">
+                    {detailSkill.last_sync_at ? new Date(detailSkill.last_sync_at * 1000).toLocaleString() : '暂无记录'}
+                  </p>
+                </div>
+              </div>
+              {detailHealthItems.length > 0 && (
+                <div className="mb-4 rounded-xl border border-amber-200/70 bg-amber-500/10 p-3 text-xs text-amber-800">
+                  <div className="mb-2 flex items-center gap-2 font-semibold">
+                    <Info size={14} />
+                    健康检查提示
+                  </div>
+                  <div className="space-y-1">
+                    {detailHealthItems.map(item => (
+                      <p key={`${item.scope}-${item.message}`}>{item.scope}: {item.message}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
               {readmeLoading ? (
                 <div className="flex items-center justify-center h-32">
                   <div className="glass-pill">加载中...</div>
@@ -367,14 +445,41 @@ function SkillsList({
       {/* 删除确认弹窗 */}
       {onDeleteId && deleteSkill && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60] p-4 animate-in fade-in duration-200">
-          <div className="glass-modal w-full max-w-sm overflow-hidden rounded-2xl">
+          <div className="glass-modal w-full max-w-lg overflow-hidden rounded-2xl">
             <div className="border-b border-white/50 px-6 py-5 dark:border-white/10">
               <h3 className="text-lg font-semibold">确认删除？</h3>
               <p className="mt-1 line-clamp-1 text-sm text-slate-500 dark:text-slate-400">
                 技能: {deleteSkill.name}
               </p>
             </div>
-            <div className="px-6 py-4 flex justify-end gap-3">
+            <div className="max-h-72 overflow-y-auto px-6 py-4 text-sm">
+              {!deletePreview ? (
+                <div className="glass-pill">正在加载影响范围...</div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-white/60 bg-white/45 p-3 dark:border-white/10 dark:bg-white/8">
+                    <p className="text-xs text-slate-400">中央仓库</p>
+                    <p className="mt-1 break-all text-xs">{deletePreview.central_path}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {deletePreview.central_exists ? '将删除' : '路径不存在'}
+                    </p>
+                  </div>
+                  {deletePreview.affected_paths.map(path => (
+                    <div key={path.path} className="rounded-xl border border-white/60 bg-white/45 p-3 dark:border-white/10 dark:bg-white/8">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold">{path.tool}</span>
+                        <span className="glass-pill">{path.is_link ? '链接' : '目录'}</span>
+                      </div>
+                      <p className="mt-1 break-all text-xs text-slate-500">{path.path}</p>
+                    </div>
+                  ))}
+                  {deletePreview.warnings.map(warning => (
+                    <p key={warning} className="text-xs text-amber-700">{warning}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 flex justify-end gap-3 border-t border-white/50 dark:border-white/10">
               <button
                 onClick={onCancelDelete}
                 className="glass-secondary-button"

@@ -1,4 +1,5 @@
 use crate::app_state::AppState;
+use crate::commands::enhancements::append_task_log;
 use crate::core::central_repo::resolve_central_repo_path;
 use crate::core::featured_skills::{
     fetch_featured_skills as fetch_featured_skills_core, FeaturedSkill,
@@ -15,7 +16,6 @@ use crate::skill_core::tool_adapters::{
     adapter_by_key, default_tool_adapters, get_all_tool_status, is_tool_installed,
     resolve_default_path, scan_tool_dir, ToolStatus,
 };
-#[cfg(windows)]
 use crate::utils::SuppressConsole;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -83,6 +83,41 @@ pub struct SyncTarget {
     pub status: String,
     pub target_path: String,
     pub synced_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SkillDeletePreviewPath {
+    pub tool: String,
+    pub path: String,
+    pub is_link: bool,
+    pub exists: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SkillDeletePreview {
+    pub skill_id: String,
+    pub skill_name: String,
+    pub central_path: String,
+    pub central_exists: bool,
+    pub affected_paths: Vec<SkillDeletePreviewPath>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SkillHealthItem {
+    pub skill_id: String,
+    pub skill_name: String,
+    pub scope: String,
+    pub status: String,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SkillConflictItem {
+    pub name: String,
+    pub scope: String,
+    pub message: String,
+    pub paths: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -260,6 +295,224 @@ pub async fn get_managed_skills(state: State<'_, AppState>) -> Result<Vec<Manage
 #[tauri::command]
 pub async fn get_tool_status() -> Result<Vec<ToolStatus>, String> {
     get_all_tool_status().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn open_skill_path(path: String) -> Result<(), String> {
+    let path_buf = PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Err(format!("路径不存在: {}", path));
+    }
+
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut cmd = std::process::Command::new("open");
+        cmd.arg(&path_buf);
+        cmd
+    };
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut cmd = std::process::Command::new("explorer");
+        cmd.arg(&path_buf);
+        cmd
+    };
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let mut command = {
+        let mut cmd = std::process::Command::new("xdg-open");
+        cmd.arg(&path_buf);
+        cmd
+    };
+
+    command
+        .suppress_console()
+        .spawn()
+        .map_err(|e| format!("打开路径失败: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn preview_skill_delete(
+    state: State<'_, AppState>,
+    skill_id: String,
+    skill_name: String,
+) -> Result<SkillDeletePreview, String> {
+    let central_dir = resolve_central_repo_path().map_err(|e| e.to_string())?;
+    let db_skill = if skill_id.is_empty() {
+        None
+    } else {
+        state
+            .db
+            .get_skill_by_id(&skill_id)
+            .map_err(|e| e.to_string())?
+    };
+    let central_path = db_skill
+        .as_ref()
+        .map(|skill| PathBuf::from(&skill.central_path))
+        .unwrap_or_else(|| central_dir.join(&skill_name));
+
+    let mut affected_paths = Vec::new();
+    let mut seen_paths = std::collections::HashSet::new();
+    for tool in default_tool_adapters() {
+        let skills_dir = resolve_default_path(&tool).map_err(|e| e.to_string())?;
+        if !is_tool_installed(&tool) && !skills_dir.exists() {
+            continue;
+        }
+        let target_path = skills_dir.join(&skill_name);
+        let exists = target_path.exists() || target_path.symlink_metadata().is_ok();
+        if exists {
+            let path_key = target_path.to_string_lossy().to_string();
+            if seen_paths.insert(path_key.clone()) {
+                let metadata = target_path.symlink_metadata().ok();
+                affected_paths.push(SkillDeletePreviewPath {
+                    tool: tool.id.as_key().to_string(),
+                    path: path_key,
+                    is_link: metadata
+                        .as_ref()
+                        .map(|m| m.file_type().is_symlink())
+                        .unwrap_or(false)
+                        || is_junction(&target_path),
+                    exists,
+                });
+            }
+        }
+    }
+
+    let mut warnings = Vec::new();
+    if db_skill.is_none() {
+        warnings.push("数据库中没有找到该技能记录，将按名称预览文件路径".to_string());
+    }
+    if affected_paths.len() > 1 {
+        warnings.push("该操作会影响多个工具中的同名技能".to_string());
+    }
+
+    Ok(SkillDeletePreview {
+        skill_id,
+        skill_name,
+        central_path: central_path.to_string_lossy().to_string(),
+        central_exists: central_path.exists() || central_path.symlink_metadata().is_ok(),
+        affected_paths,
+        warnings,
+    })
+}
+
+#[tauri::command]
+pub async fn run_skill_health_check(
+    state: State<'_, AppState>,
+) -> Result<Vec<SkillHealthItem>, String> {
+    let managed = get_managed_skills(state).await?;
+    let mut items = Vec::new();
+    for skill in managed {
+        let central_path = PathBuf::from(&skill.central_path);
+        let has_skill_doc =
+            central_path.join("SKILL.md").exists() || central_path.join("skill.md").exists();
+        items.push(SkillHealthItem {
+            skill_id: skill.id.clone(),
+            skill_name: skill.name.clone(),
+            scope: "central".to_string(),
+            status: if central_path.exists() { "ok" } else { "error" }.to_string(),
+            message: if central_path.exists() {
+                format!("中央仓库路径存在: {}", central_path.display())
+            } else {
+                format!("中央仓库路径不存在: {}", central_path.display())
+            },
+        });
+        if !has_skill_doc {
+            items.push(SkillHealthItem {
+                skill_id: skill.id.clone(),
+                skill_name: skill.name.clone(),
+                scope: "schema".to_string(),
+                status: "warn".to_string(),
+                message: "缺少 SKILL.md 或 skill.md".to_string(),
+            });
+        }
+        if skill.targets.is_empty() {
+            items.push(SkillHealthItem {
+                skill_id: skill.id.clone(),
+                skill_name: skill.name.clone(),
+                scope: "sync".to_string(),
+                status: "warn".to_string(),
+                message: "尚未同步到任何工具".to_string(),
+            });
+        }
+        for target in &skill.targets {
+            let path = PathBuf::from(&target.target_path);
+            let exists = path.exists() || path.symlink_metadata().is_ok();
+            let broken_link = path.symlink_metadata().is_ok() && !path.exists();
+            items.push(SkillHealthItem {
+                skill_id: skill.id.clone(),
+                skill_name: skill.name.clone(),
+                scope: format!("target:{}", target.tool),
+                status: if exists && !broken_link {
+                    "ok"
+                } else {
+                    "error"
+                }
+                .to_string(),
+                message: if broken_link {
+                    format!("目标软链接已断开: {}", path.display())
+                } else if exists {
+                    format!("同步目标存在: {}", path.display())
+                } else {
+                    format!("同步目标不存在: {}", path.display())
+                },
+            });
+        }
+        if let Some(source_ref) = &skill.source_ref {
+            if source_ref.starts_with("http://") || source_ref.starts_with("https://") {
+                items.push(SkillHealthItem {
+                    skill_id: skill.id.clone(),
+                    skill_name: skill.name.clone(),
+                    scope: "source".to_string(),
+                    status: "ok".to_string(),
+                    message: format!("远端来源: {}", source_ref),
+                });
+            }
+        }
+    }
+    append_task_log(
+        "skill-health",
+        "已完成 Skill 健康检查",
+        &format!("{} 项结果", items.len()),
+        "success",
+    )
+    .ok();
+    Ok(items)
+}
+
+#[tauri::command]
+pub async fn detect_skill_name_conflicts(
+    state: State<'_, AppState>,
+) -> Result<Vec<SkillConflictItem>, String> {
+    let managed = get_managed_skills(state).await?;
+    let mut by_name: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for skill in managed {
+        let entry = by_name.entry(skill.name.to_ascii_lowercase()).or_default();
+        entry.push(skill.central_path.clone());
+        for target in skill.targets {
+            entry.push(target.target_path);
+        }
+    }
+
+    Ok(by_name
+        .into_iter()
+        .filter_map(|(name, paths)| {
+            let unique: std::collections::HashSet<_> = paths.iter().collect();
+            if unique.len() > 1 {
+                Some(SkillConflictItem {
+                    name,
+                    scope: "skill-name".to_string(),
+                    message: "同名 Skill 分布在多个路径，安装/重命名时建议选择覆盖、重命名或跳过"
+                        .to_string(),
+                    paths,
+                })
+            } else {
+                None
+            }
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -580,6 +833,7 @@ pub async fn sync_skill_to_tool(
         skillId, skillName, tool, sourcePath
     );
 
+    let skill_name_for_log = skillName.clone();
     let result: SyncTarget = tokio::task::spawn_blocking(move || -> Result<SyncTarget, String> {
         use crate::core::sync_engine::sync_dir_for_tool_with_overwrite;
 
@@ -616,6 +870,17 @@ pub async fn sync_skill_to_tool(
     })
     .await
     .map_err(|e| e.to_string())??;
+
+    append_task_log(
+        "skill-sync",
+        &format!("已同步 Skill: {}", skill_name_for_log),
+        &format!(
+            "目标工具: {}，模式: {}，路径: {}",
+            result.tool, result.mode, result.target_path
+        ),
+        "success",
+    )
+    .ok();
 
     Ok(result)
 }
@@ -757,6 +1022,13 @@ pub async fn delete_managed_skill(
     }
 
     println!("技能 '{}' 已删除 (共 {} 个工具路径)", skill_name, count);
+    append_task_log(
+        "skill-delete",
+        &format!("已删除 Skill: {}", skill_name),
+        &format!("删除 {} 个工具路径并清理中央仓库", count),
+        "success",
+    )
+    .ok();
     Ok(())
 }
 
@@ -768,6 +1040,8 @@ pub async fn unsync_skill_from_tool(skill_name: String, tool: String) -> Result<
         skill_name, tool
     );
 
+    let skill_name_for_log = skill_name.clone();
+    let tool_for_log = tool.clone();
     tokio::task::spawn_blocking(move || -> Result<(), String> {
         let tool_adapter =
             adapter_by_key(&tool).ok_or_else(|| format!("Unknown tool: {}", tool))?;
@@ -819,6 +1093,14 @@ pub async fn unsync_skill_from_tool(skill_name: String, tool: String) -> Result<
     })
     .await
     .map_err(|e| e.to_string())??;
+
+    append_task_log(
+        "skill-unsync",
+        &format!("已取消同步 Skill: {}", skill_name_for_log),
+        &format!("目标工具: {}", tool_for_log),
+        "success",
+    )
+    .ok();
 
     Ok(())
 }
@@ -893,12 +1175,27 @@ pub async fn update_skill(state: State<'_, AppState>, skill_id: String) -> Resul
                 .update_skill_sync_time(&skill_id_clone)
                 .map_err(|e| e.to_string())?;
 
+            append_task_log(
+                "skill-update",
+                &format!("已刷新 Skill: {}", skill_record.name),
+                source_ref,
+                "success",
+            )
+            .ok();
+
             return Ok(());
         }
     }
 
     // 本地技能无需更新
     println!("Update skill requested: {} (no action needed)", skill_id);
+    append_task_log(
+        "skill-update",
+        &format!("跳过本地 Skill 更新: {}", skill_record.name),
+        "本地技能没有远端来源",
+        "warn",
+    )
+    .ok();
     Ok(())
 }
 

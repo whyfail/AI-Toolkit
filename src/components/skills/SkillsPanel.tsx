@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Plus, RefreshCw, Search, Folder, Upload, Sparkles } from 'lucide-react';
+import { Plus, RefreshCw, Search, Folder, Upload, Sparkles, Activity } from 'lucide-react';
 import { toast } from 'sonner';
 import SkillsList from './SkillsList';
 import AddSkillModal from './modals/AddSkillModal';
@@ -13,6 +13,9 @@ import type {
   OnboardingPlan,
   ToolOption
 } from './types';
+import type { SkillDeletePreview, SkillHealthItem } from '@/lib/api';
+
+type SkillFilter = 'all' | 'git' | 'local' | 'synced' | 'unsynced' | 'needsAttention';
 
 function SkillsPanel() {
   const [managedSkills, setManagedSkills] = useState<ManagedSkill[]>([]);
@@ -27,6 +30,11 @@ function SkillsPanel() {
   const [editingSkill, setEditingSkill] = useState<ManagedSkill | null>(null);
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
+  const [filter, setFilter] = useState<SkillFilter>('all');
+  const [toolFilter, setToolFilter] = useState('');
+  const [deletePreview, setDeletePreview] = useState<SkillDeletePreview | null>(null);
+  const [healthItems, setHealthItems] = useState<SkillHealthItem[]>([]);
+  const [checkingHealth, setCheckingHealth] = useState(false);
 
   // 使用共享的工具检测上下文
   const { toolStatuses, isLoading: toolsLoading, refresh: refreshInstalledTools } = useInstalledTools();
@@ -45,9 +53,12 @@ function SkillsPanel() {
 
   const loadPlan = useCallback(async () => {
     try {
-      setPlan(await skillsApi.getOnboardingPlan());
+      const result = await skillsApi.getOnboardingPlan();
+      setPlan(result);
+      return result;
     } catch (err) {
       console.warn('Failed to load onboarding plan:', err);
+      return null;
     }
   }, []);
 
@@ -123,14 +134,20 @@ function SkillsPanel() {
       setShowImportModal(true);
       return;
     }
-    await loadPlan();
-    if (plan) {
+    const nextPlan = await loadPlan();
+    if (nextPlan) {
       setShowImportModal(true);
     }
   }, [loadPlan, plan]);
 
-  const handleDeleteSkill = useCallback((skill: ManagedSkill) => {
+  const handleDeleteSkill = useCallback(async (skill: ManagedSkill) => {
     setDeleteSkillId(skill.id);
+    setDeletePreview(null);
+    try {
+      setDeletePreview(await skillsApi.previewDelete(skill.id, skill.name));
+    } catch (err) {
+      toast.error(`加载删除预览失败: ${err}`);
+    }
   }, []);
 
   const handleEditSkill = useCallback((skill: ManagedSkill) => {
@@ -146,6 +163,7 @@ function SkillsPanel() {
       await skillsApi.deleteManagedSkill(deleteSkillId, skill?.name || '');
       toast.success(`技能 "${skill?.name}" 已删除`);
       setDeleteSkillId(null);
+      setDeletePreview(null);
       loadManagedSkills();
     } catch (err) {
       toast.error(`删除技能失败: ${err}`);
@@ -153,6 +171,33 @@ function SkillsPanel() {
       setIsDeleting(false);
     }
   }, [deleteSkillId, managedSkills, loadManagedSkills]);
+
+  const handleHealthCheck = useCallback(async () => {
+    setCheckingHealth(true);
+    try {
+      setHealthItems(await skillsApi.runHealthCheck());
+      toast.success('Skill 健康检查完成');
+    } catch (err) {
+      toast.error(`健康检查失败: ${err}`);
+    } finally {
+      setCheckingHealth(false);
+    }
+  }, []);
+
+  const attentionSkillIds = new Set(
+    healthItems
+      .filter((item) => item.status !== 'ok')
+      .map((item) => item.skill_id)
+  );
+  const syncedTargetCount = managedSkills.reduce((count, skill) => count + skill.targets.length, 0);
+  const filterOptions: Array<{ id: SkillFilter; label: string }> = [
+    { id: 'all', label: '全部' },
+    { id: 'git', label: 'Git' },
+    { id: 'local', label: '本地' },
+    { id: 'synced', label: '已同步' },
+    { id: 'unsynced', label: '未同步' },
+    { id: 'needsAttention', label: '需处理' },
+  ];
 
   return (
     <div className="glass-app flex h-full flex-col overflow-hidden">
@@ -179,6 +224,14 @@ function SkillsPanel() {
             >
               <RefreshCw size={16} className={(isLoading || toolsLoading) ? "animate-spin" : ""} />
               <span className="hidden sm:inline">刷新</span>
+            </button>
+            <button
+              onClick={handleHealthCheck}
+              disabled={checkingHealth}
+              className="glass-secondary-button"
+            >
+              <Activity size={16} className={checkingHealth ? "animate-spin" : ""} />
+              <span className="hidden sm:inline">健康检查</span>
             </button>
             <button
               onClick={handleReviewImport}
@@ -212,6 +265,34 @@ function SkillsPanel() {
           />
         </div>
 
+        <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+          {filterOptions.map((option) => (
+            <button
+              key={option.id}
+              onClick={() => setFilter(option.id)}
+              className={`inline-flex min-h-8 flex-shrink-0 items-center rounded-xl px-3 text-xs font-semibold transition ${
+                filter === option.id
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
+                  : 'border border-white/60 bg-white/55 text-slate-600 hover:bg-white/80'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+          {tools.length > 0 && (
+            <select
+              value={toolFilter}
+              onChange={(event) => setToolFilter(event.target.value)}
+              className="glass-select min-h-8 flex-shrink-0 px-3 text-xs font-semibold"
+            >
+              <option value="">全部工具</option>
+              {tools.map((tool) => (
+                <option key={tool.id} value={tool.id}>{tool.label}</option>
+              ))}
+            </select>
+          )}
+        </div>
+
         {/* 统计栏 */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
           <span className="glass-pill">
@@ -228,7 +309,15 @@ function SkillsPanel() {
           )}
           {tools.filter(t => syncTargets[t.id]).length > 0 && (
             <span className="glass-pill">
-              已同步到: {tools.filter(t => syncTargets[t.id]).length} 个工具
+              可同步工具: {tools.filter(t => syncTargets[t.id]).length} 个
+            </span>
+          )}
+          <span className="glass-pill">
+            同步目标: {syncedTargetCount} 个
+          </span>
+          {attentionSkillIds.size > 0 && (
+            <span className="glass-pill text-amber-700">
+              需处理: {attentionSkillIds.size} 个
             </span>
           )}
         </div>
@@ -250,9 +339,17 @@ function SkillsPanel() {
             searchQuery={searchQuery}
             onDeleteSkill={handleDeleteSkill}
             onEditSkill={handleEditSkill}
+            filter={filter}
+            toolFilter={toolFilter}
+            attentionSkillIds={attentionSkillIds}
+            healthItems={healthItems}
             onDeleteId={deleteSkillId}
             onConfirmDelete={confirmDelete}
-            onCancelDelete={() => setDeleteSkillId(null)}
+            onCancelDelete={() => {
+              setDeleteSkillId(null);
+              setDeletePreview(null);
+            }}
+            deletePreview={deletePreview}
             isDeleting={isDeleting}
             onSkillSync={loadManagedSkills}
           />

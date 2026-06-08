@@ -37,6 +37,14 @@ const formatCount = (n: number) => {
   return String(n);
 };
 
+const basenameFromPath = (path: string) => {
+  const parts = path.trim().split(/[\\/]/);
+  for (let index = parts.length - 1; index >= 0; index--) {
+    if (parts[index]) return parts[index];
+  }
+  return '';
+};
+
 function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, onSkillAdded }: AddSkillModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>('git');
   const [loading, setLoading] = useState(false);
@@ -47,6 +55,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
   const [localName, setLocalName] = useState('');
   const [localValid, setLocalValid] = useState(false);
   const [localValidationError, setLocalValidationError] = useState<string | null>(null);
+  const [existingSkillNames, setExistingSkillNames] = useState<Set<string>>(new Set());
 
   // 验证本地文件夹是否为合规的技能目录
   const validateLocalPath = useCallback(async (path: string) => {
@@ -105,6 +114,13 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
       loadFeaturedSkills();
     }
   }, [activeTab, featuredSkills.length, loadFeaturedSkills]);
+
+  useEffect(() => {
+    if (!open) return;
+    skillsApi.getManagedSkills()
+      .then(skills => setExistingSkillNames(new Set(skills.map(skill => skill.name.toLowerCase()))))
+      .catch(() => setExistingSkillNames(new Set()));
+  }, [open]);
 
   const resetGitState = useCallback(() => {
     setGitCandidates([]);
@@ -210,6 +226,33 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
     }
   }, [validateLocalPath]);
 
+  const resolveNameConflict = useCallback((name: string, allowOverwrite: boolean): string | null => {
+    if (!existingSkillNames.has(name.toLowerCase())) {
+      return name;
+    }
+
+    const choice = window.prompt(
+      allowOverwrite
+        ? `技能 "${name}" 已存在，请输入处理方式：\n1 覆盖\n2 自动重命名\n3 跳过`
+        : `技能 "${name}" 已存在，请输入处理方式：\n2 自动重命名\n3 跳过`,
+      '2'
+    );
+
+    if (allowOverwrite && choice === '1') {
+      return name;
+    }
+    if (choice === '2') {
+      let index = 2;
+      let nextName = `${name}-${index}`;
+      while (existingSkillNames.has(nextName.toLowerCase())) {
+        index++;
+        nextName = `${name}-${index}`;
+      }
+      return nextName;
+    }
+    return null;
+  }, [existingSkillNames]);
+
   // 点击"添加技能"按钮
   const handleCreateGit = useCallback(async () => {
     if (!gitUrl.trim()) {
@@ -234,7 +277,11 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
         const customName = selectedGitCandidates.length === 1
           ? gitName.trim()
           : (gitSkillNames[candidate.subpath]?.trim() || candidate.name);
-        const skillName = customName || candidate.name;
+        const requestedName = customName || candidate.name;
+        const skillName = resolveNameConflict(requestedName, true);
+        if (!skillName) {
+          return null;
+        }
 
         const created = await skillsApi.installGitSelection({
           repoUrl: gitUrl.trim(),
@@ -251,10 +298,11 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
 
         return created.name;
       }));
+      const createdNames = installedNames.filter((name): name is string => Boolean(name));
 
       setGitUrl('');
       resetGitState();
-      toast.success(`${installedNames.length > 1 ? `技能 "${installedNames.join(', ')}"` : `技能 "${installedNames[0]}"`} 添加成功`);
+      toast.success(`${createdNames.length > 1 ? `技能 "${createdNames.join(', ')}"` : `技能 "${createdNames[0] || '已跳过'}"`} 添加成功`);
       onClose();
       onSkillAdded();
     } catch (err) {
@@ -263,7 +311,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
     } finally {
       setLoading(false);
     }
-  }, [gitUrl, gitPhase, selectedGitCandidates, gitName, gitSkillNames, handleScanGitRepo, tools, syncTargets, onClose, onSkillAdded, resetGitState]);
+  }, [gitUrl, gitPhase, selectedGitCandidates, gitName, gitSkillNames, handleScanGitRepo, tools, syncTargets, onClose, onSkillAdded, resetGitState, resolveNameConflict]);
 
   const handleCreateLocal = useCallback(async () => {
     if (!localPath.trim()) {
@@ -273,10 +321,17 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
     setLoading(true);
     setError(null);
     try {
+      const defaultName = localName.trim() || basenameFromPath(localPath) || 'local-skill';
+      const resolvedName = resolveNameConflict(defaultName, false);
+      if (!resolvedName) {
+        setLoading(false);
+        toast.info('已跳过同名技能');
+        return;
+      }
       const created = await skillsApi.installLocalSelection({
         basePath: localPath.trim(),
         subpath: '',
-        name: localName.trim() || undefined
+        name: resolvedName
       });
 
       const selectedTools = tools.filter(tool => syncTargets[tool.id]);
@@ -298,7 +353,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
     } finally {
       setLoading(false);
     }
-  }, [localPath, localName, tools, syncTargets, onClose, onSkillAdded]);
+  }, [localPath, localName, tools, syncTargets, onClose, onSkillAdded, resolveNameConflict]);
 
   const handleSearchOnline = useCallback(async () => {
     if (!onlineQuery.trim()) {

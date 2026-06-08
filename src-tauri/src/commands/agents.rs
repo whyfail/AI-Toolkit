@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use tauri::State;
 
-use crate::agents::{detect_all_agents, get_agent_config_paths, get_agent_name, DetectedAgent};
+use crate::agents::{
+    detect_all_agents, get_agent_config_paths, get_agent_name, resolve_path, DetectedAgent,
+};
 use crate::app_state::AppState;
 use crate::database::McpApps;
 use crate::import::import_from_path;
@@ -427,7 +429,11 @@ fn get_agent_launch_command(app: &AppType) -> Option<String> {
 
 /// 启动 Agent 工具（打开默认终端并运行命令）
 #[tauri::command]
-pub async fn launch_agent(state: State<'_, AppState>, agent_id: String) -> Result<(), String> {
+pub async fn launch_agent(
+    state: State<'_, AppState>,
+    agent_id: String,
+    working_dir: Option<String>,
+) -> Result<(), String> {
     let app_type = AppType::from_str(&agent_id).map_err(|e| e.to_string())?;
 
     let Some(command) = get_agent_launch_command(&app_type) else {
@@ -450,8 +456,11 @@ pub async fn launch_agent(state: State<'_, AppState>, agent_id: String) -> Resul
     #[cfg(target_os = "macos")]
     {
         let terminal_app = resolve_preferred_macos_terminal(&state);
-        let work_dir = dirs::desktop_dir()
-            .or_else(dirs::home_dir)
+        let work_dir = working_dir
+            .as_deref()
+            .filter(|dir| !dir.trim().is_empty())
+            .map(resolve_path)
+            .or_else(|| dirs::desktop_dir().or_else(dirs::home_dir))
             .ok_or("无法获取启动目录")?
             .to_string_lossy()
             .to_string();
@@ -560,8 +569,11 @@ pub async fn launch_agent(state: State<'_, AppState>, agent_id: String) -> Resul
     #[cfg(target_os = "windows")]
     {
         let preferred_terminal = resolve_preferred_windows_terminal(&state);
-        let desktop_path = dirs::desktop_dir()
-            .or_else(|| dirs::home_dir())
+        let desktop_path = working_dir
+            .as_deref()
+            .filter(|dir| !dir.trim().is_empty())
+            .map(resolve_path)
+            .or_else(|| dirs::desktop_dir().or_else(|| dirs::home_dir()))
             .ok_or("无法获取桌面路径")?
             .to_string_lossy()
             .to_string();

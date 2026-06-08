@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { X, Check, AlertCircle, ClipboardPaste, ChevronDown, ChevronUp, Play, Loader2 } from "lucide-react";
 import { useUpsertMcpServer } from "@/hooks/useMcp";
-import { mcpApi } from "@/lib/api";
+import { enhancementApi, mcpApi } from "@/lib/api";
 import type { McpServer, McpServerSpec } from "@/types";
 
 interface AgentInfo {
@@ -61,6 +61,12 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
     name: string;
     server: McpServerSpec;
   } | null>(null);
+  const [parsedServers, setParsedServers] = useState<Array<{
+    id: string;
+    name: string;
+    server: McpServerSpec;
+  }>>([]);
+  const [selectedServerIds, setSelectedServerIds] = useState<Set<string>>(new Set());
   const [selectedApps, setSelectedApps] = useState<Record<string, boolean>>(
     defaultApps
   );
@@ -81,26 +87,34 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
         return;
       }
 
-      // If multiple servers, just take the first one for simplicity or show a note
-      const serverId = keys[0];
-      const serverConfig = servers[serverId];
+      const nextServers = keys.map((serverId) => {
+        const serverConfig = servers[serverId];
+        if (!serverConfig.command && !serverConfig.url && !serverConfig.httpUrl) {
+          throw new Error(`${serverId} 缺少必要字段 (command 或 url/httpUrl)`);
+        }
+        return {
+          id: serverId,
+          name: serverConfig.name || serverId,
+          server: serverConfig as McpServerSpec,
+        };
+      });
 
-      // Basic validation
-      if (!serverConfig.command && !serverConfig.url && !serverConfig.httpUrl) {
-        setParseError("配置缺少必要字段 (command 或 url/httpUrl)");
+      if (nextServers.length === 0) {
+        setParseError("JSON 格式正确，但未找到 MCP 服务器配置");
         setParsedServer(null);
+        setParsedServers([]);
         return;
       }
 
       setParseError(null);
-      setParsedServer({
-        id: serverId,
-        name: serverConfig.name || serverId,
-        server: serverConfig as McpServerSpec,
-      });
+      setParsedServers(nextServers);
+      setSelectedServerIds(new Set(nextServers.map((server) => server.id)));
+      setParsedServer(nextServers[0]);
     } catch (e: any) {
       setParseError(e.message);
       setParsedServer(null);
+      setParsedServers([]);
+      setSelectedServerIds(new Set());
     }
   }, []);
 
@@ -163,6 +177,18 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
     setSelectedApps(newApps);
   };
 
+  const toggleServerSelection = (id: string) => {
+    setSelectedServerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!parsedServer) return;
@@ -173,19 +199,32 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
 
     setIsSubmitting(true);
 
-    const server: McpServer = {
-      id: parsedServer.id,
-      name: parsedServer.name,
-      server: parsedServer.server,
-      apps: selectedApps as any,
-      description: parsedServer.server.description,
-      homepage: parsedServer.server.homepage,
-      docs: parsedServer.server.docs,
-      tags: parsedServer.server.tags || [],
-    };
-
     try {
-      await upsertMutation.mutateAsync(server);
+      const selectedServers = parsedServers.filter((server) => selectedServerIds.has(server.id));
+      if (!editingId && selectedServers.length > 1) {
+        await enhancementApi.bulkImportMcpServers({
+          servers: selectedServers.map((server) => ({
+            id: server.id,
+            name: server.name,
+            server: server.server,
+          })),
+          apps: selectedApps,
+          overwrite: true,
+        });
+      } else {
+        const activeServer = selectedServers[0] || parsedServer;
+        const server: McpServer = {
+          id: activeServer.id,
+          name: activeServer.name,
+          server: activeServer.server,
+          apps: selectedApps as any,
+          description: activeServer.server.description,
+          homepage: activeServer.server.homepage,
+          docs: activeServer.server.docs,
+          tags: activeServer.server.tags || [],
+        };
+        await upsertMutation.mutateAsync(server);
+      }
       onClose();
     } catch (error) {
       console.error("Failed to save:", error);
@@ -263,7 +302,7 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
               {parsedServer && (
                 <div className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded bg-white/80 px-2 py-1 text-xs text-green-500 shadow-sm backdrop-blur-xl dark:bg-slate-950/80">
                   <Check size={12} />
-                  已解析: {parsedServer.name}
+                  已解析: {parsedServers.length} 个
                 </div>
               )}
             </div>
@@ -331,6 +370,42 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
                   <p className="text-xs mt-0.5 truncate">{parsedServer.name}</p>
                 </div>
               </div>
+              {parsedServers.length > 1 && !editingId && (
+                <div className="space-y-2 rounded-xl border border-white/60 bg-white/50 p-3 dark:border-white/10 dark:bg-white/8">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                      选择要导入的服务器
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allSelected = selectedServerIds.size === parsedServers.length;
+                        setSelectedServerIds(allSelected ? new Set() : new Set(parsedServers.map((server) => server.id)));
+                      }}
+                      className="text-xs text-[hsl(var(--primary))] hover:underline"
+                    >
+                      {selectedServerIds.size === parsedServers.length ? "取消全选" : "全选"}
+                    </button>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {parsedServers.map((server) => (
+                      <button
+                        type="button"
+                        key={server.id}
+                        onClick={() => toggleServerSelection(server.id)}
+                        className={`rounded-lg border px-3 py-2 text-left text-xs transition ${
+                          selectedServerIds.has(server.id)
+                            ? "border-blue-300 bg-blue-500/10"
+                            : "border-white/60 bg-white/45"
+                        }`}
+                      >
+                        <span className="block font-semibold">{server.name}</span>
+                        <span className="mt-0.5 block truncate text-slate-500">{server.id}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="glass-code rounded-xl p-3 text-xs font-mono">
                 <div className="mb-1 flex justify-between text-slate-500 dark:text-slate-400">
                   <span>命令</span>
@@ -405,14 +480,22 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
           </button>
           <button
             onClick={handleSubmit}
-            disabled={!parsedServer || isSubmitting || installedAgents.length === 0 || !!(parsedServer.server.command && !testResult?.success)}
+            disabled={
+              !parsedServer ||
+              selectedServerIds.size === 0 ||
+              isSubmitting ||
+              installedAgents.length === 0 ||
+              !!(parsedServers.length === 1 && parsedServer.server.command && !testResult?.success)
+            }
             className="glass-primary-button"
-            title={parsedServer?.server.command && !testResult?.success ? "请先测试连接成功后再保存" : ""}
+            title={parsedServers.length === 1 && parsedServer?.server.command && !testResult?.success ? "请先测试连接成功后再保存" : ""}
           >
             {isSubmitting
               ? "保存中..."
               : editingId
               ? "保存更改"
+              : parsedServers.length > 1
+              ? `导入 ${selectedServerIds.size} 个服务器`
               : "添加服务器"}
           </button>
         </div>
