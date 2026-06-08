@@ -586,7 +586,8 @@ impl ToolManagerService {
     }
 
     pub fn has_desktop_app(app: &AppType) -> bool {
-        if cfg!(windows) {
+        #[cfg(target_os = "windows")]
+        {
             return is_app_installed_windows(app);
         }
         #[cfg(target_os = "macos")]
