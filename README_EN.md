@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-1.5.6-blue.svg)](https://github.com)
+[![Version](https://img.shields.io/badge/version-1.6.0-blue.svg)](https://github.com)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B-lightgrey.svg)](https://github.com)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -17,7 +17,7 @@ AI Toolkit is a **universal AI programming tools management tool** that supports
 ## ✨ Key Features
 
 ### 🎯 MCP Server Management
-- Support for **11** mainstream AI programming tools: Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, Trae, Trae CN, TRAE SOLO CN, Qoder, Qoder CLI, CodeBuddy
+- Support for **12** mainstream AI programming tools: Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, Trae, Trae CN, TRAE SOLO CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent
 - Add, edit, and delete MCP servers in a single interface
 - Automatically detects installed AI tools on your system and prompts for MCP sync when new tools are discovered
 - Toggle switches **sync in real-time** to the corresponding tool's configuration file
@@ -132,6 +132,7 @@ Since the current version is not code-signed or notarized by Apple, macOS Gateke
 | Trae CN | `~/Library/Application Support/Trae CN/User/mcp.json` |
 | TRAE SOLO CN | `~/Library/Application Support/TRAE SOLO CN/User/mcp.json` |
 | CodeBuddy | `~/.codebuddy/mcp.json` |
+| Hermes Agent | `~/.hermes/config.yaml` |
 
 ## 🛠️ Tech Stack
 

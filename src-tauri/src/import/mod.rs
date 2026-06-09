@@ -26,9 +26,11 @@ pub fn import_from_path(app: AppType, path: &PathBuf) -> Option<ImportResult> {
         Err(_) => return None,
     };
 
-    let is_toml = path.extension().and_then(|s| s.to_str()) == Some("toml");
-    let servers = if is_toml {
+    let extension = path.extension().and_then(|s| s.to_str());
+    let servers = if extension == Some("toml") {
         parse_mcp_toml(&content, &app)
+    } else if matches!(extension, Some("yaml" | "yml")) {
+        parse_mcp_yaml(&content, &app)
     } else {
         parse_mcp_json(&content, &app)
     }?;
@@ -117,6 +119,36 @@ fn parse_mcp_toml(content: &str, app: &AppType) -> Option<IndexMap<String, McpSe
         Err(_) => return None,
     };
 
+    if let Some(mcp_servers) = json_value.get("mcp_servers") {
+        if let Some(obj) = mcp_servers.as_object() {
+            for (id, config) in obj {
+                if let Some(server) = parse_server_config(id, config, app) {
+                    servers.insert(id.clone(), server);
+                }
+            }
+        }
+    }
+
+    if servers.is_empty() {
+        None
+    } else {
+        Some(servers)
+    }
+}
+
+/// 解析 YAML 配置（Hermes ~/.hermes/config.yaml）
+fn parse_mcp_yaml(content: &str, app: &AppType) -> Option<IndexMap<String, McpServer>> {
+    let yaml_value: serde_yaml::Value = match serde_yaml::from_str(content) {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
+
+    let json_value: serde_json::Value = match serde_json::to_value(&yaml_value) {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
+
+    let mut servers = IndexMap::new();
     if let Some(mcp_servers) = json_value.get("mcp_servers") {
         if let Some(obj) = mcp_servers.as_object() {
             for (id, config) in obj {

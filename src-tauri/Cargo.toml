@@ -1,6 +1,6 @@
 [package]
 name = "ai-toolkit"
-version = "1.5.6"
+version = "1.6.0"
 description = "Universal MCP Server & Skills Manager for AI CLI Tools"
 authors = ["you"]
 edition = "2021"
@@ -20,6 +20,7 @@ tauri-plugin-fs = "2"
 tauri-plugin-store = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
 toml = "0.8"
 rusqlite = { version = "0.32", features = ["bundled"] }
 indexmap = { version = "2", features = ["serde"] }

@@ -33,6 +33,8 @@ pub struct McpApps {
     pub qodercli: bool,
     #[serde(default)]
     pub codebuddy: bool,
+    #[serde(default)]
+    pub hermes: bool,
 }
 
 impl McpApps {
@@ -49,6 +51,7 @@ impl McpApps {
             AppType::Qoder => self.qoder,
             AppType::Qodercli => self.qodercli,
             AppType::CodeBuddy => self.codebuddy,
+            AppType::Hermes => self.hermes,
         }
     }
 
@@ -65,6 +68,7 @@ impl McpApps {
             AppType::Qoder => self.qoder = enabled,
             AppType::Qodercli => self.qodercli = enabled,
             AppType::CodeBuddy => self.codebuddy = enabled,
+            AppType::Hermes => self.hermes = enabled,
         }
     }
 }
@@ -119,7 +123,7 @@ impl Database {
                         enabled_qwen_code, enabled_claude, enabled_codex, enabled_gemini,
                         enabled_opencode, enabled_trae, enabled_trae_cn,
                         enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
-                        enabled_codebuddy
+                        enabled_codebuddy, enabled_hermes
                  FROM mcp_servers
                  ORDER BY name ASC, id ASC",
             )
@@ -145,6 +149,7 @@ impl Database {
                 let enabled_qoder: bool = row.get(15)?;
                 let enabled_qodercli: bool = row.get(16)?;
                 let enabled_codebuddy: bool = row.get(17)?;
+                let enabled_hermes: bool = row.get(18)?;
 
                 let server: McpServerSpec =
                     serde_json::from_str(&server_config_str).unwrap_or_default();
@@ -168,6 +173,7 @@ impl Database {
                             qoder: enabled_qoder,
                             qodercli: enabled_qodercli,
                             codebuddy: enabled_codebuddy,
+                            hermes: enabled_hermes,
                         },
                         description,
                         homepage,
@@ -195,8 +201,8 @@ impl Database {
                 enabled_qwen_code, enabled_claude, enabled_codex, enabled_gemini,
                 enabled_opencode, enabled_trae, enabled_trae_cn,
                 enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
-                enabled_codebuddy, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+                enabled_codebuddy, enabled_hermes, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
                       strftime('%s', 'now') * 1000)",
             rusqlite::params![
                 server.id,
@@ -220,6 +226,7 @@ impl Database {
                 server.apps.qoder,
                 server.apps.qodercli,
                 server.apps.codebuddy,
+                server.apps.hermes,
             ],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;

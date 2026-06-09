@@ -14,6 +14,9 @@ pub fn sync_app_config(app: &AppType, servers: &[McpServer]) -> Result<(), AppEr
     if matches!(app, AppType::Codex) {
         return sync_codex_config(&config_path, servers);
     }
+    if matches!(app, AppType::Hermes) {
+        return sync_hermes_config(&config_path, servers);
+    }
 
     // 读取现有配置（保留非 MCP 字段）
     let mut config: serde_json::Value = if Path::new(&config_path).exists() {
@@ -124,43 +127,113 @@ fn sync_codex_config(path: &PathBuf, servers: &[McpServer]) -> Result<(), AppErr
     Ok(())
 }
 
+fn sync_hermes_config(path: &PathBuf, servers: &[McpServer]) -> Result<(), AppError> {
+    let mut config: serde_yaml::Value = if Path::new(path).exists() {
+        let content = fs::read_to_string(path).map_err(|e| {
+            AppError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            ))
+        })?;
+        serde_yaml::from_str(&content).unwrap_or(serde_yaml::Value::Mapping(Default::default()))
+    } else {
+        if let Some(parent) = Path::new(path).parent() {
+            fs::create_dir_all(parent).map_err(|e| {
+                AppError::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
+            })?;
+        }
+        serde_yaml::Value::Mapping(Default::default())
+    };
+
+    if !config.is_mapping() {
+        config = serde_yaml::Value::Mapping(Default::default());
+    }
+
+    if let serde_yaml::Value::Mapping(root) = &mut config {
+        root.insert(
+            serde_yaml::Value::String("mcp_servers".to_string()),
+            build_hermes_mcp_yaml(servers)?,
+        );
+    }
+
+    let content =
+        serde_yaml::to_string(&config).map_err(|e| AppError::Serialization(e.to_string()))?;
+    atomic_write(path, &content)?;
+    Ok(())
+}
+
+fn build_hermes_mcp_yaml(servers: &[McpServer]) -> Result<serde_yaml::Value, AppError> {
+    let mut mcp_servers = serde_yaml::Mapping::new();
+
+    for server in servers {
+        let json_entry = serde_json::Value::Object(build_mcp_entry_json(server));
+        let yaml_entry =
+            serde_yaml::to_value(json_entry).map_err(|e| AppError::Serialization(e.to_string()))?;
+        mcp_servers.insert(serde_yaml::Value::String(server.id.clone()), yaml_entry);
+    }
+
+    Ok(serde_yaml::Value::Mapping(mcp_servers))
+}
+
+fn build_mcp_entry_json(server: &McpServer) -> serde_json::Map<String, serde_json::Value> {
+    let mut entry = serde_json::Map::new();
+
+    if let Some(cmd) = &server.server.command {
+        entry.insert(
+            "command".to_string(),
+            serde_json::Value::String(cmd.clone()),
+        );
+    }
+    if let Some(args) = &server.server.args {
+        entry.insert(
+            "args".to_string(),
+            serde_json::Value::Array(
+                args.iter()
+                    .map(|a| serde_json::Value::String(a.clone()))
+                    .collect(),
+            ),
+        );
+    }
+    if let Some(env) = &server.server.env {
+        let env_map: serde_json::Map<String, serde_json::Value> = env
+            .iter()
+            .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+            .collect();
+        entry.insert("env".to_string(), serde_json::Value::Object(env_map));
+    }
+    if let Some(cwd) = &server.server.cwd {
+        entry.insert("cwd".to_string(), serde_json::Value::String(cwd.clone()));
+    }
+    if let Some(url) = &server.server.url {
+        entry.insert("url".to_string(), serde_json::Value::String(url.clone()));
+    }
+    if let Some(headers) = &server.server.headers {
+        let headers_map: serde_json::Map<String, serde_json::Value> = headers
+            .iter()
+            .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+            .collect();
+        entry.insert(
+            "headers".to_string(),
+            serde_json::Value::Object(headers_map),
+        );
+    }
+    for (k, v) in &server.server.extra {
+        entry.insert(k.clone(), v.clone());
+    }
+
+    entry
+}
+
 fn build_mcp_json(servers: &[McpServer]) -> serde_json::Map<String, serde_json::Value> {
     let mut mcp_servers = serde_json::Map::new();
     for server in servers {
-        let mut entry = serde_json::Map::new();
-
-        if let Some(cmd) = &server.server.command {
-            entry.insert(
-                "command".to_string(),
-                serde_json::Value::String(cmd.clone()),
-            );
-        }
-        if let Some(args) = &server.server.args {
-            entry.insert(
-                "args".to_string(),
-                serde_json::Value::Array(
-                    args.iter()
-                        .map(|a| serde_json::Value::String(a.clone()))
-                        .collect(),
-                ),
-            );
-        }
-        if let Some(env) = &server.server.env {
-            let env_map: serde_json::Map<String, serde_json::Value> = env
-                .iter()
-                .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
-                .collect();
-            entry.insert("env".to_string(), serde_json::Value::Object(env_map));
-        }
-        if let Some(cwd) = &server.server.cwd {
-            entry.insert("cwd".to_string(), serde_json::Value::String(cwd.clone()));
-        }
-        // 保留其他额外字段
-        for (k, v) in &server.server.extra {
-            entry.insert(k.clone(), v.clone());
-        }
-
-        mcp_servers.insert(server.id.clone(), serde_json::Value::Object(entry));
+        mcp_servers.insert(
+            server.id.clone(),
+            serde_json::Value::Object(build_mcp_entry_json(server)),
+        );
     }
     mcp_servers
 }
@@ -317,6 +390,13 @@ pub(crate) fn get_config_path_for_app(app: &AppType) -> Result<String, AppError>
                 "~/.codebuddy/mcp.json"
             }
         }
+        AppType::Hermes => {
+            if cfg!(windows) {
+                "%USERPROFILE%\\.hermes\\config.yaml"
+            } else {
+                "~/.hermes/config.yaml"
+            }
+        }
     }
     .to_string())
 }
@@ -336,4 +416,79 @@ fn atomic_write(path: &PathBuf, content: &str) -> Result<(), AppError> {
         ))
     })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::{McpApps, McpServerSpec};
+    use std::collections::HashMap;
+    use std::io::Write;
+
+    fn temp_file(name: &str, content: &str) -> tempfile::NamedTempFile {
+        let mut file = tempfile::Builder::new()
+            .prefix(name)
+            .tempfile()
+            .expect("create temp file");
+        file.write_all(content.as_bytes()).expect("write temp file");
+        file
+    }
+
+    #[test]
+    fn syncs_hermes_yaml_mcp_servers() {
+        let file = temp_file(
+            "mcp-hermes",
+            r#"
+model: openrouter/demo
+terminal:
+  enabled: true
+mcp_servers:
+  old:
+    command: old
+"#,
+        );
+        let server = McpServer {
+            id: "demo".to_string(),
+            name: "demo".to_string(),
+            server: McpServerSpec {
+                command: Some("npx".to_string()),
+                args: Some(vec!["-y".to_string(), "demo-server".to_string()]),
+                env: Some(HashMap::from([("TOKEN".to_string(), "secret".to_string())])),
+                ..Default::default()
+            },
+            apps: McpApps::default(),
+            description: None,
+            homepage: None,
+            docs: None,
+            tags: vec![],
+        };
+
+        sync_hermes_config(&file.path().to_path_buf(), &[server]).expect("sync hermes yaml");
+
+        let content = std::fs::read_to_string(file.path()).expect("read yaml");
+        let yaml: serde_yaml::Value = serde_yaml::from_str(&content).expect("parse yaml");
+        assert_eq!(
+            yaml.get("model").and_then(|value| value.as_str()),
+            Some("openrouter/demo")
+        );
+        assert!(yaml.get("terminal").is_some());
+        let servers = yaml
+            .get("mcp_servers")
+            .and_then(|value| value.as_mapping())
+            .expect("mcp servers");
+        assert_eq!(servers.len(), 1);
+        let demo = servers
+            .get(serde_yaml::Value::String("demo".to_string()))
+            .expect("demo server");
+        assert_eq!(
+            demo.get("command").and_then(|value| value.as_str()),
+            Some("npx")
+        );
+        assert_eq!(
+            demo.get("env")
+                .and_then(|value| value.get("TOKEN"))
+                .and_then(|value| value.as_str()),
+            Some("secret")
+        );
+    }
 }

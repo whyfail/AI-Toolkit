@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-/// 支持 skills 同步的工具 ID（11 种）
+/// 支持 skills 同步的工具 ID（12 种）
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ToolId {
     ClaudeCode,
@@ -16,6 +16,7 @@ pub enum ToolId {
     TraeCn,
     TraeSoloCn,
     CodeBuddy,
+    Hermes,
 }
 
 impl serde::Serialize for ToolId {
@@ -31,7 +32,7 @@ impl serde::Serialize for ToolId {
 impl ToolId {
     pub fn as_key(&self) -> &'static str {
         match self {
-            // 支持的 11 种工具（与 README 和 AppType 保持一致）
+            // 支持的 12 种工具（与 README 和 AppType 保持一致）
             ToolId::QwenCode => "qwen-code",
             ToolId::ClaudeCode => "claude",
             ToolId::Codex => "codex",
@@ -43,6 +44,7 @@ impl ToolId {
             ToolId::TraeCn => "trae-cn",
             ToolId::TraeSoloCn => "trae-solo-cn", // TRAE SOLO CN 使用 traesoloCn 作为 ID
             ToolId::CodeBuddy => "codebuddy",
+            ToolId::Hermes => "hermes",
         }
     }
 }
@@ -73,9 +75,9 @@ pub struct ToolStatus {
     pub skills: Vec<DetectedSkill>,
 }
 
-/// 支持的工具列表（与 README 保持一致，共 11 种）
+/// 支持的工具列表（与 README 保持一致，共 12 种）
 /// MCP 服务器管理支持的工具: Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode,
-/// Qoder, Qoder CLI, Trae, Trae CN, TRAE SOLO CN, CodeBuddy
+/// Qoder, Qoder CLI, Trae, Trae CN, TRAE SOLO CN, CodeBuddy, Hermes Agent
 pub fn default_tool_adapters() -> Vec<ToolAdapter> {
     vec![
         ToolAdapter {
@@ -145,6 +147,12 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             display_name: "CodeBuddy CN CLI",
             relative_skills_dir: ".codebuddy/skills",
             relative_detect_dir: ".codebuddy",
+        },
+        ToolAdapter {
+            id: ToolId::Hermes,
+            display_name: "Hermes Agent",
+            relative_skills_dir: ".hermes/skills",
+            relative_detect_dir: ".hermes",
         },
     ]
 }
@@ -220,7 +228,7 @@ pub fn resolve_detect_path(adapter: &ToolAdapter) -> Result<PathBuf> {
     Ok(home.join(adapter.relative_detect_dir))
 }
 
-/// 获取 ToolId 对应的 CLI binary 名称（仅支持 skills 模块的 11 种工具）
+/// 获取 ToolId 对应的 CLI binary 名称（仅支持 skills 模块的 12 种工具）
 fn get_tool_binary_name(id: &ToolId) -> &'static str {
     match id {
         ToolId::ClaudeCode => "claude",
@@ -234,6 +242,7 @@ fn get_tool_binary_name(id: &ToolId) -> &'static str {
         ToolId::TraeCn => "trae-cn",
         ToolId::TraeSoloCn => "trae-solo-cn",
         ToolId::CodeBuddy => "codebuddy",
+        ToolId::Hermes => "hermes",
     }
 }
 

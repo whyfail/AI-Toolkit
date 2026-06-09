@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-1.5.6-blue.svg)](https://github.com)
+[![Version](https://img.shields.io/badge/version-1.6.0-blue.svg)](https://github.com)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B-lightgrey.svg)](https://github.com)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -17,7 +17,7 @@ AI Toolkit是一款**通用的 AI 编程工具管理工具**，支持统一管�
 ## ✨ 核心特性
 
 ### 🎯 MCP 服务器管理
-- 支持 **11 种** 主流 AI 编程工具：Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, Trae, Trae CN, TRAE SOLO CN, Qoder, Qoder CLI, CodeBuddy
+- 支持 **12 种** 主流 AI 编程工具：Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, Trae, Trae CN, TRAE SOLO CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent
 - 在单一界面中添加、编辑、删除 MCP 服务器
 - 自动检测系统中已安装的 AI 工具，新工具发现时弹窗提示
 - 切换开关**实时同步**到对应工具的配置文件
@@ -132,6 +132,7 @@ cp -R /Volumes/AI\ Toolkit/AI\ Toolkit.app /Applications/
 | Trae CN | `~/Library/Application Support/Trae CN/User/mcp.json` |
 | TRAE SOLO CN | `~/Library/Application Support/TRAE SOLO CN/User/mcp.json` |
 | CodeBuddy | `~/.codebuddy/mcp.json` |
+| Hermes Agent | `~/.hermes/config.yaml` |
 
 ## 🛠️ 技术栈
 

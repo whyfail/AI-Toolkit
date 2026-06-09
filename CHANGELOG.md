@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.6.0 (2026-06-09)
+
+### 新功能
+
+- **Hermes Agent 支持**：新增 Hermes Agent 工具检测、MCP YAML 配置同步/导入、Skills 同步和快速启动支持。
+
 ## v1.5.6 (2026-06-08)
 
 ### 新功能

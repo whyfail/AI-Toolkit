@@ -579,7 +579,7 @@ const AboutTab: React.FC = () => {
               </button>
             </div>
             <p className="text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-              一款基于 Tauri 2 构建的跨平台桌面应用，专注于管理 AI 编程工具的 MCP 服务器配置和 Skills 技能同步。兼容 Qwen Code、Claude Code、Codex、Gemini CLI、OpenCode、Trae、Trae CN、Qoder、CodeBuddy 等主流工具。
+              一款基于 Tauri 2 构建的跨平台桌面应用，专注于管理 AI 编程工具的 MCP 服务器配置和 Skills 技能同步。兼容 Qwen Code、Claude Code、Codex、Gemini CLI、OpenCode、Trae、Trae CN、Qoder、CodeBuddy、Hermes Agent 等主流工具。
             </p>
           </section>
 

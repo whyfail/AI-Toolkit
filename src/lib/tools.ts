@@ -1,6 +1,6 @@
 /**
  * 统一工具定义
- * 所有模块共享这套工具定义，与 README 支持的 11 种工具保持一致
+ * 所有模块共享这套工具定义，与 README 支持的 12 种工具保持一致
  */
 
 // 工具 ID 类型（使用 kebab-case，与 AppType serde 名一致）
@@ -15,7 +15,8 @@ export type ToolId =
   | 'trae-solo-cn'
   | 'qoder'
   | 'qodercli'
-  | 'codebuddy';
+  | 'codebuddy'
+  | 'hermes';
 
 // 工具元数据
 export interface ToolMeta {
@@ -129,6 +130,15 @@ export const SUPPORTED_TOOLS: ToolMeta[] = [
     binaryName: 'codebuddy',
     docsUrl: 'https://www.codebuddy.ai/docs/cli/cli-reference',
   },
+  {
+    id: 'hermes',
+    name: 'hermes',
+    displayName: 'Hermes Agent',
+    skillsDir: '.hermes/skills',
+    detectDir: '.hermes',
+    binaryName: 'hermes',
+    docsUrl: 'https://hermes-agent.nousresearch.com/docs/',
+  },
 ];
 
 // 工具颜色映射
@@ -144,6 +154,7 @@ export const APP_COLORS: Record<ToolId, string> = {
   'qoder': 'bg-yellow-500',
   'qodercli': 'bg-amber-500',
   'codebuddy': 'bg-red-500',
+  'hermes': 'bg-teal-500',
 };
 
 // 根据 ID 获取工具元数据
@@ -158,7 +169,7 @@ export function getToolMetaByBinary(binaryName: string): ToolMeta | undefined {
 
 // 获取所有可启动的工具（具有 CLI 命令）
 export const LAUNCHABLE_TOOLS: ToolId[] = [
-  'qwen-code', 'claude', 'codex', 'gemini', 'opencode', 'qodercli', 'codebuddy'
+  'qwen-code', 'claude', 'codex', 'gemini', 'opencode', 'qodercli', 'codebuddy', 'hermes'
 ];
 
 // 判断工具是否可启动

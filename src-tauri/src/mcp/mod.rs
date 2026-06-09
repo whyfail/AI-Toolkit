@@ -25,6 +25,8 @@ pub enum AppType {
     Qodercli,
     #[serde(rename = "codebuddy")]
     CodeBuddy,
+    #[serde(rename = "hermes")]
+    Hermes,
 }
 
 /// 安装方式
@@ -100,6 +102,7 @@ impl AppType {
             Self::Qoder,
             Self::Qodercli,
             Self::CodeBuddy,
+            Self::Hermes,
         ]
     }
 
@@ -116,6 +119,7 @@ impl AppType {
             Self::Qoder => "qoder",
             Self::Qodercli => "qodercli",
             Self::CodeBuddy => "codebuddy",
+            Self::Hermes => "hermes",
         }
     }
 
@@ -252,6 +256,15 @@ impl AppType {
                 version_cmd: "codebuddy --version".into(),
                 homepage: "https://codebuddy.ai".into(),
             }),
+            Self::Hermes => Some(InstallInfo {
+                name: "Hermes Agent".into(),
+                methods: vec![InstallMethod::Curl {
+                    url: "https://hermes-agent.nousresearch.com/install.sh".into(),
+                }],
+                update_cmd: String::new(),
+                version_cmd: "hermes --version".into(),
+                homepage: "https://hermes-agent.nousresearch.com".into(),
+            }),
         }
     }
 }
@@ -272,6 +285,7 @@ impl std::str::FromStr for AppType {
             "qoder" => Ok(Self::Qoder),
             "qodercli" => Ok(Self::Qodercli),
             "codebuddy" => Ok(Self::CodeBuddy),
+            "hermes" => Ok(Self::Hermes),
             _ => Err(format!("Unknown app type: {}", s)),
         }
     }

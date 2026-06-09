@@ -71,6 +71,7 @@ export type ToolId =
   | 'trae_cn'
   | 'neovate'      // TRAE SOLO CN
   | 'codebuddy'
+  | 'hermes'
 
 export type ToolAdapter = {
   id: ToolId

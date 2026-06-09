@@ -424,6 +424,14 @@ fn get_agent_launch_command(app: &AppType) -> Option<String> {
         AppType::Qoder => None,
         AppType::Qodercli => Some("qodercli".to_string()),
         AppType::CodeBuddy => Some("codebuddy".to_string()),
+        AppType::Hermes => Some("hermes".to_string()),
+    }
+}
+
+fn get_agent_launch_args(app: &AppType) -> Vec<String> {
+    match app {
+        AppType::Hermes => vec!["chat".to_string()],
+        _ => vec![],
     }
 }
 
@@ -489,6 +497,7 @@ pub async fn launch_agent(
             get_agent_name(&app_type)
         ));
     };
+    let command_args = get_agent_launch_args(&app_type);
 
     let resolved_command = match which_binary(&command) {
         Some(path) => path,
@@ -506,8 +515,12 @@ pub async fn launch_agent(
         }
     };
 
-    // 检测 Node.js 环境
-    let node_bin_dir = detect_node_environment().map_err(|e| format!("{}: 请先安装 Node.js", e))?;
+    // Node-based CLIs need the user's package-manager bin path; Hermes only needs its own binary.
+    let node_bin_dir = if matches!(app_type, AppType::Hermes) {
+        String::new()
+    } else {
+        detect_node_environment().map_err(|e| format!("{}: 请先安装 Node.js", e))?
+    };
 
     #[cfg(target_os = "macos")]
     {
@@ -530,11 +543,26 @@ pub async fn launch_agent(
             timestamp
         );
         let escaped_work_dir = shell_escape_single_quoted(&work_dir);
-        let escaped_node_bin_dir = shell_escape_single_quoted(&node_bin_dir);
         let escaped_command = shell_escape_single_quoted(&resolved_command);
+        let escaped_args = command_args
+            .iter()
+            .map(|arg| format!("'{}'", shell_escape_single_quoted(arg)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let path_export = if node_bin_dir.is_empty() {
+            "export PATH=$PATH:/usr/local/bin:/opt/homebrew/bin".to_string()
+        } else {
+            format!(
+                "export PATH='{}':$PATH:/usr/local/bin:/opt/homebrew/bin",
+                shell_escape_single_quoted(&node_bin_dir)
+            )
+        };
         let shell_command = format!(
-            "export PATH='{}':$PATH:/usr/local/bin:/opt/homebrew/bin && '{}'",
-            escaped_node_bin_dir, escaped_command
+            "{} && '{}'{}{}",
+            path_export,
+            escaped_command,
+            if escaped_args.is_empty() { "" } else { " " },
+            escaped_args
         );
         let full_cmd = format!(
             "#!/bin/zsh\n\
@@ -634,18 +662,51 @@ pub async fn launch_agent(
             .to_string_lossy()
             .to_string();
         let powershell_desktop_path = powershell_escape_single_quoted(&desktop_path);
-        let powershell_node_bin_dir = powershell_escape_single_quoted(&node_bin_dir);
         let powershell_command = powershell_escape_single_quoted(&resolved_command);
+        let powershell_path_update = if node_bin_dir.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "$env:PATH = '{};' + $env:PATH; ",
+                powershell_escape_single_quoted(&node_bin_dir)
+            )
+        };
+        let powershell_args = command_args
+            .iter()
+            .map(|arg| format!("'{}'", powershell_escape_single_quoted(arg)))
+            .collect::<Vec<_>>()
+            .join(",");
+        let command_prompt_args = command_args
+            .iter()
+            .map(|arg| format!(" \"{}\"", arg.replace('"', "\\\"")))
+            .collect::<String>();
 
-        let powershell_full_cmd = format!(
-            "Set-Location -LiteralPath '{}'; $env:PATH = '{};' + $env:PATH; & '{}'",
-            powershell_desktop_path, powershell_node_bin_dir, powershell_command
-        );
+        let powershell_full_cmd = if powershell_args.is_empty() {
+            format!(
+                "Set-Location -LiteralPath '{}'; {}& '{}'",
+                powershell_desktop_path, powershell_path_update, powershell_command
+            )
+        } else {
+            format!(
+                "Set-Location -LiteralPath '{}'; {}& '{}' {}",
+                powershell_desktop_path,
+                powershell_path_update,
+                powershell_command,
+                powershell_args
+            )
+        };
 
-        let command_prompt_cmd = format!(
-            "cd /d \"{}\" && set \"PATH={};%PATH%\" && \"{}\"",
-            desktop_path, node_bin_dir, resolved_command
-        );
+        let command_prompt_cmd = if node_bin_dir.is_empty() {
+            format!(
+                "cd /d \"{}\" && \"{}\"{}",
+                desktop_path, resolved_command, command_prompt_args
+            )
+        } else {
+            format!(
+                "cd /d \"{}\" && set \"PATH={};%PATH%\" && \"{}\"{}",
+                desktop_path, node_bin_dir, resolved_command, command_prompt_args
+            )
+        };
 
         if preferred_terminal == "windows-terminal" {
             let try_windows_terminal = Command::new("wt")

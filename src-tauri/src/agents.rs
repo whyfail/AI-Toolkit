@@ -132,6 +132,13 @@ pub fn get_agent_config_paths(app: &AppType) -> Vec<PathBuf> {
                 vec!["~/.codebuddy/mcp.json"]
             }
         }
+        AppType::Hermes => {
+            if cfg!(windows) {
+                vec!["%USERPROFILE%\\.hermes\\config.yaml"]
+            } else {
+                vec!["~/.hermes/config.yaml"]
+            }
+        }
     };
     paths.iter().map(|p| resolve_path(p)).collect()
 }
@@ -150,6 +157,7 @@ pub fn get_agent_name(app: &AppType) -> String {
         AppType::Qoder => "Qoder".to_string(),
         AppType::Qodercli => "Qoder CLI".to_string(),
         AppType::CodeBuddy => "CodeBuddy CN CLI".to_string(),
+        AppType::Hermes => "Hermes Agent".to_string(),
     }
 }
 
@@ -227,6 +235,13 @@ pub fn get_agent_detect_dir(app: &AppType) -> Option<PathBuf> {
                 "~/.codebuddy"
             }
         }
+        AppType::Hermes => {
+            if cfg!(windows) {
+                "%USERPROFILE%\\.hermes"
+            } else {
+                "~/.hermes"
+            }
+        }
     };
     Some(resolve_path(path_str))
 }
@@ -245,6 +260,7 @@ fn get_agent_binary_name(app: &AppType) -> &'static str {
         AppType::Qoder => "qoder",
         AppType::Qodercli => "qodercli",
         AppType::CodeBuddy => "codebuddy",
+        AppType::Hermes => "hermes",
     }
 }
 
@@ -293,6 +309,15 @@ fn count_mcp_in_config(path: &Path) -> usize {
         if let Ok(toml) = toml::from_str::<toml::Value>(&content) {
             if let Some(servers) = toml.get("mcp_servers") {
                 return servers.as_table().map(|t| t.len()).unwrap_or(0);
+            }
+        }
+    } else if matches!(
+        path.extension().and_then(|s| s.to_str()),
+        Some("yaml" | "yml")
+    ) {
+        if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+            if let Some(servers) = yaml.get("mcp_servers") {
+                return servers.as_mapping().map(|m| m.len()).unwrap_or(0);
             }
         }
     } else {

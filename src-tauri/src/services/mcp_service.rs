@@ -82,6 +82,7 @@ impl McpService {
             AppType::Qoder,
             AppType::Qodercli,
             AppType::CodeBuddy,
+            AppType::Hermes,
         ] {
             imported.extend(read_servers_from_app(app)?);
         }
@@ -104,10 +105,10 @@ fn read_servers_from_app(app: AppType) -> Result<Vec<(AppType, McpServer)>, AppE
         return Ok(vec![]);
     }
 
-    let servers = if matches!(app, AppType::Codex) {
-        import_codex_servers(&config_path)?
-    } else {
-        import_json_servers(&config_path, &app)?
+    let servers = match app {
+        AppType::Codex => import_codex_servers(&config_path)?,
+        AppType::Hermes => import_hermes_servers(&config_path)?,
+        _ => import_json_servers(&config_path, &app)?,
     };
 
     Ok(servers
@@ -175,6 +176,30 @@ fn import_codex_servers(config_path: &Path) -> Result<Vec<McpServer>, AppError> 
 
     servers
         .iter()
+        .map(|(id, value)| {
+            let json_value =
+                serde_json::to_value(value).map_err(|e| AppError::Serialization(e.to_string()))?;
+            let spec = serde_json::from_value::<McpServerSpec>(json_value)
+                .map_err(|e| AppError::Parse(e.to_string()))?;
+            Ok(imported_server(id, spec))
+        })
+        .collect()
+}
+
+fn import_hermes_servers(config_path: &Path) -> Result<Vec<McpServer>, AppError> {
+    let content = fs::read_to_string(config_path)?;
+    let config: serde_yaml::Value =
+        serde_yaml::from_str(&content).map_err(|e| AppError::Parse(e.to_string()))?;
+    let Some(servers) = config
+        .get("mcp_servers")
+        .and_then(|value| value.as_mapping())
+    else {
+        return Ok(vec![]);
+    };
+
+    servers
+        .iter()
+        .filter_map(|(id, value)| id.as_str().map(|id| (id, value)))
         .map(|(id, value)| {
             let json_value =
                 serde_json::to_value(value).map_err(|e| AppError::Serialization(e.to_string()))?;
@@ -370,6 +395,43 @@ mod tests {
         assert_eq!(
             servers[0].server.args.as_deref(),
             Some(&["demo".to_string()][..])
+        );
+        assert_eq!(
+            servers[0]
+                .server
+                .env
+                .as_ref()
+                .and_then(|env| env.get("TOKEN"))
+                .map(String::as_str),
+            Some("secret")
+        );
+    }
+
+    #[test]
+    fn imports_hermes_yaml_mcp_servers() {
+        let file = temp_file(
+            "mcp-hermes",
+            r#"
+model: openrouter/demo
+mcp_servers:
+  demo:
+    command: npx
+    args:
+      - -y
+      - demo-server
+    env:
+      TOKEN: secret
+"#,
+        );
+
+        let servers = import_hermes_servers(file.path()).expect("import yaml");
+
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].id, "demo");
+        assert_eq!(servers[0].server.command.as_deref(), Some("npx"));
+        assert_eq!(
+            servers[0].server.args.as_deref(),
+            Some(&["-y".to_string(), "demo-server".to_string()][..])
         );
         assert_eq!(
             servers[0]

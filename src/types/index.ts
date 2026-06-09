@@ -63,6 +63,7 @@ export const SUPPORTED_APPS: Array<{ id: string; name: string; icon: string }> =
   { id: "trae-cn", name: "Trae CN", icon: "trae-cn" },
   { id: "trae-solo-cn", name: "TRAE SOLO CN", icon: "trae-solo-cn" },
   { id: "codebuddy", name: "CodeBuddy CN CLI", icon: "codebuddy" },
+  { id: "hermes", name: "Hermes Agent", icon: "hermes" },
 ];
 
 // 工具安装方式

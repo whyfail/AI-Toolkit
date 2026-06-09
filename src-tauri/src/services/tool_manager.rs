@@ -35,6 +35,7 @@ fn get_binary_name(app: &AppType) -> String {
         AppType::TraeSoloCn => "trae".into(),
         AppType::QwenCode => "qwen".into(),
         AppType::Claude => "claude".into(),
+        AppType::Hermes => "hermes".into(),
         _ => app.name().to_lowercase(),
     }
 }
