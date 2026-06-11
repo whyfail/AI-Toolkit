@@ -620,7 +620,11 @@ mcp_servers:
     fn sync_all_writes_mimo_config_when_enabled() {
         let temp_home = tempfile::tempdir().expect("temp home");
         let old_home = std::env::var_os("HOME");
+        let old_userprofile = std::env::var_os("USERPROFILE");
+        let old_appdata = std::env::var_os("APPDATA");
         std::env::set_var("HOME", temp_home.path());
+        std::env::set_var("USERPROFILE", temp_home.path());
+        std::env::set_var("APPDATA", temp_home.path());
 
         let mut apps = McpApps::default();
         apps.set_enabled_for(&AppType::MimoCode, true);
@@ -648,6 +652,16 @@ mcp_servers:
             std::env::set_var("HOME", home);
         } else {
             std::env::remove_var("HOME");
+        }
+        if let Some(userprofile) = old_userprofile {
+            std::env::set_var("USERPROFILE", userprofile);
+        } else {
+            std::env::remove_var("USERPROFILE");
+        }
+        if let Some(appdata) = old_appdata {
+            std::env::set_var("APPDATA", appdata);
+        } else {
+            std::env::remove_var("APPDATA");
         }
 
         result.expect("sync all configs");
