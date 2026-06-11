@@ -26,6 +26,8 @@ pub struct McpApps {
     #[serde(default)]
     pub trae_cn: bool,
     #[serde(default)]
+    pub trae_work: bool,
+    #[serde(default)]
     pub trae_solo_cn: bool,
     #[serde(default)]
     pub qoder: bool,
@@ -35,6 +37,8 @@ pub struct McpApps {
     pub codebuddy: bool,
     #[serde(default)]
     pub hermes: bool,
+    #[serde(default)]
+    pub mimo_code: bool,
 }
 
 impl McpApps {
@@ -47,11 +51,13 @@ impl McpApps {
             AppType::OpenCode => self.opencode,
             AppType::Trae => self.trae,
             AppType::TraeCn => self.trae_cn,
+            AppType::TraeWork => self.trae_work,
             AppType::TraeSoloCn => self.trae_solo_cn,
             AppType::Qoder => self.qoder,
             AppType::Qodercli => self.qodercli,
             AppType::CodeBuddy => self.codebuddy,
             AppType::Hermes => self.hermes,
+            AppType::MimoCode => self.mimo_code,
         }
     }
 
@@ -64,11 +70,13 @@ impl McpApps {
             AppType::OpenCode => self.opencode = enabled,
             AppType::Trae => self.trae = enabled,
             AppType::TraeCn => self.trae_cn = enabled,
+            AppType::TraeWork => self.trae_work = enabled,
             AppType::TraeSoloCn => self.trae_solo_cn = enabled,
             AppType::Qoder => self.qoder = enabled,
             AppType::Qodercli => self.qodercli = enabled,
             AppType::CodeBuddy => self.codebuddy = enabled,
             AppType::Hermes => self.hermes = enabled,
+            AppType::MimoCode => self.mimo_code = enabled,
         }
     }
 }
@@ -122,8 +130,8 @@ impl Database {
                 "SELECT id, name, server_config, description, homepage, docs, tags,
                         enabled_qwen_code, enabled_claude, enabled_codex, enabled_gemini,
                         enabled_opencode, enabled_trae, enabled_trae_cn,
-                        enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
-                        enabled_codebuddy, enabled_hermes
+                        enabled_trae_work, enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
+                        enabled_codebuddy, enabled_hermes, enabled_mimo_code
                  FROM mcp_servers
                  ORDER BY name ASC, id ASC",
             )
@@ -145,11 +153,13 @@ impl Database {
                 let enabled_opencode: bool = row.get(11)?;
                 let enabled_trae: bool = row.get(12)?;
                 let enabled_trae_cn: bool = row.get(13)?;
-                let enabled_trae_solo_cn: bool = row.get(14)?;
-                let enabled_qoder: bool = row.get(15)?;
-                let enabled_qodercli: bool = row.get(16)?;
-                let enabled_codebuddy: bool = row.get(17)?;
-                let enabled_hermes: bool = row.get(18)?;
+                let enabled_trae_work: bool = row.get(14)?;
+                let enabled_trae_solo_cn: bool = row.get(15)?;
+                let enabled_qoder: bool = row.get(16)?;
+                let enabled_qodercli: bool = row.get(17)?;
+                let enabled_codebuddy: bool = row.get(18)?;
+                let enabled_hermes: bool = row.get(19)?;
+                let enabled_mimo_code: bool = row.get(20)?;
 
                 let server: McpServerSpec =
                     serde_json::from_str(&server_config_str).unwrap_or_default();
@@ -169,11 +179,13 @@ impl Database {
                             opencode: enabled_opencode,
                             trae: enabled_trae,
                             trae_cn: enabled_trae_cn,
+                            trae_work: enabled_trae_work,
                             trae_solo_cn: enabled_trae_solo_cn,
                             qoder: enabled_qoder,
                             qodercli: enabled_qodercli,
                             codebuddy: enabled_codebuddy,
                             hermes: enabled_hermes,
+                            mimo_code: enabled_mimo_code,
                         },
                         description,
                         homepage,
@@ -200,9 +212,9 @@ impl Database {
                 id, name, server_config, description, homepage, docs, tags,
                 enabled_qwen_code, enabled_claude, enabled_codex, enabled_gemini,
                 enabled_opencode, enabled_trae, enabled_trae_cn,
-                enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
-                enabled_codebuddy, enabled_hermes, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
+                enabled_trae_work, enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
+                enabled_codebuddy, enabled_hermes, enabled_mimo_code, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
                       strftime('%s', 'now') * 1000)",
             rusqlite::params![
                 server.id,
@@ -222,11 +234,13 @@ impl Database {
                 server.apps.opencode,
                 server.apps.trae,
                 server.apps.trae_cn,
+                server.apps.trae_work,
                 server.apps.trae_solo_cn,
                 server.apps.qoder,
                 server.apps.qodercli,
                 server.apps.codebuddy,
                 server.apps.hermes,
+                server.apps.mimo_code,
             ],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;

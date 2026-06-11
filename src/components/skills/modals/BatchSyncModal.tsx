@@ -171,8 +171,8 @@ function BatchSyncModal({
   const allSkillsSelected = selectedSkills.size === skills.length;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-      <div className="glass-modal w-full max-w-3xl overflow-hidden rounded-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 backdrop-blur-sm animate-in fade-in duration-200 sm:p-4">
+      <div className="glass-modal flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl">
         {/* 头部 */}
         <div className="flex items-center justify-between border-b border-white/50 px-6 py-5 dark:border-white/10">
           <div>
@@ -190,120 +190,123 @@ function BatchSyncModal({
           </button>
         </div>
 
-        {/* 已选技能 */}
-        <div className="border-b border-white/50 px-6 py-4 dark:border-white/10">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-              选择 Skill ({selectedSkills.size}/{skills.length})
-            </p>
-            <button
-              onClick={() => setSelectedSkills(allSkillsSelected ? new Set() : new Set(skills.map(skill => skill.id)))}
-              disabled={syncing}
-              className="flex items-center gap-2 text-sm text-slate-500 transition-colors hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
-            >
-              {allSkillsSelected ? (
-                <CheckSquare size={16} className="text-[hsl(var(--primary))]" />
-              ) : (
-                <Square size={16} />
-              )}
-              <span className="font-medium">{allSkillsSelected ? '取消全选' : '全选 Skill'}</span>
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {skills.map(skill => {
-              const isSelected = selectedSkills.has(skill.id);
-              return (
-                <button
-                  key={skill.id}
-                  onClick={() => toggleSkill(skill.id)}
-                  disabled={syncing}
-                  className={`inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-all disabled:cursor-not-allowed ${
-                    isSelected
-                      ? 'border-blue-200/70 bg-blue-500/10 text-blue-700 shadow-sm shadow-blue-500/10 dark:border-sky-300/20 dark:text-sky-300'
-                      : 'border-white/55 bg-white/45 text-slate-400 hover:text-slate-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-500 dark:hover:text-slate-300'
-                  }`}
-                >
-                  {isSelected ? <CheckSquare size={13} /> : <Square size={13} />}
-                  {skill.name}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* 工具列表 */}
-        <div className="px-6 py-4 max-h-64 overflow-y-auto">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-              选择目标工具 ({selectedTools.size}/{tools.length})
-            </p>
-            <button
-              onClick={toggleAllTools}
-              disabled={syncing}
-              className="flex items-center gap-2 text-sm text-slate-500 transition-colors hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
-            >
-              {someToolsSelected || allToolsSelected ? (
-                <CheckSquare size={16} className="text-[hsl(var(--primary))]" />
-              ) : (
-                <Square size={16} />
-              )}
-              <span className="font-medium">选择全部工具</span>
-            </button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {tools.map(tool => {
-              const isSelected = selectedTools.has(tool.id);
-              return (
-                <button
-                  key={tool.id}
-                  onClick={() => toggleTool(tool.id)}
-                  className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-all ${
-                    isSelected
-                      ? 'border-blue-200/70 bg-blue-500/10 text-blue-700 dark:border-sky-300/20 dark:text-sky-300'
-                      : 'border-white/55 bg-white/50 text-slate-500 hover:text-slate-950 dark:border-white/10 dark:bg-white/8 dark:text-slate-400 dark:hover:text-white'
-                  }`}
-                >
-                  {isSelected ? (
-                    <CheckSquare size={16} />
-                  ) : (
-                    <Square size={16} />
-                  )}
-                  <div
-                    className={`w-2 h-2 rounded-full ${
-                      isSelected
-                        ? APP_COLORS[tool.id as keyof typeof APP_COLORS] || "bg-[hsl(var(--foreground))]"
-                        : "bg-current opacity-40"
-                    }`}
-                  />
-                  <span>{tool.label}</span>
-                </button>
-              );
-            })}
-          </div>
-          {Object.keys(taskStates).length > 0 && (
-            <div className="mt-4 space-y-2 rounded-xl border border-white/60 bg-white/35 p-3 dark:border-white/10 dark:bg-white/8">
-              <p className="text-sm font-semibold">同步进度</p>
-              <div className="max-h-40 space-y-1 overflow-y-auto">
-                {Object.entries(taskStates).map(([id, task]) => (
-                  <div key={id} className="flex items-center gap-2 rounded-lg bg-white/45 px-2 py-1.5 text-xs dark:bg-white/8">
-                    {task.status === 'syncing' ? (
-                      <Loader2 size={13} className="animate-spin text-blue-600" />
-                    ) : task.status === 'success' ? (
-                      <CheckCircle2 size={13} className="text-emerald-600" />
-                    ) : task.status === 'error' ? (
-                      <AlertTriangle size={13} className="text-red-500" />
-                    ) : (
-                      <Square size={13} className="text-slate-400" />
-                    )}
-                    <span className="font-medium">{task.skillName}</span>
-                    <span className="text-slate-400">→</span>
-                    <span>{task.toolId}</span>
-                    {task.message && <span className="truncate text-slate-500">{task.message}</span>}
-                  </div>
-                ))}
-              </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+          {/* 已选技能 */}
+          <div className="border-b border-white/50 px-4 py-4 dark:border-white/10 sm:px-6">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                选择 Skill ({selectedSkills.size}/{skills.length})
+              </p>
+              <button
+                onClick={() => setSelectedSkills(allSkillsSelected ? new Set() : new Set(skills.map(skill => skill.id)))}
+                disabled={syncing}
+                className="flex items-center gap-2 text-sm text-slate-500 transition-colors hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
+              >
+                {allSkillsSelected ? (
+                  <CheckSquare size={16} className="text-[hsl(var(--primary))]" />
+                ) : (
+                  <Square size={16} />
+                )}
+                <span className="font-medium">{allSkillsSelected ? '取消全选' : '全选 Skill'}</span>
+              </button>
             </div>
-          )}
+            <div className="flex max-h-56 flex-wrap gap-2 overflow-y-auto pr-1 sm:max-h-64">
+              {skills.map(skill => {
+                const isSelected = selectedSkills.has(skill.id);
+                return (
+                  <button
+                    key={skill.id}
+                    onClick={() => toggleSkill(skill.id)}
+                    disabled={syncing}
+                    title={skill.name}
+                    className={`inline-flex min-h-8 max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-all disabled:cursor-not-allowed ${
+                      isSelected
+                        ? 'border-blue-200/70 bg-blue-500/10 text-blue-700 shadow-sm shadow-blue-500/10 dark:border-sky-300/20 dark:text-sky-300'
+                        : 'border-white/55 bg-white/45 text-slate-400 hover:text-slate-700 dark:border-white/10 dark:bg-white/8 dark:text-slate-500 dark:hover:text-slate-300'
+                    }`}
+                  >
+                    {isSelected ? <CheckSquare size={13} className="shrink-0" /> : <Square size={13} className="shrink-0" />}
+                    <span className="truncate">{skill.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 工具列表 */}
+          <div className="px-4 py-4 sm:px-6">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                选择目标工具 ({selectedTools.size}/{tools.length})
+              </p>
+              <button
+                onClick={toggleAllTools}
+                disabled={syncing}
+                className="flex items-center gap-2 text-sm text-slate-500 transition-colors hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
+              >
+                {someToolsSelected || allToolsSelected ? (
+                  <CheckSquare size={16} className="text-[hsl(var(--primary))]" />
+                ) : (
+                  <Square size={16} />
+                )}
+                <span className="font-medium">选择全部工具</span>
+              </button>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {tools.map(tool => {
+                const isSelected = selectedTools.has(tool.id);
+                return (
+                  <button
+                    key={tool.id}
+                    onClick={() => toggleTool(tool.id)}
+                    className={`flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-all ${
+                      isSelected
+                        ? 'border-blue-200/70 bg-blue-500/10 text-blue-700 dark:border-sky-300/20 dark:text-sky-300'
+                        : 'border-white/55 bg-white/50 text-slate-500 hover:text-slate-950 dark:border-white/10 dark:bg-white/8 dark:text-slate-400 dark:hover:text-white'
+                    }`}
+                  >
+                    {isSelected ? (
+                      <CheckSquare size={16} className="shrink-0" />
+                    ) : (
+                      <Square size={16} className="shrink-0" />
+                    )}
+                    <div
+                      className={`h-2 w-2 shrink-0 rounded-full ${
+                        isSelected
+                          ? APP_COLORS[tool.id as keyof typeof APP_COLORS] || "bg-[hsl(var(--foreground))]"
+                          : "bg-current opacity-40"
+                      }`}
+                    />
+                    <span className="truncate">{tool.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {Object.keys(taskStates).length > 0 && (
+              <div className="mt-4 space-y-2 rounded-xl border border-white/60 bg-white/35 p-3 dark:border-white/10 dark:bg-white/8">
+                <p className="text-sm font-semibold">同步进度</p>
+                <div className="max-h-40 space-y-1 overflow-y-auto">
+                  {Object.entries(taskStates).map(([id, task]) => (
+                    <div key={id} className="flex min-w-0 items-center gap-2 rounded-lg bg-white/45 px-2 py-1.5 text-xs dark:bg-white/8">
+                      {task.status === 'syncing' ? (
+                        <Loader2 size={13} className="shrink-0 animate-spin text-blue-600" />
+                      ) : task.status === 'success' ? (
+                        <CheckCircle2 size={13} className="shrink-0 text-emerald-600" />
+                      ) : task.status === 'error' ? (
+                        <AlertTriangle size={13} className="shrink-0 text-red-500" />
+                      ) : (
+                        <Square size={13} className="shrink-0 text-slate-400" />
+                      )}
+                      <span className="truncate font-medium">{task.skillName}</span>
+                      <span className="shrink-0 text-slate-400">→</span>
+                      <span className="shrink-0">{task.toolId}</span>
+                      {task.message && <span className="truncate text-slate-500">{task.message}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* 底部 */}

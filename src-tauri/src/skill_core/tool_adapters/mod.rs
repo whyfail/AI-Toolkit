@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-/// 支持 skills 同步的工具 ID（12 种）
+/// 支持 skills 同步的工具 ID（14 种）
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ToolId {
     ClaudeCode,
@@ -14,9 +14,11 @@ pub enum ToolId {
     QwenCode,
     Trae,
     TraeCn,
+    TraeWork,
     TraeSoloCn,
     CodeBuddy,
     Hermes,
+    MimoCode,
 }
 
 impl serde::Serialize for ToolId {
@@ -32,7 +34,7 @@ impl serde::Serialize for ToolId {
 impl ToolId {
     pub fn as_key(&self) -> &'static str {
         match self {
-            // 支持的 12 种工具（与 README 和 AppType 保持一致）
+            // 支持的 14 种工具（与 README 和 AppType 保持一致）
             ToolId::QwenCode => "qwen-code",
             ToolId::ClaudeCode => "claude",
             ToolId::Codex => "codex",
@@ -42,9 +44,11 @@ impl ToolId {
             ToolId::QoderCli => "qodercli", // Qoder CLI 使用 qodercli 作为 ID
             ToolId::Trae => "trae",
             ToolId::TraeCn => "trae-cn",
-            ToolId::TraeSoloCn => "trae-solo-cn", // TRAE SOLO CN 使用 traesoloCn 作为 ID
+            ToolId::TraeWork => "trae-work",
+            ToolId::TraeSoloCn => "trae-solo-cn", // TRAE Work CN 沿用 trae-solo-cn 作为兼容 ID
             ToolId::CodeBuddy => "codebuddy",
             ToolId::Hermes => "hermes",
+            ToolId::MimoCode => "mimo-code",
         }
     }
 }
@@ -75,9 +79,9 @@ pub struct ToolStatus {
     pub skills: Vec<DetectedSkill>,
 }
 
-/// 支持的工具列表（与 README 保持一致，共 12 种）
+/// 支持的工具列表（与 README 保持一致，共 14 种）
 /// MCP 服务器管理支持的工具: Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode,
-/// Qoder, Qoder CLI, Trae, Trae CN, TRAE SOLO CN, CodeBuddy, Hermes Agent
+/// Qoder, Qoder CLI, TRAE IDE, TRAE IDE CN, TRAE Work, TRAE Work CN, CodeBuddy, Hermes Agent, Mimo Code
 pub fn default_tool_adapters() -> Vec<ToolAdapter> {
     vec![
         ToolAdapter {
@@ -125,20 +129,26 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
         },
         ToolAdapter {
             id: ToolId::Trae,
-            display_name: "Trae",
+            display_name: "TRAE IDE",
             relative_skills_dir: ".trae/skills",
             relative_detect_dir: ".trae",
         },
         ToolAdapter {
             id: ToolId::TraeCn,
-            display_name: "Trae CN",
+            display_name: "TRAE IDE CN",
             relative_skills_dir: ".trae-cn/skills",
             relative_detect_dir: ".trae-cn",
         },
         ToolAdapter {
+            id: ToolId::TraeWork,
+            display_name: "TRAE Work",
+            relative_skills_dir: ".trae/skills",
+            relative_detect_dir: ".trae",
+        },
+        ToolAdapter {
             id: ToolId::TraeSoloCn,
-            display_name: "TRAE SOLO CN",
-            // NOTE: TRAE SOLO CN 和 Trae CN 使用相同的 skills 目录
+            display_name: "TRAE Work CN",
+            // NOTE: TRAE Work CN 和 Trae CN 使用相同的 skills 目录
             relative_skills_dir: ".trae-cn/skills",
             relative_detect_dir: ".trae-cn",
         },
@@ -153,6 +163,12 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             display_name: "Hermes Agent",
             relative_skills_dir: ".hermes/skills",
             relative_detect_dir: ".hermes",
+        },
+        ToolAdapter {
+            id: ToolId::MimoCode,
+            display_name: "Mimo Code",
+            relative_skills_dir: ".config/mimocode/skills",
+            relative_detect_dir: ".config/mimocode",
         },
     ]
 }
@@ -228,7 +244,7 @@ pub fn resolve_detect_path(adapter: &ToolAdapter) -> Result<PathBuf> {
     Ok(home.join(adapter.relative_detect_dir))
 }
 
-/// 获取 ToolId 对应的 CLI binary 名称（仅支持 skills 模块的 12 种工具）
+/// 获取 ToolId 对应的 CLI binary 名称（仅支持 skills 模块的 14 种工具）
 fn get_tool_binary_name(id: &ToolId) -> &'static str {
     match id {
         ToolId::ClaudeCode => "claude",
@@ -240,9 +256,11 @@ fn get_tool_binary_name(id: &ToolId) -> &'static str {
         ToolId::QwenCode => "qwen",
         ToolId::Trae => "trae",
         ToolId::TraeCn => "trae-cn",
+        ToolId::TraeWork => "trae",
         ToolId::TraeSoloCn => "trae-solo-cn",
         ToolId::CodeBuddy => "codebuddy",
         ToolId::Hermes => "hermes",
+        ToolId::MimoCode => "mimo",
     }
 }
 
@@ -267,6 +285,7 @@ pub fn is_tool_installed(adapter: &ToolAdapter) -> bool {
             ToolId::OpenCode => Some(crate::mcp::AppType::OpenCode),
             ToolId::Trae => Some(crate::mcp::AppType::Trae),
             ToolId::TraeCn => Some(crate::mcp::AppType::TraeCn),
+            ToolId::TraeWork => Some(crate::mcp::AppType::TraeWork),
             ToolId::TraeSoloCn => Some(crate::mcp::AppType::TraeSoloCn),
             ToolId::Qoder => Some(crate::mcp::AppType::Qoder),
             _ => None,
@@ -285,6 +304,7 @@ pub fn is_tool_installed(adapter: &ToolAdapter) -> bool {
             ToolId::OpenCode => Some(crate::mcp::AppType::OpenCode),
             ToolId::Trae => Some(crate::mcp::AppType::Trae),
             ToolId::TraeCn => Some(crate::mcp::AppType::TraeCn),
+            ToolId::TraeWork => Some(crate::mcp::AppType::TraeWork),
             ToolId::TraeSoloCn => Some(crate::mcp::AppType::TraeSoloCn),
             ToolId::Qoder => Some(crate::mcp::AppType::Qoder),
             _ => None,

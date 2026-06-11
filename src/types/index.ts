@@ -59,11 +59,13 @@ export const SUPPORTED_APPS: Array<{ id: string; name: string; icon: string }> =
   { id: "opencode", name: "OpenCode", icon: "opencode" },
   { id: "qoder", name: "Qoder", icon: "qoder" },
   { id: "qodercli", name: "Qoder CLI", icon: "qodercli" },
-  { id: "trae", name: "Trae", icon: "trae" },
-  { id: "trae-cn", name: "Trae CN", icon: "trae-cn" },
-  { id: "trae-solo-cn", name: "TRAE SOLO CN", icon: "trae-solo-cn" },
+  { id: "trae", name: "TRAE IDE", icon: "trae" },
+  { id: "trae-cn", name: "TRAE IDE CN", icon: "trae-cn" },
+  { id: "trae-work", name: "TRAE Work", icon: "trae-work" },
+  { id: "trae-solo-cn", name: "TRAE Work CN", icon: "trae-solo-cn" },
   { id: "codebuddy", name: "CodeBuddy CN CLI", icon: "codebuddy" },
   { id: "hermes", name: "Hermes Agent", icon: "hermes" },
+  { id: "mimo-code", name: "Mimo Code", icon: "mimo-code" },
 ];
 
 // 工具安装方式

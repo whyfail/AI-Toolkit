@@ -24,6 +24,7 @@ const agentColors: Record<string, string> = {
   opencode: "bg-cyan-500",
   trae: "bg-indigo-500",
   "trae-cn": "bg-violet-500",
+  "trae-work": "bg-sky-500",
   "trae-solo-cn": "bg-fuchsia-500",
   qoder: "bg-yellow-500",
   qodercli: "bg-amber-500",

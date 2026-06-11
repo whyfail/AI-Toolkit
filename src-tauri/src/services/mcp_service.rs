@@ -78,11 +78,13 @@ impl McpService {
             AppType::QwenCode,
             AppType::Trae,
             AppType::TraeCn,
+            AppType::TraeWork,
             AppType::TraeSoloCn,
             AppType::Qoder,
             AppType::Qodercli,
             AppType::CodeBuddy,
             AppType::Hermes,
+            AppType::MimoCode,
         ] {
             imported.extend(read_servers_from_app(app)?);
         }
@@ -142,7 +144,7 @@ fn import_json_servers(config_path: &Path, app: &AppType) -> Result<Vec<McpServe
     let content = fs::read_to_string(config_path)?;
     let config: serde_json::Value =
         serde_json::from_str(&content).map_err(|e| AppError::Parse(e.to_string()))?;
-    let key = if matches!(app, AppType::OpenCode) {
+    let key = if matches!(app, AppType::OpenCode | AppType::MimoCode) {
         "mcp"
     } else {
         "mcpServers"
@@ -155,8 +157,8 @@ fn import_json_servers(config_path: &Path, app: &AppType) -> Result<Vec<McpServe
     servers
         .iter()
         .map(|(id, value)| {
-            let spec = if matches!(app, AppType::OpenCode) {
-                parse_opencode_server(value)?
+            let spec = if matches!(app, AppType::OpenCode | AppType::MimoCode) {
+                parse_command_array_server(value)?
             } else {
                 serde_json::from_value::<McpServerSpec>(value.clone())
                     .map_err(|e| AppError::Parse(e.to_string()))?
@@ -210,11 +212,11 @@ fn import_hermes_servers(config_path: &Path) -> Result<Vec<McpServer>, AppError>
         .collect()
 }
 
-fn parse_opencode_server(value: &serde_json::Value) -> Result<McpServerSpec, AppError> {
+fn parse_command_array_server(value: &serde_json::Value) -> Result<McpServerSpec, AppError> {
     let mut spec = McpServerSpec::default();
     let Some(object) = value.as_object() else {
         return Err(AppError::Parse(
-            "OpenCode MCP entry must be an object".to_string(),
+            "MCP entry must be an object".to_string(),
         ));
     };
 
@@ -251,6 +253,7 @@ fn parse_opencode_server(value: &serde_json::Value) -> Result<McpServerSpec, App
     }
     if let Some(environment) = object
         .get("environment")
+        .or_else(|| object.get("env"))
         .and_then(|value| value.as_object())
     {
         spec.env = Some(
@@ -269,7 +272,7 @@ fn parse_opencode_server(value: &serde_json::Value) -> Result<McpServerSpec, App
     for (key, value) in object {
         if !matches!(
             key.as_str(),
-            "type" | "command" | "environment" | "url" | "headers"
+            "type" | "command" | "environment" | "env" | "url" | "headers"
         ) {
             spec.extra.insert(key.clone(), value.clone());
         }
@@ -371,6 +374,40 @@ mod tests {
                 .and_then(|env| env.get("A"))
                 .map(String::as_str),
             Some("B")
+        );
+    }
+
+    #[test]
+    fn imports_mimo_command_array() {
+        let file = temp_file(
+            "mcp-mimo",
+            r#"{
+              "mcp": {
+                "demo": {
+                  "type": "local",
+                  "command": ["npx", "-y", "demo-server"],
+                  "environment": { "TOKEN": "secret" }
+                }
+              }
+            }"#,
+        );
+
+        let servers = import_json_servers(file.path(), &AppType::MimoCode).expect("import json");
+
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].server.command.as_deref(), Some("npx"));
+        assert_eq!(
+            servers[0].server.args.as_deref(),
+            Some(&["-y".to_string(), "demo-server".to_string()][..])
+        );
+        assert_eq!(
+            servers[0]
+                .server
+                .env
+                .as_ref()
+                .and_then(|env| env.get("TOKEN"))
+                .map(String::as_str),
+            Some("secret")
         );
     }
 

@@ -420,11 +420,13 @@ fn get_agent_launch_command(app: &AppType) -> Option<String> {
         AppType::OpenCode => Some("opencode".to_string()),
         AppType::Trae => None,
         AppType::TraeCn => None,
+        AppType::TraeWork => None,
         AppType::TraeSoloCn => None,
         AppType::Qoder => None,
         AppType::Qodercli => Some("qodercli".to_string()),
         AppType::CodeBuddy => Some("codebuddy".to_string()),
         AppType::Hermes => Some("hermes".to_string()),
+        AppType::MimoCode => Some("mimo".to_string()),
     }
 }
 

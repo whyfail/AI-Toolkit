@@ -17,7 +17,7 @@ AI Toolkit是一款**通用的 AI 编程工具管理工具**，支持统一管�
 ## ✨ 核心特性
 
 ### 🎯 MCP 服务器管理
-- 支持 **12 种** 主流 AI 编程工具：Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, Trae, Trae CN, TRAE SOLO CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent
+- 支持 **14 种** 主流 AI 编程工具：Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, TRAE IDE, TRAE IDE CN, TRAE Work, TRAE Work CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent, Mimo Code
 - 在单一界面中添加、编辑、删除 MCP 服务器
 - 自动检测系统中已安装的 AI 工具，新工具发现时弹窗提示
 - 切换开关**实时同步**到对应工具的配置文件
@@ -128,11 +128,13 @@ cp -R /Volumes/AI\ Toolkit/AI\ Toolkit.app /Applications/
 | OpenCode | `~/.config/opencode/opencode.json` |
 | Qoder | `~/Library/Application Support/Qoder/SharedClientCache/mcp.json` |
 | Qoder CLI | `~/.qodercli/settings.json` |
-| Trae | `~/Library/Application Support/Trae/User/mcp.json` |
-| Trae CN | `~/Library/Application Support/Trae CN/User/mcp.json` |
-| TRAE SOLO CN | `~/Library/Application Support/TRAE SOLO CN/User/mcp.json` |
+| TRAE IDE | `~/Library/Application Support/Trae/User/mcp.json` |
+| TRAE IDE CN | `~/Library/Application Support/Trae CN/User/mcp.json` |
+| TRAE Work | `~/Library/Application Support/TRAE Work/User/mcp.json` |
+| TRAE Work CN | `~/Library/Application Support/TRAE Work CN/User/mcp.json`（兼容旧 `TRAE SOLO CN` 路径） |
 | CodeBuddy | `~/.codebuddy/mcp.json` |
 | Hermes Agent | `~/.hermes/config.yaml` |
+| Mimo Code | `~/.config/mimocode/mimocode.json` |
 
 ## 🛠️ 技术栈
 

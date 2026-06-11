@@ -17,7 +17,7 @@ AI Toolkit is a **universal AI programming tools management tool** that supports
 ## ✨ Key Features
 
 ### 🎯 MCP Server Management
-- Support for **12** mainstream AI programming tools: Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, Trae, Trae CN, TRAE SOLO CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent
+- Support for **14** mainstream AI programming tools: Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, TRAE IDE, TRAE IDE CN, TRAE Work, TRAE Work CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent, Mimo Code
 - Add, edit, and delete MCP servers in a single interface
 - Automatically detects installed AI tools on your system and prompts for MCP sync when new tools are discovered
 - Toggle switches **sync in real-time** to the corresponding tool's configuration file
@@ -128,11 +128,13 @@ Since the current version is not code-signed or notarized by Apple, macOS Gateke
 | OpenCode | `~/.config/opencode/opencode.json` |
 | Qoder | `~/Library/Application Support/Qoder/SharedClientCache/mcp.json` |
 | Qoder CLI | `~/.qodercli/settings.json` |
-| Trae | `~/Library/Application Support/Trae/User/mcp.json` |
-| Trae CN | `~/Library/Application Support/Trae CN/User/mcp.json` |
-| TRAE SOLO CN | `~/Library/Application Support/TRAE SOLO CN/User/mcp.json` |
+| TRAE IDE | `~/Library/Application Support/Trae/User/mcp.json` |
+| TRAE IDE CN | `~/Library/Application Support/Trae CN/User/mcp.json` |
+| TRAE Work | `~/Library/Application Support/TRAE Work/User/mcp.json` |
+| TRAE Work CN | `~/Library/Application Support/TRAE Work CN/User/mcp.json` (compatible with the legacy `TRAE SOLO CN` path) |
 | CodeBuddy | `~/.codebuddy/mcp.json` |
 | Hermes Agent | `~/.hermes/config.yaml` |
+| Mimo Code | `~/.config/mimocode/mimocode.json` |
 
 ## 🛠️ Tech Stack
 

@@ -1,6 +1,6 @@
 /**
  * 统一工具定义
- * 所有模块共享这套工具定义，与 README 支持的 12 种工具保持一致
+ * 所有模块共享这套工具定义，与 README 支持的 14 种工具保持一致
  */
 
 // 工具 ID 类型（使用 kebab-case，与 AppType serde 名一致）
@@ -12,11 +12,13 @@ export type ToolId =
   | 'opencode'
   | 'trae'
   | 'trae-cn'
+  | 'trae-work'
   | 'trae-solo-cn'
   | 'qoder'
   | 'qodercli'
   | 'codebuddy'
-  | 'hermes';
+  | 'hermes'
+  | 'mimo-code';
 
 // 工具元数据
 export interface ToolMeta {
@@ -97,29 +99,38 @@ export const SUPPORTED_TOOLS: ToolMeta[] = [
   {
     id: 'trae',
     name: 'trae',
-    displayName: 'Trae',
+    displayName: 'TRAE IDE',
     skillsDir: '.trae/skills',
     detectDir: '.trae',
     binaryName: 'trae',
-    docsUrl: 'https://docs.trae.ai/ide',
+    docsUrl: 'https://docs.trae.ai/ide/add-mcp-servers',
   },
   {
     id: 'trae-cn',
     name: 'trae-cn',
-    displayName: 'Trae CN',
+    displayName: 'TRAE IDE CN',
     skillsDir: '.trae-cn/skills',
     detectDir: '.trae-cn',
     binaryName: 'trae',
     docsUrl: 'https://docs.trae.cn/ide',
   },
   {
+    id: 'trae-work',
+    name: 'trae-work',
+    displayName: 'TRAE Work',
+    skillsDir: '.trae/skills',
+    detectDir: '.trae',
+    binaryName: 'trae',
+    docsUrl: 'https://www.trae.ai/work',
+  },
+  {
     id: 'trae-solo-cn',
     name: 'trae-solo-cn',
-    displayName: 'TRAE SOLO CN',
+    displayName: 'TRAE Work CN',
     skillsDir: '.trae-cn/skills',
     detectDir: '.trae-cn',
     binaryName: 'trae',
-    docsUrl: 'https://docs.trae.cn/ide',
+    docsUrl: 'https://www.trae.cn/work',
   },
   {
     id: 'codebuddy',
@@ -139,6 +150,15 @@ export const SUPPORTED_TOOLS: ToolMeta[] = [
     binaryName: 'hermes',
     docsUrl: 'https://hermes-agent.nousresearch.com/docs/',
   },
+  {
+    id: 'mimo-code',
+    name: 'mimo-code',
+    displayName: 'Mimo Code',
+    skillsDir: '.config/mimocode/skills',
+    detectDir: '.config/mimocode',
+    binaryName: 'mimo',
+    docsUrl: 'https://mimo.xiaomi.com/mimocode/install',
+  },
 ];
 
 // 工具颜色映射
@@ -150,11 +170,13 @@ export const APP_COLORS: Record<ToolId, string> = {
   'opencode': 'bg-cyan-500',
   'trae': 'bg-indigo-500',
   'trae-cn': 'bg-violet-500',
+  'trae-work': 'bg-sky-500',
   'trae-solo-cn': 'bg-fuchsia-500',
   'qoder': 'bg-yellow-500',
   'qodercli': 'bg-amber-500',
   'codebuddy': 'bg-red-500',
   'hermes': 'bg-teal-500',
+  'mimo-code': 'bg-rose-500',
 };
 
 // 根据 ID 获取工具元数据
@@ -169,7 +191,7 @@ export function getToolMetaByBinary(binaryName: string): ToolMeta | undefined {
 
 // 获取所有可启动的工具（具有 CLI 命令）
 export const LAUNCHABLE_TOOLS: ToolId[] = [
-  'qwen-code', 'claude', 'codex', 'gemini', 'opencode', 'qodercli', 'codebuddy', 'hermes'
+  'qwen-code', 'claude', 'codex', 'gemini', 'opencode', 'qodercli', 'codebuddy', 'hermes', 'mimo-code'
 ];
 
 // 判断工具是否可启动

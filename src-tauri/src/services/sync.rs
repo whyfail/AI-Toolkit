@@ -41,16 +41,15 @@ pub fn sync_app_config(app: &AppType, servers: &[McpServer]) -> Result<(), AppEr
     };
 
     // 构建 MCP 服务器对象
-    // OpenCode 使用专用的配置格式
-    let mcp_servers = if matches!(app, AppType::OpenCode) {
-        build_opencode_mcp_json(servers)
-    } else {
-        build_mcp_json(servers)
+    let mcp_servers = match app {
+        AppType::OpenCode => build_opencode_mcp_json(servers),
+        AppType::MimoCode => build_mimo_mcp_json(servers),
+        _ => build_mcp_json(servers),
     };
 
     // 根据应用类型确定键名
     let key = match app {
-        AppType::OpenCode => "mcp",
+        AppType::OpenCode | AppType::MimoCode => "mcp",
         _ => "mcpServers",
     };
 
@@ -246,7 +245,10 @@ fn build_opencode_mcp_json(servers: &[McpServer]) -> serde_json::Map<String, ser
         let mut entry = serde_json::Map::new();
 
         // 判断连接类型：有 url 则为 remote，否则为 local
-        if server.server.url.is_some() {
+        let is_remote = server.server.url.is_some()
+            || matches!(server.server.spec_type.as_deref(), Some("remote" | "http" | "sse"));
+
+        if is_remote {
             entry.insert(
                 "type".to_string(),
                 serde_json::Value::String("remote".to_string()),
@@ -294,6 +296,76 @@ fn build_opencode_mcp_json(servers: &[McpServer]) -> serde_json::Map<String, ser
                         serde_json::Value::Object(env_map),
                     );
                 }
+            }
+        }
+
+        mcp_servers.insert(server.id.clone(), serde_json::Value::Object(entry));
+    }
+    mcp_servers
+}
+
+/// 为 Mimo Code 构建 MCP 服务器配置。
+/// Mimo Code 使用顶层 `mcp`，本地 command 为 string[]，环境变量字段为 environment。
+fn build_mimo_mcp_json(servers: &[McpServer]) -> serde_json::Map<String, serde_json::Value> {
+    let mut mcp_servers = serde_json::Map::new();
+    for server in servers {
+        let mut entry = serde_json::Map::new();
+
+        let is_remote = server.server.url.is_some()
+            || matches!(server.server.spec_type.as_deref(), Some("remote" | "http" | "sse"));
+
+        if is_remote {
+            entry.insert(
+                "type".to_string(),
+                serde_json::Value::String("remote".to_string()),
+            );
+            if let Some(url) = &server.server.url {
+                entry.insert("url".to_string(), serde_json::Value::String(url.clone()));
+            }
+            if let Some(headers) = &server.server.headers {
+                let headers_map: serde_json::Map<String, serde_json::Value> = headers
+                    .iter()
+                    .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                    .collect();
+                entry.insert(
+                    "headers".to_string(),
+                    serde_json::Value::Object(headers_map),
+                );
+            }
+        } else {
+            entry.insert(
+                "type".to_string(),
+                serde_json::Value::String("local".to_string()),
+            );
+            let mut command_vec: Vec<serde_json::Value> = Vec::new();
+            if let Some(cmd) = &server.server.command {
+                command_vec.push(serde_json::Value::String(cmd.clone()));
+            }
+            if let Some(args) = &server.server.args {
+                for arg in args {
+                    command_vec.push(serde_json::Value::String(arg.clone()));
+                }
+            }
+            if !command_vec.is_empty() {
+                entry.insert("command".to_string(), serde_json::Value::Array(command_vec));
+            }
+            if let Some(env) = &server.server.env {
+                if !env.is_empty() {
+                    let env_map: serde_json::Map<String, serde_json::Value> = env
+                        .iter()
+                        .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                        .collect();
+                    entry.insert(
+                        "environment".to_string(),
+                        serde_json::Value::Object(env_map),
+                    );
+                }
+            }
+        }
+
+        for (key, value) in &server.server.extra {
+            if !matches!(key.as_str(), "type" | "command" | "environment" | "url" | "headers") {
+                entry.insert(key.clone(), value.clone());
             }
         }
 
@@ -362,11 +434,18 @@ pub(crate) fn get_config_path_for_app(app: &AppType) -> Result<String, AppError>
                 "~/Library/Application Support/Trae CN/User/mcp.json"
             }
         }
+        AppType::TraeWork => {
+            if cfg!(windows) {
+                "%APPDATA%\\TRAE Work\\User\\mcp.json"
+            } else {
+                "~/Library/Application Support/TRAE Work/User/mcp.json"
+            }
+        }
         AppType::TraeSoloCn => {
             if cfg!(windows) {
-                "%APPDATA%\\TRAE SOLO CN\\User\\mcp.json"
+                "%APPDATA%\\TRAE Work CN\\User\\mcp.json"
             } else {
-                "~/Library/Application Support/TRAE SOLO CN/User/mcp.json"
+                "~/Library/Application Support/TRAE Work CN/User/mcp.json"
             }
         }
         AppType::Qoder => {
@@ -395,6 +474,13 @@ pub(crate) fn get_config_path_for_app(app: &AppType) -> Result<String, AppError>
                 "%USERPROFILE%\\.hermes\\config.yaml"
             } else {
                 "~/.hermes/config.yaml"
+            }
+        }
+        AppType::MimoCode => {
+            if cfg!(windows) {
+                "%USERPROFILE%\\.config\\mimocode\\mimocode.json"
+            } else {
+                "~/.config/mimocode/mimocode.json"
             }
         }
     }
@@ -489,6 +575,102 @@ mcp_servers:
                 .and_then(|value| value.get("TOKEN"))
                 .and_then(|value| value.as_str()),
             Some("secret")
+        );
+    }
+
+    #[test]
+    fn syncs_mimo_mcp_servers() {
+        let server = McpServer {
+            id: "demo".to_string(),
+            name: "demo".to_string(),
+            server: McpServerSpec {
+                command: Some("npx".to_string()),
+                args: Some(vec!["-y".to_string(), "demo-server".to_string()]),
+                env: Some(HashMap::from([("TOKEN".to_string(), "secret".to_string())])),
+                ..Default::default()
+            },
+            apps: McpApps::default(),
+            description: None,
+            homepage: None,
+            docs: None,
+            tags: vec![],
+        };
+
+        let json = build_mimo_mcp_json(&[server]);
+        let demo = json.get("demo").expect("demo server");
+        assert_eq!(demo.get("type").and_then(|value| value.as_str()), Some("local"));
+        assert_eq!(
+            demo.get("command").and_then(|value| value.as_array()).map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .collect::<Vec<_>>()
+            }),
+            Some(vec!["npx", "-y", "demo-server"])
+        );
+        assert_eq!(
+            demo.get("environment")
+                .and_then(|value| value.get("TOKEN"))
+                .and_then(|value| value.as_str()),
+            Some("secret")
+        );
+    }
+
+    #[test]
+    fn sync_all_writes_mimo_config_when_enabled() {
+        let temp_home = tempfile::tempdir().expect("temp home");
+        let old_home = std::env::var_os("HOME");
+        std::env::set_var("HOME", temp_home.path());
+
+        let mut apps = McpApps::default();
+        apps.set_enabled_for(&AppType::MimoCode, true);
+        let server = McpServer {
+            id: "demo".to_string(),
+            name: "demo".to_string(),
+            server: McpServerSpec {
+                command: Some("npx".to_string()),
+                args: Some(vec!["-y".to_string(), "demo-server".to_string()]),
+                env: Some(HashMap::from([("TOKEN".to_string(), "secret".to_string())])),
+                ..Default::default()
+            },
+            apps,
+            description: None,
+            homepage: None,
+            docs: None,
+            tags: vec![],
+        };
+        let mut servers = IndexMap::new();
+        servers.insert(server.id.clone(), server);
+
+        let result = sync_all_live_configs(&servers);
+
+        if let Some(home) = old_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+
+        result.expect("sync all configs");
+        let config_path = temp_home
+            .path()
+            .join(".config")
+            .join("mimocode")
+            .join("mimocode.json");
+        let content = std::fs::read_to_string(config_path).expect("read mimo config");
+        let json: serde_json::Value = serde_json::from_str(&content).expect("parse mimo config");
+        let demo = json
+            .get("mcp")
+            .and_then(|value| value.get("demo"))
+            .expect("demo server");
+        assert_eq!(demo.get("type").and_then(|value| value.as_str()), Some("local"));
+        assert_eq!(
+            demo.get("command").and_then(|value| value.as_array()).map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .collect::<Vec<_>>()
+            }),
+            Some(vec!["npx", "-y", "demo-server"])
         );
     }
 }

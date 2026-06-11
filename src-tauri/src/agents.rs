@@ -104,11 +104,24 @@ pub fn get_agent_config_paths(app: &AppType) -> Vec<PathBuf> {
                 vec!["~/Library/Application Support/Trae CN/User/mcp.json"]
             }
         }
+        AppType::TraeWork => {
+            if cfg!(windows) {
+                vec!["%APPDATA%\\TRAE Work\\User\\mcp.json"]
+            } else {
+                vec!["~/Library/Application Support/TRAE Work/User/mcp.json"]
+            }
+        }
         AppType::TraeSoloCn => {
             if cfg!(windows) {
-                vec!["%APPDATA%\\TRAE SOLO CN\\User\\mcp.json"]
+                vec![
+                    "%APPDATA%\\TRAE Work CN\\User\\mcp.json",
+                    "%APPDATA%\\TRAE SOLO CN\\User\\mcp.json",
+                ]
             } else {
-                vec!["~/Library/Application Support/TRAE SOLO CN/User/mcp.json"]
+                vec![
+                    "~/Library/Application Support/TRAE Work CN/User/mcp.json",
+                    "~/Library/Application Support/TRAE SOLO CN/User/mcp.json",
+                ]
             }
         }
         AppType::Qoder => {
@@ -139,6 +152,21 @@ pub fn get_agent_config_paths(app: &AppType) -> Vec<PathBuf> {
                 vec!["~/.hermes/config.yaml"]
             }
         }
+        AppType::MimoCode => {
+            if cfg!(windows) {
+                vec![
+                    "%USERPROFILE%\\.config\\mimocode\\mimocode.json",
+                    "%USERPROFILE%\\.config\\mimocode\\config.json",
+                    "%USERPROFILE%\\.config\\mimocode\\mimocode.jsonc",
+                ]
+            } else {
+                vec![
+                    "~/.config/mimocode/mimocode.json",
+                    "~/.config/mimocode/config.json",
+                    "~/.config/mimocode/mimocode.jsonc",
+                ]
+            }
+        }
     };
     paths.iter().map(|p| resolve_path(p)).collect()
 }
@@ -151,13 +179,15 @@ pub fn get_agent_name(app: &AppType) -> String {
         AppType::Codex => "Codex".to_string(),
         AppType::Gemini => "Gemini CLI".to_string(),
         AppType::OpenCode => "OpenCode".to_string(),
-        AppType::Trae => "Trae".to_string(),
-        AppType::TraeCn => "Trae CN".to_string(),
-        AppType::TraeSoloCn => "TRAE SOLO CN".to_string(),
+        AppType::Trae => "TRAE IDE".to_string(),
+        AppType::TraeCn => "TRAE IDE CN".to_string(),
+        AppType::TraeWork => "TRAE Work".to_string(),
+        AppType::TraeSoloCn => "TRAE Work CN".to_string(),
         AppType::Qoder => "Qoder".to_string(),
         AppType::Qodercli => "Qoder CLI".to_string(),
         AppType::CodeBuddy => "CodeBuddy CN CLI".to_string(),
         AppType::Hermes => "Hermes Agent".to_string(),
+        AppType::MimoCode => "Mimo Code".to_string(),
     }
 }
 
@@ -207,11 +237,18 @@ pub fn get_agent_detect_dir(app: &AppType) -> Option<PathBuf> {
                 "~/Library/Application Support/Trae CN"
             }
         }
+        AppType::TraeWork => {
+            if cfg!(windows) {
+                "%APPDATA%\\TRAE Work"
+            } else {
+                "~/Library/Application Support/TRAE Work"
+            }
+        }
         AppType::TraeSoloCn => {
             if cfg!(windows) {
-                "%APPDATA%\\TRAE SOLO CN"
+                "%APPDATA%\\TRAE Work CN"
             } else {
-                "~/Library/Application Support/TRAE SOLO CN"
+                "~/Library/Application Support/TRAE Work CN"
             }
         }
         AppType::Qoder => {
@@ -242,6 +279,13 @@ pub fn get_agent_detect_dir(app: &AppType) -> Option<PathBuf> {
                 "~/.hermes"
             }
         }
+        AppType::MimoCode => {
+            if cfg!(windows) {
+                "%USERPROFILE%\\.config\\mimocode"
+            } else {
+                "~/.config/mimocode"
+            }
+        }
     };
     Some(resolve_path(path_str))
 }
@@ -251,6 +295,7 @@ fn get_agent_binary_name(app: &AppType) -> &'static str {
     match app {
         AppType::Trae => "trae",
         AppType::TraeCn => "trae",
+        AppType::TraeWork => "trae",
         AppType::TraeSoloCn => "trae",
         AppType::QwenCode => "qwen",
         AppType::Claude => "claude",
@@ -261,6 +306,7 @@ fn get_agent_binary_name(app: &AppType) -> &'static str {
         AppType::Qodercli => "qodercli",
         AppType::CodeBuddy => "codebuddy",
         AppType::Hermes => "hermes",
+        AppType::MimoCode => "mimo",
     }
 }
 

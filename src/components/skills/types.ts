@@ -69,7 +69,7 @@ export type ToolId =
   | 'kilo_code'   // Qoder CLI (使用 kilo_code 作为 skills 目录标识)
   | 'trae'
   | 'trae_cn'
-  | 'neovate'      // TRAE SOLO CN
+  | 'neovate'      // TRAE Work CN
   | 'codebuddy'
   | 'hermes'
 

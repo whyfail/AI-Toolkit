@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.6.1 (2026-06-11)
+
+### 新功能
+
+- **Mimo Code 支持**：新增 Mimo Code 工具检测、MCP 配置导入/同步、Skills 同步和快速启动支持。
+- **TRAE 产品线拆分**：按官网文档补齐 TRAE IDE 国际版，并将 TRAE IDE、TRAE IDE CN、TRAE Work、TRAE Work CN 拆分为独立工具展示和配置目标。
+
+### 改进
+
+- **TRAE 命名与文档入口**：更新 TRAE 国际版文档入口到官方 MCP 文档，TRAE Work 国际版使用 `trae.ai/work`，国内版使用 `trae.cn/work`。
+- **TRAE Work CN 兼容迁移**：保留旧 `TRAE SOLO CN` 配置路径兼容，同时避免国内版误用国际版路径。
+
+### 修复
+
+- **Skills 批量同步弹窗**：修复 Skill 数量过多时内容超出窗口的问题，弹窗主体现在可滚动且底部操作区保持可见。
+
 ## v1.6.0 (2026-06-09)
 
 ### 新功能

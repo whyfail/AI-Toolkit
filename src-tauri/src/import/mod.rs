@@ -62,7 +62,7 @@ fn parse_mcp_json(content: &str, app: &AppType) -> Option<IndexMap<String, McpSe
             }
         }
     }
-    // Trae / OpenCode: { "mcp": { "id": { ... } } }
+    // Trae / OpenCode / Mimo Code: { "mcp": { "id": { ... } } }
     else if let Some(mcp) = json.get("mcp") {
         if let Some(obj) = mcp.as_object() {
             for (id, config) in obj {
@@ -171,11 +171,11 @@ fn parse_server_config(id: &str, config: &serde_json::Value, app: &AppType) -> O
     let config_obj = config.as_object()?;
 
     // 提取基本字段
-    // OpenCode 格式: command 是 string[] (如 ["npx", "-y", "xxx"])，无 args
+    // OpenCode / Mimo Code 格式: command 是 string[] (如 ["npx", "-y", "xxx"])，无 args
     // 其他工具格式: command 是 string，args 是 string[]
     let (command, args) = if let Some(cmd_val) = config_obj.get("command") {
         if let Some(arr) = cmd_val.as_array() {
-            // command 是数组 (OpenCode 格式): 第一个元素作为 command，其余作为 args
+            // command 是数组: 第一个元素作为 command，其余作为 args
             let mut items: Vec<String> = arr
                 .iter()
                 .filter_map(|v| v.as_str().map(String::from))
@@ -203,7 +203,7 @@ fn parse_server_config(id: &str, config: &serde_json::Value, app: &AppType) -> O
     } else {
         (None, None)
     };
-    // 同时支持 "env" (标准格式) 和 "environment" (OpenCode 格式)
+    // 同时支持 "env" (标准格式) 和 "environment" (OpenCode / Mimo Code 格式)
     let env = config_obj
         .get("env")
         .or_else(|| config_obj.get("environment"))
@@ -231,13 +231,39 @@ fn parse_server_config(id: &str, config: &serde_json::Value, app: &AppType) -> O
         .and_then(|v| v.as_str())
         .map(String::from);
 
-    let spec_type = if command.is_some() {
-        Some("stdio".to_string())
-    } else if url.is_some() {
-        Some("http".to_string())
-    } else {
-        None
-    };
+    let spec_type = config_obj
+        .get("type")
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .or_else(|| {
+            if command.is_some() {
+                Some("stdio".to_string())
+            } else if url.is_some() {
+                Some("http".to_string())
+            } else {
+                None
+            }
+        });
+
+    let known_keys = [
+        "type",
+        "command",
+        "args",
+        "env",
+        "environment",
+        "cwd",
+        "url",
+        "headers",
+        "name",
+        "description",
+        "docs",
+        "homepage",
+    ];
+    let extra = config_obj
+        .iter()
+        .filter(|(key, _)| !known_keys.contains(&key.as_str()))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
 
     // 构建服务器规范
     let server = McpServerSpec {
@@ -248,7 +274,7 @@ fn parse_server_config(id: &str, config: &serde_json::Value, app: &AppType) -> O
         cwd,
         url,
         headers,
-        extra: HashMap::new(),
+        extra,
     };
 
     // 创建应用状态

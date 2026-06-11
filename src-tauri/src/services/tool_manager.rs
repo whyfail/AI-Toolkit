@@ -32,10 +32,12 @@ fn get_binary_name(app: &AppType) -> String {
     match app {
         AppType::Trae => "trae".into(),
         AppType::TraeCn => "trae".into(),
+        AppType::TraeWork => "trae".into(),
         AppType::TraeSoloCn => "trae".into(),
         AppType::QwenCode => "qwen".into(),
         AppType::Claude => "claude".into(),
         AppType::Hermes => "hermes".into(),
+        AppType::MimoCode => "mimo".into(),
         _ => app.name().to_lowercase(),
     }
 }
@@ -47,7 +49,8 @@ pub fn mac_app_names(app: &AppType) -> &'static [&'static str] {
         AppType::OpenCode => &["OpenCode.app"],
         AppType::Trae => &["Trae.app"],
         AppType::TraeCn => &["Trae CN.app"],
-        AppType::TraeSoloCn => &["TRAE SOLO CN.app"],
+        AppType::TraeWork => &["TRAE Work.app"],
+        AppType::TraeSoloCn => &["TRAE Work CN.app", "TRAE SOLO CN.app"],
         AppType::Qoder => &["Qoder.app"],
         _ => &[],
     }
@@ -80,7 +83,8 @@ pub fn find_app_executable_windows(app: &AppType) -> Option<std::path::PathBuf> 
         AppType::OpenCode => &["OpenCode.exe", "opencode.exe"],
         AppType::Trae => &["Trae.exe"],
         AppType::TraeCn => &["Trae.exe", "Trae CN.exe"],
-        AppType::TraeSoloCn => &["Trae.exe", "TRAE SOLO CN.exe"],
+        AppType::TraeWork => &["Trae.exe", "TRAE Work.exe"],
+        AppType::TraeSoloCn => &["Trae.exe", "TRAE Work CN.exe", "TRAE SOLO CN.exe"],
         AppType::Qoder => &["Qoder.exe"],
         _ => return None,
     };
@@ -105,6 +109,8 @@ pub fn find_app_executable_windows(app: &AppType) -> Option<std::path::PathBuf> 
         "OpenAICodex",
         "Trae",
         "Trae CN",
+        "TRAE Work",
+        "TRAE Work CN",
         "TRAE SOLO CN",
         "OpenCode",
         "opencode",
@@ -118,6 +124,8 @@ pub fn find_app_executable_windows(app: &AppType) -> Option<std::path::PathBuf> 
         "Programs\\OpenAICodex",
         "Programs\\Trae",
         "Programs\\Trae CN",
+        "Programs\\TRAE Work",
+        "Programs\\TRAE Work CN",
         "Programs\\TRAE SOLO CN",
         "Programs\\OpenCode",
         "Programs\\opencode",
@@ -294,6 +302,11 @@ pub fn which_binary(binary: &str) -> Option<String> {
         if let Ok(user_profile) = std::env::var("USERPROFILE") {
             dirs.push(
                 std::path::PathBuf::from(&user_profile)
+                    .join(".mimocode")
+                    .join("bin"),
+            );
+            dirs.push(
+                std::path::PathBuf::from(&user_profile)
                     .join(".cargo")
                     .join("bin"),
             );
@@ -409,6 +422,7 @@ pub fn which_binary(binary: &str) -> Option<String> {
         format!("/opt/homebrew/bin/{}", binary),
         format!("/usr/local/bin/{}", binary),
         // common user-level package managers and shims
+        format!("{}/.mimocode/bin/{}", home, binary),
         format!("{}/.local/bin/{}", home, binary),
         format!("{}/.cargo/bin/{}", home, binary),
         format!("{}/.bun/bin/{}", home, binary),
@@ -609,7 +623,10 @@ impl ToolManagerService {
     }
 
     pub async fn detect_install_method(app: &AppType) -> Option<InstallMethodType> {
-        if matches!(app, AppType::Trae | AppType::TraeCn | AppType::TraeSoloCn) {
+        if matches!(
+            app,
+            AppType::Trae | AppType::TraeCn | AppType::TraeWork | AppType::TraeSoloCn
+        ) {
             return None;
         }
 

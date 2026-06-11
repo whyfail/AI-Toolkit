@@ -17,6 +17,8 @@ pub enum AppType {
     Trae,
     #[serde(rename = "trae-cn")]
     TraeCn,
+    #[serde(rename = "trae-work")]
+    TraeWork,
     #[serde(rename = "trae-solo-cn")]
     TraeSoloCn,
     #[serde(rename = "qoder")]
@@ -27,6 +29,8 @@ pub enum AppType {
     CodeBuddy,
     #[serde(rename = "hermes")]
     Hermes,
+    #[serde(rename = "mimo-code")]
+    MimoCode,
 }
 
 /// 安装方式
@@ -98,11 +102,13 @@ impl AppType {
             Self::OpenCode,
             Self::Trae,
             Self::TraeCn,
+            Self::TraeWork,
             Self::TraeSoloCn,
             Self::Qoder,
             Self::Qodercli,
             Self::CodeBuddy,
             Self::Hermes,
+            Self::MimoCode,
         ]
     }
 
@@ -115,11 +121,13 @@ impl AppType {
             Self::OpenCode => "opencode",
             Self::Trae => "trae",
             Self::TraeCn => "trae-cn",
+            Self::TraeWork => "trae-work",
             Self::TraeSoloCn => "trae-solo-cn",
             Self::Qoder => "qoder",
             Self::Qodercli => "qodercli",
             Self::CodeBuddy => "codebuddy",
             Self::Hermes => "hermes",
+            Self::MimoCode => "mimo-code",
         }
     }
 
@@ -190,16 +198,16 @@ impl AppType {
                 homepage: "https://opencode.ai".into(),
             }),
             Self::Trae => Some(InstallInfo {
-                name: "Trae".into(),
+                name: "TRAE IDE".into(),
                 methods: vec![InstallMethod::Download {
-                    url: "https://trae.ai".into(),
+                    url: "https://www.trae.ai/download".into(),
                 }],
                 update_cmd: String::new(),
                 version_cmd: String::new(),
-                homepage: "https://trae.ai".into(),
+                homepage: "https://docs.trae.ai/ide".into(),
             }),
             Self::TraeCn => Some(InstallInfo {
-                name: "Trae CN".into(),
+                name: "TRAE IDE CN".into(),
                 methods: vec![InstallMethod::Download {
                     url: "https://www.trae.cn".into(),
                 }],
@@ -207,14 +215,23 @@ impl AppType {
                 version_cmd: String::new(),
                 homepage: "https://www.trae.cn".into(),
             }),
-            Self::TraeSoloCn => Some(InstallInfo {
-                name: "TRAE SOLO CN".into(),
+            Self::TraeWork => Some(InstallInfo {
+                name: "TRAE Work".into(),
                 methods: vec![InstallMethod::Download {
-                    url: "https://www.trae.cn".into(),
+                    url: "https://www.trae.ai/work".into(),
                 }],
                 update_cmd: String::new(),
                 version_cmd: String::new(),
-                homepage: "https://www.trae.cn".into(),
+                homepage: "https://www.trae.ai/work".into(),
+            }),
+            Self::TraeSoloCn => Some(InstallInfo {
+                name: "TRAE Work CN".into(),
+                methods: vec![InstallMethod::Download {
+                    url: "https://www.trae.cn/work".into(),
+                }],
+                update_cmd: String::new(),
+                version_cmd: String::new(),
+                homepage: "https://www.trae.cn/work".into(),
             }),
             Self::Qoder => Some(InstallInfo {
                 name: "Qoder".into(),
@@ -265,6 +282,20 @@ impl AppType {
                 version_cmd: "hermes --version".into(),
                 homepage: "https://hermes-agent.nousresearch.com".into(),
             }),
+            Self::MimoCode => Some(InstallInfo {
+                name: "Mimo Code".into(),
+                methods: vec![
+                    InstallMethod::Curl {
+                        url: "https://mimo.xiaomi.com/install".into(),
+                    },
+                    InstallMethod::Npm {
+                        package: "@mimo-ai/cli".into(),
+                    },
+                ],
+                update_cmd: "curl -fsSL https://mimo.xiaomi.com/install | bash".into(),
+                version_cmd: "mimo --version".into(),
+                homepage: "https://mimo.xiaomi.com/zh/mimocode/start".into(),
+            }),
         }
     }
 }
@@ -281,11 +312,13 @@ impl std::str::FromStr for AppType {
             "opencode" => Ok(Self::OpenCode),
             "trae" => Ok(Self::Trae),
             "trae-cn" => Ok(Self::TraeCn),
+            "trae-work" => Ok(Self::TraeWork),
             "trae-solo-cn" => Ok(Self::TraeSoloCn),
             "qoder" => Ok(Self::Qoder),
             "qodercli" => Ok(Self::Qodercli),
             "codebuddy" => Ok(Self::CodeBuddy),
             "hermes" => Ok(Self::Hermes),
+            "mimo-code" => Ok(Self::MimoCode),
             _ => Err(format!("Unknown app type: {}", s)),
         }
     }
