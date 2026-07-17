@@ -14,6 +14,7 @@ use super::sync_engine::copy_dir_recursive;
 pub struct InstallResult {
     pub skill_id: String,
     pub name: String,
+    pub description: Option<String>,
     pub central_path: PathBuf,
     pub content_hash: Option<String>,
     pub source_subpath: Option<String>,
@@ -29,24 +30,58 @@ const SKILL_SCAN_BASES: [&str; 5] = [
     ".claude/skills",
 ];
 
-/// Check if a directory is a valid skill (has SKILL.md/skill.md or is under .claude/skills/).
+/// Check if a directory is a valid skill (has SKILL.md/skill.md or is a
+/// Claude plugin skill under .claude/skills/ with at least one manifest file).
 fn is_skill_dir(p: &Path) -> bool {
-    p.is_dir() && (find_skill_md(p).is_some() || is_claude_skill_dir(p))
+    if !p.is_dir() {
+        return false;
+    }
+    if find_skill_md(p).is_some() {
+        return true;
+    }
+    if is_claude_skill_dir(p) && has_claude_plugin_manifest(p) {
+        return true;
+    }
+    false
 }
 
-/// Check if a directory is a Claude plugin skill (under .claude/skills/ without SKILL.md).
+/// Check if a directory is a Claude plugin skill (under .claude/skills/).
 fn is_claude_skill_dir(p: &Path) -> bool {
     if let Some(parent) = p.parent() {
         let parent_str = parent.to_string_lossy();
         if parent_str.ends_with(".claude/skills") || parent_str.ends_with(".claude\\skills") {
-            return p.is_dir();
+            return true;
         }
     }
     false
 }
 
+/// Check if a directory has no entries (used to detect a failed install
+/// where the copy step left an empty central path behind).
+fn is_dir_empty(dir: &Path) -> bool {
+    std::fs::read_dir(dir)
+        .map(|mut it| it.next().is_none())
+        .unwrap_or(true)
+}
+
+/// Heuristic: Claude plugin skills almost always ship a manifest file like
+/// `.claude-plugin/plugin.json` or `plugin.json`. Without any such marker the
+/// directory is likely empty / not a real skill, so we don't surface it.
+fn has_claude_plugin_manifest(p: &Path) -> bool {
+    const CANDIDATES: &[&str] = &[
+        ".claude-plugin/plugin.json",
+        "plugin.json",
+        "manifest.json",
+        "index.js",
+        "index.ts",
+        "skill.yaml",
+        "skill.yml",
+    ];
+    CANDIDATES.iter().any(|rel| p.join(rel).exists())
+}
+
 /// Find SKILL.md or skill.md in a directory (case-insensitive, prefer uppercase).
-fn find_skill_md(dir: &Path) -> Option<PathBuf> {
+pub(crate) fn find_skill_md(dir: &Path) -> Option<PathBuf> {
     let upper = dir.join("SKILL.md");
     if upper.exists() {
         return Some(upper);
@@ -286,7 +321,7 @@ pub fn install_git_skill(
     }
 
     // After download, prefer the name from SKILL.md over the derived name
-    let (_description, md_name) = find_skill_md(&central_path)
+    let (description, md_name) = find_skill_md(&central_path)
         .and_then(|p| parse_skill_md(&p))
         .map(|(n, d)| (d, Some(n)))
         .unwrap_or((None, None));
@@ -311,6 +346,7 @@ pub fn install_git_skill(
     Ok(InstallResult {
         skill_id,
         name: skill_name,
+        description,
         central_path,
         content_hash,
         source_subpath: effective_subpath,
@@ -368,8 +404,20 @@ pub fn install_git_skill_from_selection(
     copy_dir_recursive(&copy_src, &central_path)
         .with_context(|| format!("copy {:?} -> {:?}", copy_src, central_path))?;
 
+    // Sanity check: a fresh install that produced an empty central directory
+    // (e.g. because the partial-clone lazy fetch silently failed and left
+    // 0-byte placeholder files behind) is almost always a bug. Surface it as
+    // a real error so the caller can ask the user to retry, instead of
+    // persisting a "blank" skill that silently confuses them later.
+    if is_dir_empty(&central_path) {
+        anyhow::bail!(
+            "安装后的中央目录 {:?} 是空的。可能是 Git 仓库下载不完整,请重试或在网络稳定后再试。",
+            central_path
+        );
+    }
+
     // Prefer name from SKILL.md
-    let (_description, md_name) = find_skill_md(&central_path)
+    let (description, md_name) = find_skill_md(&central_path)
         .and_then(|p| parse_skill_md(&p))
         .map(|(n, d)| (d, Some(n)))
         .unwrap_or((None, None));
@@ -399,6 +447,7 @@ pub fn install_git_skill_from_selection(
     Ok(InstallResult {
         skill_id,
         name: display_name,
+        description,
         central_path,
         content_hash,
         source_subpath,
@@ -630,52 +679,136 @@ fn parse_skill_md(path: &Path) -> Option<(String, Option<String>)> {
     parse_skill_md_with_reason(path).ok()
 }
 
+/// Public helper: extract just the description from a SKILL.md, if any.
+/// Used by callers (e.g. `install_local_selection`) that need to surface the
+/// description alongside an install result without caring about the name.
+pub(crate) fn read_skill_description(dir: &Path) -> Option<String> {
+    find_skill_md(dir)
+        .and_then(|p| parse_skill_md(&p))
+        .and_then(|(_, d)| d)
+}
+
 fn parse_skill_md_with_reason(path: &Path) -> Result<(String, Option<String>), &'static str> {
     let text = std::fs::read_to_string(path).map_err(|_| "read_failed")?;
-    let mut lines = text.lines();
 
-    // Support two formats:
-    // 1. Standard: first line is "---", fields follow, closing "---"
-    // 2. Relaxed: first line is a field (e.g. "name: ..."), fields continue until "---" or end-of-header
+    // Parse YAML frontmatter. Supports:
+    //   - Standard: first line "---", fields, closing "---"
+    //   - Relaxed: first line is a field, ends at "---" or non-field line
+    //   - Multi-line block scalars: description: | (literal) / description: > (folded)
+    //     indented continuation lines are joined into the previous field
     let mut name: Option<String> = None;
     let mut desc: Option<String> = None;
     let mut found_end = false;
+    let raw_lines: Vec<&str> = text.lines().collect();
 
-    if lines.next().map(|v| v.trim()) == Some("---") {
-        // Standard frontmatter
-        for line in lines.by_ref() {
-            let l = line.trim();
-            if l == "---" {
-                found_end = true;
-                break;
-            }
-            if let Some(v) = l.strip_prefix("name:") {
-                name = Some(v.trim().trim_matches('"').to_string());
-            } else if let Some(v) = l.strip_prefix("description:") {
-                desc = Some(v.trim().trim_matches('"').to_string());
-            }
-        }
+    let start_idx = if raw_lines.first().map(|v| v.trim()) == Some("---") {
+        1
     } else {
-        // Relaxed: first line is a field, read until "---" or a non-field line
-        for (i, line) in text.lines().enumerate() {
-            let l = line.trim();
-            if i > 0 && l == "---" {
-                found_end = true;
-                break;
-            }
-            if let Some(v) = l.strip_prefix("name:") {
-                name = Some(v.trim().trim_matches('"').to_string());
-            } else if let Some(v) = l.strip_prefix("description:") {
-                desc = Some(v.trim().trim_matches('"').to_string());
-            } else if i > 0 && !l.is_empty() && !l.contains(':') {
-                // Non-field, non-empty line after fields -> end of header
-                break;
-            }
-        }
-        // In relaxed mode, finding fields is enough even without closing ---
-        if name.is_some() {
+        0
+    };
+
+    let mut i = start_idx;
+    while i < raw_lines.len() {
+        let l = raw_lines[i].trim();
+        if l == "---" {
             found_end = true;
+            break;
         }
+
+        let (key, raw_value) = if let Some(v) = l.strip_prefix("name:") {
+            ("name", v.trim().trim_matches('"').to_string())
+        } else if let Some(v) = l.strip_prefix("description:") {
+            ("description", v.trim().trim_matches('"').to_string())
+        } else if start_idx == 0 && i == 0 {
+            // Relaxed mode: first line may be a field — handled above
+            i += 1;
+            continue;
+        } else if l.is_empty() || l.starts_with('#') {
+            // Blank line or comment — skip
+            i += 1;
+            continue;
+        } else {
+            // Non-field line after start: end of header in relaxed mode
+            break;
+        };
+
+        // Multi-line block scalar indicator: `|` (literal) or `>` (folded)
+        if raw_value == "|" || raw_value == ">" {
+            let mut block_lines: Vec<String> = Vec::new();
+            i += 1;
+            while i < raw_lines.len() {
+                let next = raw_lines[i];
+                if next.trim().is_empty() {
+                    // A blank line ends the block scalar in standard YAML
+                    // unless followed by indented continuation.
+                    if i + 1 < raw_lines.len()
+                        && raw_lines[i + 1].starts_with([' ', '\t'])
+                    {
+                        block_lines.push(String::new());
+                        i += 1;
+                        continue;
+                    }
+                    break;
+                }
+                if !next.starts_with([' ', '\t']) {
+                    break;
+                }
+                // Strip the common indent (at least 2 spaces for block scalars)
+                let trimmed = next.trim_start();
+                block_lines.push(trimmed.to_string());
+                i += 1;
+            }
+            let joined = if raw_value == "|" {
+                block_lines.join("\n")
+            } else {
+                // Folded: lines joined by spaces, blank lines preserved as paragraph breaks
+                let mut out = String::new();
+                let mut first = true;
+                let mut blank_run = 0;
+                for line in &block_lines {
+                    if line.is_empty() {
+                        blank_run += 1;
+                        continue;
+                    }
+                    if blank_run > 0 {
+                        if !first {
+                            out.push('\n');
+                        }
+                        out.push('\n');
+                        blank_run = 0;
+                    }
+                    if !first && !out.ends_with('\n') {
+                        out.push(' ');
+                    }
+                    out.push_str(line);
+                    first = false;
+                }
+                out
+            };
+            let joined = joined.trim().to_string();
+            if !joined.is_empty() {
+                if key == "name" {
+                    name = Some(joined);
+                } else {
+                    desc = Some(joined);
+                }
+            }
+            continue;
+        }
+
+        if !raw_value.is_empty() {
+            if key == "name" {
+                name = Some(raw_value);
+            } else {
+                desc = Some(raw_value);
+            }
+        }
+        i += 1;
+    }
+
+    // Relaxed mode: we accept the header once we've parsed at least one field.
+    if !found_end && name.is_some() {
+        found_end = true;
     }
 
     if !found_end {

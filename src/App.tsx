@@ -1,15 +1,18 @@
 import { useState, useEffect } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { Toaster, toast } from "sonner";
 import UnifiedMcpPanel from "@/components/mcp/UnifiedMcpPanel";
 import UpdateModal from "@/components/mcp/UpdateModal";
 import SkillsPanel from "@/components/skills/SkillsPanel";
 import ToolManagerPanel from "@/components/tool-manager/ToolManagerPanel";
 import EnhancementsPanel from "@/components/enhancements/EnhancementsPanel";
+import { Pressable } from "@/components/ui/Pressable";
 import {
   Database,
   Settings,
   Info,
   ArrowUpCircle,
+  Check,
   CheckCircle,
   Loader2,
   Github,
@@ -21,6 +24,8 @@ import {
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-shell";
 import { useAppVersion } from "@/hooks/useAppVersion";
+import { useTheme, type ThemeMode } from "@/hooks/useTheme";
+import { useReducedMotion } from "@/hooks/useReducedMotion";
 import { appApi, updateApi } from "@/lib/api";
 import type { SkillsInstallPreferences } from "@/lib/api";
 import type { AppConfigInfo, LaunchPreferences } from "@/types";
@@ -59,11 +64,8 @@ function App() {
   const [showStartupUpdateModal, setShowStartupUpdateModal] = useState(false);
   const [startupInstalling, setStartupInstalling] = useState(false);
   const appVersion = useAppVersion();
-
-  // 固定浅色主题。
-  useEffect(() => {
-    document.documentElement.classList.remove("dark");
-  }, []);
+  const theme = useTheme();
+  const reduced = useReducedMotion();
 
   // 首次打开应用时自动检查新版本，有更新时交给用户决定是否安装。
   useEffect(() => {
@@ -120,7 +122,7 @@ function App() {
   return (
     <div className="glass-app flex h-full">
       {/* 侧边栏 */}
-      <aside className="glass-sidebar z-10 flex w-[260px] flex-col border-y-0 border-l-0">
+      <aside className="glass-sidebar z-10 flex w-[240px] flex-col border-y-0 border-l-0">
         {/* Logo */}
         <div className="px-6 pt-6 pb-5">
           <div className="flex items-center gap-3">
@@ -141,41 +143,75 @@ function App() {
         </div>
 
         {/* 导航 */}
-        <nav className="flex-1 px-3 py-2 space-y-1">
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${
-                activeTab === item.id
-                  ? "bg-gradient-to-r from-blue-600 to-sky-500 text-white shadow-lg shadow-blue-500/20"
-                  : "text-slate-500 hover:bg-white/60 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-white"
-              }`}
-            >
-              <item.icon size={18} />
-              <span>{item.label}</span>
-            </button>
-          ))}
+        <nav className="relative flex-1 px-3 py-2 space-y-1">
+          {navItems.map((item) => {
+            const active = activeTab === item.id;
+            return (
+              <Pressable
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                aria-current={active ? "page" : undefined}
+                className={`relative z-10 flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-200 ease-out ${
+                  active
+                    ? "text-white"
+                    : "text-slate-500 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
+                }`}
+              >
+                {active && (
+                  <motion.span
+                    layoutId="sidebar-pill"
+                    className="absolute inset-0 -z-10 rounded-xl bg-gradient-to-r from-[#0A84FF] to-[#5AC8FA] shadow-[0_8px_24px_rgba(10,132,255,0.28)]"
+                    transition={{ type: "spring", bounce: 0.15, duration: 0.45 }}
+                  />
+                )}
+                <item.icon size={18} />
+                <span>{item.label}</span>
+              </Pressable>
+            );
+          })}
         </nav>
 
         {/* 版本 */}
-        <div className="border-t border-white/50 px-6 py-4 text-center">
-          <p className="text-xs font-medium text-slate-400 dark:text-slate-500">v{appVersion}</p>
+        <div className="border-t border-white/40 px-6 py-4 text-center dark:border-white/10">
+          <p className="text-[11px] font-medium tracking-wide text-slate-400 dark:text-slate-500">
+            v{appVersion}
+          </p>
         </div>
       </aside>
 
       {/* 主内容区 */}
       <main className="flex-1 overflow-hidden">
-        {activeTab === "tools" && <ToolManagerPanel />}
-        {activeTab === "skills" && <SkillsPanel />}
-        {activeTab === "mcp" && <UnifiedMcpPanel />}
-        {activeTab === "enhancements" && <EnhancementsPanel />}
-        {activeTab === "settings" && <SettingsTab />}
-        {activeTab === "about" && <AboutTab />}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={reduced ? { opacity: 0 } : { opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={reduced ? { opacity: 0 } : { opacity: 0, y: -6 }}
+            transition={{ type: "spring", bounce: 0, duration: reduced ? 0.18 : 0.25 }}
+            className="h-full"
+          >
+            {activeTab === "tools" && <ToolManagerPanel />}
+            {activeTab === "skills" && <SkillsPanel />}
+            {activeTab === "mcp" && <UnifiedMcpPanel />}
+            {activeTab === "enhancements" && <EnhancementsPanel />}
+            {activeTab === "settings" && <SettingsTab theme={theme} />}
+            {activeTab === "about" && <AboutTab />}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {/* Toast 通知 */}
-      <Toaster position="top-right" richColors closeButton />
+      <Toaster
+        position="top-right"
+        richColors
+        closeButton
+        toastOptions={{
+          duration: 3500,
+          classNames: {
+            toast: "!rounded-modal !border !border-white/30 !bg-white/70 !backdrop-blur-xl !shadow-2 dark:!border-white/10 dark:!bg-slate-950/70",
+          },
+        }}
+      />
 
       <UpdateModal
         open={showStartupUpdateModal}
@@ -190,7 +226,7 @@ function App() {
 }
 
 // 设置标签页
-const SettingsTab: React.FC = () => {
+const SettingsTab: React.FC<{ theme: ReturnType<typeof useTheme> }> = ({ theme }) => {
   const [checking, setChecking] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<{
     version: string;
@@ -212,10 +248,14 @@ const SettingsTab: React.FC = () => {
     (option) => option.id === skillsInstallPreferences.selected
   )?.path;
 
+  const [copied, setCopied] = useState(false);
+
   const copyShareUrl = async () => {
     try {
       await copyText(OFFICIAL_WEBSITE_URL);
       toast.success("官网地址已复制");
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
     } catch (err) {
       console.error("复制官网地址失败:", err);
       toast.error("复制失败，请稍后重试");
@@ -362,6 +402,11 @@ const SettingsTab: React.FC = () => {
 
   const settingSections = "glass-card p-6";
   const codeBlock = "glass-code block mt-1 rounded-xl px-3 py-2 text-sm font-mono";
+  const themeOptions: Array<{ id: ThemeMode; label: string }> = [
+    { id: "system", label: "跟随系统" },
+    { id: "light", label: "浅色" },
+    { id: "dark", label: "深色" },
+  ];
 
   return (
     <div className="glass-app flex h-full flex-col overflow-hidden">
@@ -371,8 +416,8 @@ const SettingsTab: React.FC = () => {
           <Settings size={13} />
           Preferences
         </div>
-        <h2 className="mt-3 text-3xl font-semibold tracking-tight">设置</h2>
-        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+        <h2 className="mt-3 text-display">设置</h2>
+        <p className="mt-2 text-caption text-slate-500 dark:text-slate-400">
           管理应用配置和数据存储
         </p>
       </div>
@@ -380,11 +425,47 @@ const SettingsTab: React.FC = () => {
       {/* 内容 */}
       <div className="glass-content">
         <div className="max-w-2xl space-y-6">
+          {/* 显示 */}
+          <section className={settingSections}>
+            <h3 className="text-base font-medium mb-4">显示</h3>
+            <div className="relative inline-flex w-full rounded-xl border border-white/60 bg-white/45 p-1 shadow-inner shadow-slate-200/40 backdrop-blur-xl dark:border-white/10 dark:bg-white/8 dark:shadow-black/10">
+              {themeOptions.map((option) => {
+                const active = theme.mode === option.id;
+                return (
+                  <Pressable
+                    key={option.id}
+                    type="button"
+                    onClick={() => theme.setMode(option.id)}
+                    className={`relative z-10 flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200 ease-out ${
+                      active
+                        ? "text-white"
+                        : "text-slate-500 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
+                    }`}
+                  >
+                    {active && (
+                      <motion.span
+                        layoutId="settings-theme-pill"
+                        className="absolute inset-0 -z-10 rounded-lg bg-gradient-to-r from-[#0A84FF] to-[#5AC8FA] shadow-[0_4px_12px_rgba(10,132,255,0.22)]"
+                        transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
+                      />
+                    )}
+                    {option.label}
+                  </Pressable>
+                );
+              })}
+            </div>
+            <p className="mt-3 text-caption text-slate-500 dark:text-slate-400">
+              {theme.mode === "system"
+                ? `跟随系统外观（当前解析为${theme.resolved === "dark" ? "深色" : "浅色"}）`
+                : `当前为${theme.mode === "dark" ? "深色" : "浅色"}模式`}
+            </p>
+          </section>
+
           {/* 检查更新 */}
           <section className={settingSections}>
             <h3 className="text-base font-medium mb-4">软件更新</h3>
             <div className="flex items-center gap-4">
-              <button
+              <Pressable
                 onClick={checkUpdate}
                 disabled={checking}
                 className="glass-primary-button"
@@ -395,7 +476,7 @@ const SettingsTab: React.FC = () => {
                   <ArrowUpCircle size={16} />
                 )}
                 {checking ? "检查中..." : "检查更新"}
-              </button>
+              </Pressable>
               {isLatest && (
                 <span className="flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400">
                   <CheckCircle size={14} />
@@ -403,7 +484,7 @@ const SettingsTab: React.FC = () => {
                 </span>
               )}
             </div>
-            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+            <p className="mt-3 text-caption text-slate-500 dark:text-slate-400">
               当前版本 v{appVersion} · 更新源：GitHub Releases
             </p>
           </section>
@@ -412,13 +493,39 @@ const SettingsTab: React.FC = () => {
           <section className={settingSections}>
             <h3 className="text-base font-medium mb-4">分享应用</h3>
             <div className="flex items-center gap-3">
-              <button
+              <Pressable
                 onClick={copyShareUrl}
+                aria-label={copied ? "已复制" : "复制官网地址"}
                 className="glass-primary-button"
               >
-                <Share2 size={16} />
-                复制官网地址
-              </button>
+                <AnimatePresence mode="wait" initial={false}>
+                  {copied ? (
+                    <motion.span
+                      key="copied"
+                      className="flex items-center gap-2"
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ type: "spring", bounce: 0, duration: 0.18 }}
+                    >
+                      <Check size={16} />
+                      已复制
+                    </motion.span>
+                  ) : (
+                    <motion.span
+                      key="copy"
+                      className="flex items-center gap-2"
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ type: "spring", bounce: 0, duration: 0.18 }}
+                    >
+                      <Share2 size={16} />
+                      复制官网地址
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </Pressable>
               <code className="glass-code min-w-0 flex-1 truncate rounded-xl px-3 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">
                 {OFFICIAL_WEBSITE_URL}
               </code>
@@ -443,24 +550,34 @@ const SettingsTab: React.FC = () => {
                 </p>
                 {skillsInstallPreferences && (
                   <div
-                    className={`mt-2 grid grid-cols-2 rounded-xl border border-white/70 bg-white/45 p-1 shadow-inner shadow-slate-200/40 backdrop-blur-xl dark:border-white/10 dark:bg-white/8 dark:shadow-black/10 ${
+                    className={`relative mt-2 inline-flex w-full rounded-xl border border-white/60 bg-white/45 p-1 shadow-inner shadow-slate-200/40 backdrop-blur-xl dark:border-white/10 dark:bg-white/8 dark:shadow-black/10 ${
                       savingSkillsLocation ? "pointer-events-none opacity-60" : ""
                     }`}
                   >
-                    {skillsInstallPreferences.options.map((option) => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        onClick={() => handleSkillsLocationChange(option.id)}
-                        className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition-all ${
-                          skillsInstallPreferences.selected === option.id
-                            ? "bg-gradient-to-r from-blue-600 to-sky-500 text-white shadow-md shadow-blue-500/20"
-                            : "text-slate-500 hover:bg-white/65 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-white"
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
+                    {skillsInstallPreferences.options.map((option) => {
+                      const active = skillsInstallPreferences.selected === option.id;
+                      return (
+                        <Pressable
+                          key={option.id}
+                          type="button"
+                          onClick={() => handleSkillsLocationChange(option.id)}
+                          className={`relative z-10 flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200 ease-out ${
+                            active
+                              ? "text-white"
+                              : "text-slate-500 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
+                          }`}
+                        >
+                          {active && (
+                            <motion.span
+                              layoutId="skills-location-pill"
+                              className="absolute inset-0 -z-10 rounded-lg bg-gradient-to-r from-[#0A84FF] to-[#5AC8FA] shadow-[0_4px_12px_rgba(10,132,255,0.22)]"
+                              transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
+                            />
+                          )}
+                          {option.label}
+                        </Pressable>
+                      );
+                    })}
                   </div>
                 )}
                 <code className={codeBlock}>
@@ -549,8 +666,8 @@ const AboutTab: React.FC = () => {
           <Info size={13} />
           About
         </div>
-        <h2 className="mt-3 text-3xl font-semibold tracking-tight">关于</h2>
-        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+        <h2 className="mt-3 text-display">关于</h2>
+        <p className="mt-2 text-caption text-slate-500 dark:text-slate-400">
           了解 AI Toolkit 的更多信息
         </p>
       </div>
@@ -563,11 +680,11 @@ const AboutTab: React.FC = () => {
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h3 className="text-base font-medium">AI Toolkit</h3>
-                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                <p className="mt-0.5 text-caption text-slate-500 dark:text-slate-400">
                   v{appVersion}· MCP 和 Skills 管理工具
                 </p>
               </div>
-              <button
+              <Pressable
                 onClick={() =>
                   open(GITHUB_REPO_URL)
                 }
@@ -576,7 +693,7 @@ const AboutTab: React.FC = () => {
                 <Github size={12} />
                 GitHub
                 <ExternalLink size={10} />
-              </button>
+              </Pressable>
             </div>
             <p className="text-sm leading-relaxed text-slate-500 dark:text-slate-400">
               一款基于 Tauri 2 构建的跨平台桌面应用，专注于管理 AI 编程工具的 MCP 服务器配置和 Skills 技能同步。兼容 Qwen Code、Claude Code、Codex、Gemini CLI、OpenCode、TRAE IDE、TRAE IDE CN、TRAE Work、TRAE Work CN、Qoder、CodeBuddy、Hermes Agent、Mimo Code 等主流工具。
@@ -643,15 +760,15 @@ const AboutTab: React.FC = () => {
             <div className="space-y-2 text-sm text-slate-500 dark:text-slate-400">
               <p>
                 如有问题或建议，欢迎在{" "}
-                <button
+                <Pressable
                   onClick={() =>
                     open(`${GITHUB_REPO_URL}/issues`)
                   }
-                  className="text-[hsl(var(--primary))] hover:underline inline-flex items-center gap-0.5"
+                  className="text-[hsl(var(--primary))] hover:underline inline-flex items-center gap-0.5 !bg-transparent !shadow-none !min-h-0 !p-0"
                 >
                   GitHub Issues
                   <ExternalLink size={10} />
-                </button>{" "}
+                </Pressable>{" "}
                 提交反馈。
               </p>
             </div>

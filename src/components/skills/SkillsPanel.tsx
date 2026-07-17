@@ -12,6 +12,8 @@ import type {
   ToolOption
 } from './types';
 import type { SkillDeletePreview, SkillHealthItem } from '@/lib/api';
+import { Pressable } from '@/components/ui/Pressable';
+import { motion } from 'motion/react';
 
 type SkillFilter = 'all' | 'git' | 'local' | 'synced' | 'unsynced' | 'needsAttention';
 
@@ -164,37 +166,37 @@ function SkillsPanel() {
               <Sparkles size={13} />
               Skills
             </div>
-            <h2 className="mt-3 truncate text-2xl font-semibold tracking-tight sm:text-3xl">
+            <h2 className="mt-3 truncate text-display">
               Skills 管理
             </h2>
-            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 sm:text-sm">
+            <p className="mt-2 text-caption text-slate-500 dark:text-slate-400 sm:text-body">
               统一管理和同步技能到多个 AI 编程工具
             </p>
           </div>
           <div className="flex gap-2 flex-shrink-0">
-            <button
+            <Pressable
               onClick={handleRefresh}
               disabled={isLoading || toolsLoading}
               className="glass-secondary-button"
             >
               <RefreshCw size={16} className={(isLoading || toolsLoading) ? "animate-spin" : ""} />
               <span className="hidden sm:inline">刷新</span>
-            </button>
-            <button
+            </Pressable>
+            <Pressable
               onClick={handleHealthCheck}
               disabled={checkingHealth}
               className="glass-secondary-button"
             >
               <Activity size={16} className={checkingHealth ? "animate-spin" : ""} />
               <span className="hidden sm:inline">健康检查</span>
-            </button>
-            <button
+            </Pressable>
+            <Pressable
               onClick={() => setShowAddModal(true)}
               className="glass-primary-button"
             >
               <Plus size={16} />
               <span className="hidden sm:inline">添加技能</span>
-            </button>
+            </Pressable>
           </div>
         </div>
 
@@ -214,19 +216,30 @@ function SkillsPanel() {
         </div>
 
         <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-          {filterOptions.map((option) => (
-            <button
-              key={option.id}
-              onClick={() => setFilter(option.id)}
-              className={`inline-flex min-h-8 flex-shrink-0 items-center rounded-xl px-3 text-xs font-semibold transition ${
-                filter === option.id
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
-                  : 'border border-white/60 bg-white/55 text-slate-600 hover:bg-white/80'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
+          {filterOptions.map((option) => {
+            const active = filter === option.id;
+            return (
+              <Pressable
+                key={option.id}
+                onClick={() => setFilter(option.id)}
+                aria-pressed={active}
+                className={`relative z-10 inline-flex min-h-8 flex-shrink-0 items-center rounded-xl px-3 text-xs font-medium transition-colors duration-200 ease-out ${
+                  active
+                    ? "text-white"
+                    : "border border-white/60 bg-white/55 text-slate-600 hover:bg-white/80 dark:border-white/10 dark:bg-white/8 dark:text-slate-300 dark:hover:bg-white/12"
+                }`}
+              >
+                {active && (
+                  <motion.span
+                    layoutId="skills-filter-pill"
+                    className="absolute inset-0 -z-10 rounded-xl bg-gradient-to-r from-[#0A84FF] to-[#5AC8FA] shadow-[0_4px_12px_rgba(10,132,255,0.22)]"
+                    transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
+                  />
+                )}
+                {option.label}
+              </Pressable>
+            );
+          })}
           {tools.length > 0 && (
             <select
               value={toolFilter}
@@ -246,14 +259,14 @@ function SkillsPanel() {
           <span className="glass-pill">
             总计: {managedSkills.length}
           </span>
-          <button
+          <Pressable
             onClick={handleBatchSync}
             disabled={managedSkills.length === 0 || tools.length === 0}
             className="glass-primary-button min-h-7 px-2 py-1 text-xs"
           >
             <Upload size={12} />
             <span>批量同步到工具</span>
-          </button>
+          </Pressable>
           {tools.filter(t => syncTargets[t.id]).length > 0 && (
             <span className="glass-pill">
               可同步工具: {tools.filter(t => syncTargets[t.id]).length} 个

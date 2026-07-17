@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.7.0 (2026-07-17)
+
+### 新功能
+
+- **Apple Design 视觉重构**:全站样式按 Apple HIG 与 WWDC *Designing Fluid Interfaces* 重做。引入 Motion 弹簧动效、液态玻璃材质、Pressable 按压反馈、Modal spring 入场、AnimatePresence 面板切换、layoutId 滑动指示器,以及 prefers-reduced-motion/transparency/contrast 全套 a11y 兜底。
+- **暗色模式**:设置页新增 light/dark/system 三段切换,跟随系统外观,实时生效。
+- **Settings 主题切换器**:暗色 / 跟随系统,持久化到 localStorage,所有 glass-* 材质已在 .dark 下补齐。
+- **Skill 详情 Hero**:从 SKILL.md frontmatter 解析 name + description,支持 YAML 多行块标量(`|` / `>`),并在 Hero 区单独展示,正文区自动剥离避免重复。
+- **ProgressBar / Copy 反馈回弹**:复制按钮按 `AnimatePresence` 在"复制官网地址"和"已复制 ✓"之间切换,持续 1.5s。
+
+### 改进
+
+- **后端 SKILL.md 解析**:Rust 端 `parse_skill_md_with_reason` 重写,支持 YAML literal/folded block(`description: | / >`)、缩进规范化、空行/注释跳过,标准化与 relaxed 模式统一解析。
+- **后端 description 持久化**:`install_git` / `install_git_selection` / `install_local_selection` 三条安装路径都把 SKILL.md 的 description 写入数据库,UI 不再永远显示空 description。
+- **Claude plugin skill 验证**:`is_skill_dir` 要求 `.claude/skills/*` 必须包含 `plugin.json` / `.claude-plugin/plugin.json` 等 manifest 文件,空目录不再被误判为合法 skill。
+- **Tauri 原生对话框**:全站移除 `window.alert / confirm / prompt`(Tauri webview 静默失败),改用 `@tauri-apps/plugin-dialog.ask` 与 toast 反馈;resolveNameConflict 兜底为"自动重命名 + toast.message",名字冲突不再静默跳过。
+- **Modal portal 渲染**:统一 `<Modal>` 组件改用 React Portal 渲染到 `document.body`,脱离 `.glass-content` 的 `mask-image` 裁剪上下文,避免被遮挡。
+- **侧边栏 nav 切换**:使用 `layoutId="sidebar-pill"` 实现 active 指示器在 6 个 nav 之间平滑滑动,不再硬切。
+- **面板切换**:`AnimatePresence mode="wait"` + spring,切换 Tools / Skills / MCP / Enhancements / Settings 时整体跨淡。
+- **Segmented controls**:Skills 筛选、AddSkillModal 三段 tab、Settings 主题切换、Enhancements 子面板切换,全部使用 Motion `layoutId` 滑动指示器。
+- **按钮按压反馈**:所有 Pressable `whileTap scale(0.97)` 弹簧,icon-button `scale(0.92)`,hover 仅做 brightness 微调(不再 hover 顶起)。
+- **Toast 自定义**:时长 3500ms,rounded-modal,半透明背景。
+- **Scroll edge effects**:scrollbar 缩窄到 6px,hover 才显形;`.glass-content` 用 mask-image 让滚动内容在边缘渐隐。
+- **Focus 焦点环**:Apple 风格 2px accent outline,键盘聚焦才显示。
+
+### 修复
+
+- **Git 安装空白 skill**:`git clone --filter=blob:none`(partial clone) 在网络抖动时会让 `std::fs::copy` 静默产生 0 字节目标文件,导致 SKILL.md 是空的。改用普通 `--depth=1`(无 filter),保证文件完整性;并在 copy 后做"中央目录空"校验,失败时显式报错而不是装出空白 skill。
+- **Modal 被遮挡**:`.glass-content` 的滚动 mask-image 会裁剪子元素,导致 Skill 详情 Modal 显示不全。Modal 改用 React Portal 渲染到 body,脱离父级容器。
+- **Skill 详情 modal 视觉粗糙**:Hero 区拆为大 icon + 标题 + 副描述 + 浮动 chip(metadata grid);SKILL.md 区域加 sticky 头部 + 完整 prose 样式;metadata 拆为独立 `<MetadataCell>` 卡片;健康检查 banner 分隔列表样式。
+
 ## v1.6.1 (2026-06-11)
 
 ### 新功能

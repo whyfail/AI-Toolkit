@@ -30,7 +30,13 @@ fn git_clone(repo_url: &str, dest: &Path, branch: Option<&str>) -> Result<String
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .arg("clone")
-        .args(["--depth", "1", "--filter=blob:none", "--no-tags"])
+        // We deliberately omit `--filter=blob:none` (partial clone). With that
+        // filter the working tree contains promisor placeholders and a plain
+        // `std::fs::copy` can produce 0-byte target files when the lazy fetch
+        // fails silently (offline / rate-limited / no credentials). Shallow
+        // clones (`--depth 1`) are still small but guarantee blob material is
+        // present before we copy it into the central repo.
+        .args(["--depth", "1", "--no-tags"])
         .env("GIT_TERMINAL_PROMPT", "0");
 
     // `echo` is a Unix builtin; on Windows it doesn't exist as a standalone

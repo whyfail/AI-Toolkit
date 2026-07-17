@@ -3,6 +3,8 @@ import { X, CheckSquare, Square, Upload, Loader2, AlertTriangle, CheckCircle2 } 
 import { toast } from 'sonner';
 import type { ManagedSkill, ToolOption } from '../types';
 import { APP_COLORS } from '@/lib/tools';
+import { Pressable } from '@/components/ui/Pressable';
+import { Modal } from '@/components/ui/Modal';
 import { enhancementApi, skillsApi } from '@/lib/api';
 
 interface BatchSyncModalProps {
@@ -36,8 +38,6 @@ function BatchSyncModal({
       setTaskStates({});
     }
   }, [open, skills]);
-
-  if (!open) return null;
 
   const selectedSkillsList = skills.filter(skill => selectedSkills.has(skill.id));
 
@@ -171,8 +171,8 @@ function BatchSyncModal({
   const allSkillsSelected = selectedSkills.size === skills.length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 backdrop-blur-sm animate-in fade-in duration-200 sm:p-4">
-      <div className="glass-modal flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl">
+    <Modal open={open} onClose={onClose} size="full">
+      <div className="flex max-h-[90vh] w-full flex-col overflow-hidden">
         {/* 头部 */}
         <div className="flex items-center justify-between border-b border-white/50 px-6 py-5 dark:border-white/10">
           <div>
@@ -181,13 +181,13 @@ function BatchSyncModal({
               将 {selectedSkills.size}/{skills.length} 个 Skill 同步到目标工具
             </p>
           </div>
-          <button
+          <Pressable
             onClick={onClose}
             disabled={syncing}
             className="glass-icon-button"
           >
             <X size={18} />
-          </button>
+          </Pressable>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
@@ -197,7 +197,7 @@ function BatchSyncModal({
               <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
                 选择 Skill ({selectedSkills.size}/{skills.length})
               </p>
-              <button
+              <Pressable
                 onClick={() => setSelectedSkills(allSkillsSelected ? new Set() : new Set(skills.map(skill => skill.id)))}
                 disabled={syncing}
                 className="flex items-center gap-2 text-sm text-slate-500 transition-colors hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
@@ -208,13 +208,13 @@ function BatchSyncModal({
                   <Square size={16} />
                 )}
                 <span className="font-medium">{allSkillsSelected ? '取消全选' : '全选 Skill'}</span>
-              </button>
+              </Pressable>
             </div>
             <div className="flex max-h-56 flex-wrap gap-2 overflow-y-auto pr-1 sm:max-h-64">
               {skills.map(skill => {
                 const isSelected = selectedSkills.has(skill.id);
                 return (
-                  <button
+                  <Pressable
                     key={skill.id}
                     onClick={() => toggleSkill(skill.id)}
                     disabled={syncing}
@@ -227,7 +227,7 @@ function BatchSyncModal({
                   >
                     {isSelected ? <CheckSquare size={13} className="shrink-0" /> : <Square size={13} className="shrink-0" />}
                     <span className="truncate">{skill.name}</span>
-                  </button>
+                  </Pressable>
                 );
               })}
             </div>
@@ -239,7 +239,7 @@ function BatchSyncModal({
               <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
                 选择目标工具 ({selectedTools.size}/{tools.length})
               </p>
-              <button
+              <Pressable
                 onClick={toggleAllTools}
                 disabled={syncing}
                 className="flex items-center gap-2 text-sm text-slate-500 transition-colors hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
@@ -250,13 +250,13 @@ function BatchSyncModal({
                   <Square size={16} />
                 )}
                 <span className="font-medium">选择全部工具</span>
-              </button>
+              </Pressable>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {tools.map(tool => {
                 const isSelected = selectedTools.has(tool.id);
                 return (
-                  <button
+                  <Pressable
                     key={tool.id}
                     onClick={() => toggleTool(tool.id)}
                     className={`flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-all ${
@@ -278,7 +278,7 @@ function BatchSyncModal({
                       }`}
                     />
                     <span className="truncate">{tool.label}</span>
-                  </button>
+                  </Pressable>
                 );
               })}
             </div>
@@ -311,23 +311,23 @@ function BatchSyncModal({
 
         {/* 底部 */}
         <div className="flex justify-end gap-3 border-t border-white/50 bg-white/25 px-6 py-4 dark:border-white/10 dark:bg-white/5">
-          <button
+          <Pressable
             onClick={onClose}
             className="glass-secondary-button"
           >
             取消
-          </button>
-          <button
+          </Pressable>
+          <Pressable
             onClick={handleSync}
             disabled={syncing || selectedTools.size === 0 || selectedSkills.size === 0}
             className="glass-primary-button"
           >
             <Upload size={14} />
             {syncing ? '同步中...' : '开始同步'}
-          </button>
+          </Pressable>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

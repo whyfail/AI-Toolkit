@@ -1,12 +1,15 @@
 import { useState, useCallback, useEffect } from 'react';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
 import * as dialog from '@tauri-apps/plugin-dialog';
+import { motion } from 'motion/react';
 import { GitBranch, Folder, Search, X, ChevronRight, Loader2, Check, Globe, Star, ArrowLeft, ExternalLink, Eye, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ToolOption, OnlineSkillDto } from '../types';
 import GitPickModal, { type GitSkillCandidate } from './GitPickModal';
 import { APP_COLORS } from '@/lib/tools';
 import { skillsApi } from '@/lib/api';
+import { Pressable } from '@/components/ui/Pressable';
+import { Modal } from '@/components/ui/Modal';
 
 interface FeaturedSkillDto {
   slug: string;
@@ -226,31 +229,43 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
     }
   }, [validateLocalPath]);
 
-  const resolveNameConflict = useCallback((name: string, allowOverwrite: boolean): string | null => {
+  const resolveNameConflict = useCallback(async (
+    name: string,
+    allowOverwrite: boolean,
+  ): Promise<string | null> => {
     if (!existingSkillNames.has(name.toLowerCase())) {
       return name;
     }
 
-    const choice = window.prompt(
-      allowOverwrite
-        ? `技能 "${name}" 已存在，请输入处理方式：\n1 覆盖\n2 自动重命名\n3 跳过`
-        : `技能 "${name}" 已存在，请输入处理方式：\n2 自动重命名\n3 跳过`,
-      '2'
-    );
-
-    if (allowOverwrite && choice === '1') {
-      return name;
-    }
-    if (choice === '2') {
-      let index = 2;
-      let nextName = `${name}-${index}`;
-      while (existingSkillNames.has(nextName.toLowerCase())) {
-        index++;
-        nextName = `${name}-${index}`;
+    // Browser `prompt` is not available in Tauri webview (silently returns
+    // null), so we can't ask the user to choose. Fall back to the safest
+    // default that does not require a prompt:
+    //   - When overwrite is allowed and the user is installing from Git
+    //     (single-repo flow): ask via native dialog (Tauri plugin-dialog).
+    //   - Otherwise: auto-rename with a numeric suffix.
+    if (allowOverwrite) {
+      try {
+        const choice = await dialog.ask(
+          `技能 "${name}" 已存在,是否覆盖?`,
+          {
+            title: "名称冲突",
+            kind: "warning",
+            okLabel: "覆盖",
+            cancelLabel: "重命名",
+          }
+        );
+        if (choice) return name; // user chose overwrite
+      } catch {
+        // ignore — fall through to auto-rename
       }
-      return nextName;
     }
-    return null;
+    let index = 2;
+    let nextName = `${name}-${index}`;
+    while (existingSkillNames.has(nextName.toLowerCase())) {
+      index += 1;
+      nextName = `${name}-${index}`;
+    }
+    return nextName;
   }, [existingSkillNames]);
 
   // 点击"添加技能"按钮
@@ -278,7 +293,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
           ? gitName.trim()
           : (gitSkillNames[candidate.subpath]?.trim() || candidate.name);
         const requestedName = customName || candidate.name;
-        const skillName = resolveNameConflict(requestedName, true);
+        const skillName = await resolveNameConflict(requestedName, true);
         if (!skillName) {
           return null;
         }
@@ -299,12 +314,23 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
         return created.name;
       }));
       const createdNames = installedNames.filter((name): name is string => Boolean(name));
+      const skippedCount = installedNames.length - createdNames.length;
 
       setGitUrl('');
       resetGitState();
-      toast.success(`${createdNames.length > 1 ? `技能 "${createdNames.join(', ')}"` : `技能 "${createdNames[0] || '已跳过'}"`} 添加成功`);
-      onClose();
-      onSkillAdded();
+      if (createdNames.length === 0) {
+        toast.error(`未能安装任何技能${skippedCount > 0 ? `(${skippedCount} 个因冲突跳过)` : ''}`);
+      } else if (skippedCount > 0) {
+        toast.success(`已添加 ${createdNames.length} 个技能,${skippedCount} 个因冲突跳过`);
+      } else if (createdNames.length > 1) {
+        toast.success(`已添加技能: ${createdNames.join(', ')}`);
+      } else {
+        toast.success(`技能 "${createdNames[0]}" 添加成功`);
+      }
+      if (createdNames.length > 0) {
+        onClose();
+        onSkillAdded();
+      }
     } catch (err) {
       console.error('[DEBUG] install_git error:', err);
       setError(err instanceof Error ? err.message : String(err));
@@ -322,11 +348,14 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
     setError(null);
     try {
       const defaultName = localName.trim() || basenameFromPath(localPath) || 'local-skill';
-      const resolvedName = resolveNameConflict(defaultName, false);
+      const resolvedName = await resolveNameConflict(defaultName, false);
       if (!resolvedName) {
         setLoading(false);
         toast.info('已跳过同名技能');
         return;
+      }
+      if (resolvedName !== defaultName) {
+        toast.message(`技能名称已自动调整为 "${resolvedName}"`);
       }
       const created = await skillsApi.installLocalSelection({
         basePath: localPath.trim(),
@@ -393,36 +422,38 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
     tools.forEach(t => onSyncTargetChange(t.id, !allEnabled));
   };
 
-  if (!open) return null;
-
   // Git 标签页是否处于预览状态
   const isGitPreviewed = activeTab === 'git' && gitPhase === 'previewed';
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4 animate-in fade-in duration-200">
-        <div className="glass-modal flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl sm:max-h-[85vh]">
+      <Modal open={open} onClose={onClose} size="full">
+        <div className="flex max-h-[90vh] w-full flex-col overflow-hidden sm:max-h-[85vh]">
           {/* 头部 */}
           <div className="flex flex-shrink-0 items-center justify-between border-b border-white/50 px-4 py-4 dark:border-white/10 sm:px-6 sm:py-5">
             <div className="min-w-0 flex items-center gap-3">
               {activeTab === 'online' && detailSkill && (
-                <button
+                <Pressable
                   onClick={() => setDetailSkill(null)}
+                  variant="icon"
                   className="glass-icon-button"
+                  aria-label="返回"
                 >
                   <ArrowLeft size={18} />
-                </button>
+                </Pressable>
               )}
               {isGitPreviewed && (
-                <button
+                <Pressable
                   onClick={() => {
                     resetGitState();
                     setError(null);
                   }}
+                  variant="icon"
                   className="glass-icon-button"
+                  aria-label="返回"
                 >
                   <ArrowLeft size={18} />
-                </button>
+                </Pressable>
               )}
               <div className="min-w-0">
                 <h2 className="text-base sm:text-lg font-semibold truncate">
@@ -439,13 +470,15 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                 </p>
               </div>
             </div>
-            <button
+            <Pressable
               onClick={onClose}
+              variant="icon"
               className="glass-icon-button flex-shrink-0"
               disabled={loading}
+              aria-label="关闭"
             >
               <X size={18} />
-            </button>
+            </Pressable>
           </div>
 
           {/* 表单内容 */}
@@ -501,7 +534,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                 </div>
 
                 <div className="flex gap-3 pt-2">
-                  <button
+                  <Pressable
                     onClick={() => {
                       const url = 'source_url' in detailSkill ? detailSkill.source_url : '';
                       if (url) openUrl(url);
@@ -510,55 +543,51 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                   >
                     <ExternalLink size={14} />
                     查看源码
-                  </button>
-                  <button
+                  </Pressable>
+                  <Pressable
                     onClick={() => handleSelectFeatured(detailSkill as FeaturedSkillDto)}
                     className="glass-primary-button flex-1"
                     disabled={loading}
                   >
                     <GitBranch size={14} />
                     添加此技能
-                  </button>
+                  </Pressable>
                 </div>
               </div>
             ) : (
               <>
                 {/* 标签页 - 预览状态时隐藏 */}
                 {!isGitPreviewed && (
-                  <div className="flex rounded-xl border border-white/60 bg-white/50 p-1 dark:border-white/10 dark:bg-white/8">
-                    <button
-                      onClick={() => handleTabChange('git')}
-                      className={`flex-1 py-2.5 px-4 text-sm font-medium rounded-md transition-all flex items-center justify-center gap-2 ${
-                        activeTab === 'git'
-                          ? 'bg-white text-slate-950 shadow-sm dark:bg-white/14 dark:text-white'
-                          : 'text-slate-500 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white'
-                      }`}
-                    >
-                      <GitBranch size={14} />
-                      <span>Git 仓库</span>
-                    </button>
-                    <button
-                      onClick={() => handleTabChange('local')}
-                      className={`flex-1 py-2.5 px-4 text-sm font-medium rounded-md transition-all flex items-center justify-center gap-2 ${
-                        activeTab === 'local'
-                          ? 'bg-white text-slate-950 shadow-sm dark:bg-white/14 dark:text-white'
-                          : 'text-slate-500 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white'
-                      }`}
-                    >
-                      <Folder size={14} />
-                      <span>本地文件夹</span>
-                    </button>
-                    <button
-                      onClick={() => handleTabChange('online')}
-                      className={`flex-1 py-2.5 px-4 text-sm font-medium rounded-md transition-all flex items-center justify-center gap-2 ${
-                        activeTab === 'online'
-                          ? 'bg-white text-slate-950 shadow-sm dark:bg-white/14 dark:text-white'
-                          : 'text-slate-500 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white'
-                      }`}
-                    >
-                      <Globe size={14} />
-                      <span>在线搜索</span>
-                    </button>
+                  <div className="relative flex rounded-xl border border-white/60 bg-white/50 p-1 dark:border-white/10 dark:bg-white/8">
+                    {([
+                      { id: 'git', label: 'Git 仓库', icon: GitBranch },
+                      { id: 'local', label: '本地文件夹', icon: Folder },
+                      { id: 'online', label: '在线搜索', icon: Globe },
+                    ] as const).map((tab) => {
+                      const active = activeTab === tab.id;
+                      return (
+                        <Pressable
+                          key={tab.id}
+                          onClick={() => handleTabChange(tab.id)}
+                          aria-pressed={active}
+                          className={`relative z-10 flex-1 py-2.5 px-4 text-sm font-medium rounded-md transition-colors duration-200 ease-out flex items-center justify-center gap-2 ${
+                            active
+                              ? 'text-slate-950 dark:text-white'
+                              : 'text-slate-500 hover:text-slate-950 dark:text-slate-400 dark:hover:text-white'
+                          }`}
+                        >
+                          {active && (
+                            <motion.span
+                              layoutId="addskill-tab-pill"
+                              className="absolute inset-0 -z-10 rounded-md bg-white shadow-sm dark:bg-white/14"
+                              transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
+                            />
+                          )}
+                          <tab.icon size={14} />
+                          <span>{tab.label}</span>
+                        </Pressable>
+                      );
+                    })}
                   </div>
                 )}
 
@@ -587,7 +616,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                           disabled={loading || gitScanLoading || gitPhase === 'previewed'}
                         />
                         {gitPhase === 'previewed' && (
-                          <button
+                          <Pressable
                             onClick={() => {
                               resetGitState();
                               setError(null);
@@ -596,7 +625,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                           >
                             <RotateCcw size={14} />
                             重选
-                          </button>
+                          </Pressable>
                         )}
                       </div>
                     </div>
@@ -631,13 +660,13 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                           <div className="flex items-center justify-between">
                             <span className="text-sm font-medium">同步到工具</span>
                             {tools.length > 0 && (
-                              <button
+                              <Pressable
                                 type="button"
                                 onClick={toggleAllTools}
                                 className="text-xs text-[hsl(var(--primary))] hover:underline flex-shrink-0"
                               >
                                 {tools.every(t => syncTargets[t.id]) ? '取消全选' : '全选'}
-                              </button>
+                              </Pressable>
                             )}
                           </div>
                           {tools.length > 0 ? (
@@ -645,7 +674,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                               {tools.map(tool => {
                                 const enabled = syncTargets[tool.id] ?? false;
                                 return (
-                                  <button
+                                  <Pressable
                                     key={tool.id}
                                     type="button"
                                     onClick={() => toggleTool(tool.id)}
@@ -666,7 +695,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                                       {enabled && <Check size={12} className="text-white" />}
                                     </div>
                                     <span className="text-sm">{tool.label}</span>
-                                  </button>
+                                  </Pressable>
                                 );
                               })}
                             </div>
@@ -690,12 +719,12 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                                 已选择 {selectedGitCandidates.length} 个技能
                               </span>
                             </div>
-                            <button
+                            <Pressable
                               onClick={() => setShowGitPickModal(true)}
                               className="text-xs text-[hsl(var(--primary))] hover:underline"
                             >
                               重新选择
-                            </button>
+                            </Pressable>
                           </div>
                           {selectedGitCandidates.map((candidate) => (
                             <div
@@ -742,13 +771,13 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                           <div className="flex items-center justify-between">
                             <span className="text-sm font-medium">同步到工具</span>
                             {tools.length > 0 && (
-                              <button
+                              <Pressable
                                 type="button"
                                 onClick={toggleAllTools}
                                 className="text-xs text-[hsl(var(--primary))] hover:underline flex-shrink-0"
                               >
                                 {tools.every(t => syncTargets[t.id]) ? '取消全选' : '全选'}
-                              </button>
+                              </Pressable>
                             )}
                           </div>
                           {tools.length > 0 ? (
@@ -756,7 +785,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                               {tools.map(tool => {
                                 const enabled = syncTargets[tool.id] ?? false;
                                 return (
-                                  <button
+                                  <Pressable
                                     key={tool.id}
                                     type="button"
                                     onClick={() => toggleTool(tool.id)}
@@ -777,7 +806,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                                       {enabled && <Check size={12} className="text-white" />}
                                     </div>
                                     <span className="text-sm">{tool.label}</span>
-                                  </button>
+                                  </Pressable>
                                 );
                               })}
                             </div>
@@ -812,13 +841,13 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                           className="glass-input flex-1 px-3 py-3 text-sm sm:px-4"
                           disabled={loading}
                         />
-                        <button
+                        <Pressable
                           onClick={handlePickLocalPath}
                           className="glass-secondary-button whitespace-nowrap"
                           disabled={loading}
                         >
                           浏览
-                        </button>
+                        </Pressable>
                       </div>
                     </div>
                     {localValidationError && (
@@ -861,7 +890,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                           className="glass-input flex-1 px-3 py-3 text-sm sm:px-4"
                           disabled={searchLoading}
                         />
-                        <button
+                        <Pressable
                           onClick={handleSearchOnline}
                           className="glass-primary-button whitespace-nowrap"
                           disabled={searchLoading}
@@ -872,7 +901,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                             <Search size={14} />
                           )}
                           搜索
-                        </button>
+                        </Pressable>
                       </div>
                     </div>
 
@@ -895,7 +924,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                         ) : featuredSkills.length > 0 ? (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             {featuredSkills.map((skill) => (
-                              <button
+                              <Pressable
                                 key={skill.slug}
                                 onClick={() => setDetailSkill(skill)}
                                 className="glass-card flex items-center gap-3 p-3 text-left"
@@ -912,7 +941,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                                     </span>
                                   </div>
                                 </div>
-                              </button>
+                              </Pressable>
                             ))}
                           </div>
                         ) : (
@@ -930,7 +959,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                           找到 {searchResults.length} 个技能
                         </p>
                         {searchResults.map((result) => (
-                          <button
+                          <Pressable
                             key={`${result.source_url}-${result.name}`}
                             onClick={() => setDetailSkill(result)}
                             className="glass-card flex w-full items-center justify-between p-3 text-left"
@@ -948,7 +977,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                               </div>
                               <ChevronRight size={14} className="text-[hsl(var(--muted-foreground))]" />
                             </div>
-                          </button>
+                          </Pressable>
                         ))}
                       </div>
                     )}
@@ -967,13 +996,13 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">同步到工具</span>
                       {tools.length > 0 && (
-                        <button
+                        <Pressable
                           type="button"
                           onClick={toggleAllTools}
                           className="text-xs text-[hsl(var(--primary))] hover:underline flex-shrink-0"
                         >
                           {tools.every(t => syncTargets[t.id]) ? '取消全选' : '全选'}
-                        </button>
+                        </Pressable>
                       )}
                     </div>
                     {tools.length > 0 ? (
@@ -981,7 +1010,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                         {tools.map(tool => {
                           const enabled = syncTargets[tool.id] ?? false;
                           return (
-                            <button
+                            <Pressable
                               key={tool.id}
                               type="button"
                               onClick={() => toggleTool(tool.id)}
@@ -1002,7 +1031,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                                 {enabled && <Check size={12} className="text-white" />}
                               </div>
                               <span className="text-sm">{tool.label}</span>
-                            </button>
+                            </Pressable>
                           );
                         })}
                       </div>
@@ -1020,14 +1049,14 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
           {/* 底部按钮 - 在线详情页隐藏 */}
           {!(activeTab === 'online' && detailSkill) && (
             <div className="flex flex-shrink-0 flex-wrap justify-end gap-2 border-t border-white/50 bg-white/25 px-4 py-3 dark:border-white/10 dark:bg-white/5 sm:gap-3 sm:px-6 sm:py-4">
-              <button
+              <Pressable
                 onClick={onClose}
                 className="glass-secondary-button"
                 disabled={loading}
               >
                 取消
-              </button>
-              <button
+              </Pressable>
+              <Pressable
                 onClick={activeTab === 'online' ? () => {} : activeTab === 'git' ? handleCreateGit : handleCreateLocal}
                 disabled={
                   loading || gitScanLoading ||
@@ -1055,11 +1084,11 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                     <ChevronRight size={16} />
                   </>
                 )}
-              </button>
+              </Pressable>
             </div>
           )}
         </div>
-      </div>
+      </Modal>
 
       {/* Git 仓库多技能选择弹窗 */}
       <GitPickModal

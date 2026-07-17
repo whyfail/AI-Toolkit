@@ -6,6 +6,9 @@ import { useInstalledTools } from "@/contexts/InstalledToolsContext";
 import { getToolMeta, isLaunchable } from "@/lib/tools";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
 import { Loader2, Download, RefreshCw, ExternalLink, CheckCircle, AlertCircle, Play, Trash2, BookOpen, Package, Settings, CheckSquare, Square } from "lucide-react";
+import { Pressable } from "@/components/ui/Pressable";
+import { Modal } from "@/components/ui/Modal";
+import { MotionList, MotionListItem } from "@/components/ui/MotionList";
 
 const glassSurface =
   "border border-white/60 bg-white/70 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/55 dark:shadow-[0_18px_60px_rgba(0,0,0,0.35)]";
@@ -49,41 +52,29 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   onConfirm,
   onCancel,
 }) => {
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <button
-        type="button"
-        aria-label="关闭确认弹窗"
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onCancel}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        className="glass-modal relative mx-4 w-full max-w-sm overflow-hidden rounded-2xl p-6"
-      >
+    <Modal open={open} onClose={onCancel} size="sm">
+      <div role="dialog" aria-modal="true" className="p-6">
         <h3 className="text-base font-semibold mb-2">{title}</h3>
-        <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6">
+        <p className="text-sm text-[hsl(var(--muted-foreground))] mb-6 whitespace-pre-wrap">
           {message}
         </p>
         <div className="flex gap-3">
-          <button
+          <Pressable
             onClick={onCancel}
             className="glass-secondary-button flex-1"
           >
             取消
-          </button>
-          <button
+          </Pressable>
+          <Pressable
             onClick={onConfirm}
             className="glass-primary-button flex-1"
           >
             {confirmText}
-          </button>
+          </Pressable>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };
 
@@ -205,7 +196,7 @@ const ToolCard: React.FC<{
         </div>
         <div className="flex items-center gap-1">
           {tool.installed && tool.detected_method && tool.detected_method !== "下载安装" && (
-            <button
+            <Pressable
               onClick={onDelete}
               className={`${iconButton} hover:text-red-500`}
               title="卸载工具"
@@ -213,9 +204,9 @@ const ToolCard: React.FC<{
               <Trash2
                 size={14}
               />
-            </button>
+            </Pressable>
           )}
-          <button
+          <Pressable
             onClick={() => openUrl(tool.homepage).catch(console.error)}
             className={iconButton}
             title="访问官网"
@@ -223,9 +214,9 @@ const ToolCard: React.FC<{
             <ExternalLink
               size={14}
             />
-          </button>
+          </Pressable>
           {docsUrl && (
-            <button
+            <Pressable
               onClick={() => openUrl(docsUrl).catch(console.error)}
               className={iconButton}
               title="使用文档"
@@ -233,7 +224,7 @@ const ToolCard: React.FC<{
               <BookOpen
                 size={14}
               />
-            </button>
+            </Pressable>
           )}
         </div>
       </div>
@@ -245,26 +236,26 @@ const ToolCard: React.FC<{
             tool.methods[0].method_type !== "download" ? (
               <>
                 {isLaunchable(tool.app_type) && tool.has_cli && (
-                  <button
+                  <Pressable
                     onClick={() => onLaunch("cli")}
                     className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-3 py-2 text-xs font-semibold text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(16,185,129,0.28)]"
                     title="启动 CLI"
                   >
                     <Play size={14} />
                     启动 CLI
-                  </button>
+                  </Pressable>
                 )}
                 {isLaunchable(tool.app_type) && tool.has_desktop_app && (
-                  <button
+                  <Pressable
                     onClick={() => onLaunch("desktop")}
                     className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-blue-500 px-3 py-2 text-xs font-semibold text-white shadow-[0_10px_24px_rgba(59,130,246,0.22)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(59,130,246,0.28)]"
                     title="启动桌面端"
                   >
                     <Play size={14} />
                     启动桌面端
-                  </button>
+                  </Pressable>
                 )}
-                <button
+                <Pressable
                   onClick={onScan}
                   disabled={scanning || updating}
                   className={secondaryButton}
@@ -275,9 +266,9 @@ const ToolCard: React.FC<{
                     className={scanning ? 'animate-spin' : ''}
                   />
                   {scanning ? "扫描中..." : "扫描"}
-                </button>
+                </Pressable>
                 {tool.has_cli && (
-                  <button
+                  <Pressable
                     onClick={() => onUpdate("cli")}
                     disabled={updating}
                     className={primaryButton}
@@ -289,27 +280,27 @@ const ToolCard: React.FC<{
                       <RefreshCw size={14} />
                     )}
                     {updating ? "更新中..." : "更新 CLI"}
-                  </button>
+                  </Pressable>
                 )}
                 {tool.has_desktop_app && (
-                  <button
+                  <Pressable
                     onClick={() => onUpdate("desktop")}
                     className={primaryButton}
                     title="更新桌面端"
                   >
                     <RefreshCw size={14} />
                     更新桌面端
-                  </button>
+                  </Pressable>
                 )}
               </>
             ) : (
-              <button
+              <Pressable
                 onClick={() => openUrl(tool.homepage).catch(console.error)}
                 className={primaryButton}
               >
                 <ExternalLink size={12} />
                 访问官网
-              </button>
+              </Pressable>
             )}
           </>
         ) : (
@@ -321,19 +312,19 @@ const ToolCard: React.FC<{
 
               if (singleDownloadOnly) {
                 return (
-                  <button
+                  <Pressable
                     onClick={() => openUrl(downloadMethod!.url || tool.homepage).catch(console.error)}
                     className={primaryButton}
                   >
                     <ExternalLink size={12} />
                     下载安装
-                  </button>
+                  </Pressable>
                 );
               }
 
               if (npmMethod) {
                 return (
-                  <button
+                  <Pressable
                     onClick={() => onInstall(npmMethod.index, npmMethod.needs_confirm, npmMethod.command)}
                     disabled={installing}
                     className={primaryButton}
@@ -344,12 +335,12 @@ const ToolCard: React.FC<{
                       <Download size={12} />
                     )}
                     {installing ? "安装中..." : "安装"}
-                  </button>
+                  </Pressable>
                 );
               }
 
               return (
-                <button
+                <Pressable
                   onClick={() => setShowMethods(!showMethods)}
                   disabled={installing}
                   className={primaryButton}
@@ -360,7 +351,7 @@ const ToolCard: React.FC<{
                     <Download size={12} />
                   )}
                   {installing ? "安装中..." : "安装"}
-                </button>
+                </Pressable>
               );
             })()}
           </>
@@ -373,7 +364,7 @@ const ToolCard: React.FC<{
             选择安装方式:
           </p>
           {tool.methods.map((method) => (
-            <button
+            <Pressable
               key={method.index}
               onClick={() =>
                 onInstall(method.index, method.needs_confirm, method.command)
@@ -385,7 +376,7 @@ const ToolCard: React.FC<{
               <code className="max-w-[180px] truncate text-[10px] text-slate-500 dark:text-slate-400">
                 {method.command}
               </code>
-            </button>
+            </Pressable>
           ))}
         </div>
       )}
@@ -752,7 +743,7 @@ const ToolManagerPanel: React.FC = () => {
               <Package size={13} />
               Agent Tools
             </div>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight">工具管理</h2>
+            <h2 className="mt-3 text-display">工具管理</h2>
             <p className="mt-2 flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
               {isFetching ? (
                 <>
@@ -765,14 +756,14 @@ const ToolManagerPanel: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button
+            <Pressable
               onClick={() => setShowToolSettings((open) => !open)}
               className={iconButton}
               title="管理工具展示"
             >
               <Settings size={18} />
-            </button>
-            <button
+            </Pressable>
+            <Pressable
               onClick={async () => {
                 // 调用全局刷新，刷新后所有模块共享结果
                 await refreshInstalledTools();
@@ -784,7 +775,7 @@ const ToolManagerPanel: React.FC = () => {
               title="刷新"
             >
               <RefreshCw size={18} className={isFetching ? 'animate-spin' : ''} />
-            </button>
+            </Pressable>
           </div>
         </div>
         {showToolSettings && (
@@ -796,18 +787,18 @@ const ToolManagerPanel: React.FC = () => {
                   已展示 {visibleTools.length}/{sortedTools.length} 个工具
                 </p>
               </div>
-              <button
+              <Pressable
                 onClick={() => setHiddenTools(new Set())}
                 className="glass-secondary-button min-h-8 flex-none px-3 py-1 text-xs"
               >
                 全部展示
-              </button>
+              </Pressable>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
               {sortedTools.map((tool) => {
                 const visible = !hiddenTools.has(tool.app_type);
                 return (
-                  <button
+                  <Pressable
                     key={tool.app_type}
                     onClick={() => toggleToolVisibility(tool.app_type)}
                     className={`inline-flex min-h-9 items-center gap-2 rounded-xl border px-3 text-left text-xs font-semibold transition-all ${
@@ -818,7 +809,7 @@ const ToolManagerPanel: React.FC = () => {
                   >
                     {visible ? <CheckSquare size={14} /> : <Square size={14} />}
                     <span className="min-w-0 truncate">{tool.name}</span>
-                  </button>
+                  </Pressable>
                 );
               })}
             </div>
@@ -836,10 +827,10 @@ const ToolManagerPanel: React.FC = () => {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+          <MotionList className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             {visibleTools.map((tool) => (
+              <MotionListItem key={tool.app_type}>
               <ToolCard
-                key={tool.app_type}
                 tool={tool}
                 onInstall={(methodIndex, needsConfirm, command) =>
                   handleInstall(tool.app_type, methodIndex, needsConfirm, command)
@@ -853,8 +844,9 @@ const ToolManagerPanel: React.FC = () => {
                 scanning={scanningTool === tool.app_type}
                 deleting={deletingTool === tool.app_type}
               />
+              </MotionListItem>
             ))}
-          </div>
+          </MotionList>
         )}
       </div>
 

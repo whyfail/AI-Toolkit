@@ -1,5 +1,7 @@
 import React from "react";
 import { X, ArrowUpCircle, Loader2 } from "lucide-react";
+import { Pressable } from "@/components/ui/Pressable";
+import { Modal } from "@/components/ui/Modal";
 
 interface UpdateModalProps {
   open: boolean;
@@ -18,21 +20,9 @@ const UpdateModal: React.FC<UpdateModalProps> = ({
   onInstall,
   installing,
 }) => {
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <button
-        type="button"
-        aria-label="关闭更新弹窗"
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        className="glass-modal relative mx-4 w-full max-w-md overflow-hidden rounded-2xl"
-      >
+    <Modal open={open} onClose={onClose} size="md">
+      <div role="dialog" aria-modal="true" className="w-full">
         {/* 头部 */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4">
           <div className="flex items-center gap-3">
@@ -48,12 +38,14 @@ const UpdateModal: React.FC<UpdateModalProps> = ({
               </p>
             </div>
           </div>
-          <button
+          <Pressable
             onClick={onClose}
+            variant="icon"
             className="glass-icon-button"
+            aria-label="关闭"
           >
             <X size={16} />
-          </button>
+          </Pressable>
         </div>
 
         {/* 更新内容 */}
@@ -70,7 +62,7 @@ const UpdateModal: React.FC<UpdateModalProps> = ({
 
         {/* 操作按钮 */}
         <div className="flex items-center gap-3 px-6 pb-6">
-          <button
+          <Pressable
             onClick={onInstall}
             disabled={installing}
             className="glass-primary-button flex-1"
@@ -81,16 +73,16 @@ const UpdateModal: React.FC<UpdateModalProps> = ({
               <ArrowUpCircle size={16} />
             )}
             {installing ? "下载更新中..." : "下载并安装"}
-          </button>
-          <button
+          </Pressable>
+          <Pressable
             onClick={onClose}
             className="glass-secondary-button"
           >
             稍后
-          </button>
+          </Pressable>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };
 

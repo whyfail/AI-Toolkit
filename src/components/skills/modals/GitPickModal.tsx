@@ -1,4 +1,6 @@
 import { GitBranch, X, Loader2, Check } from 'lucide-react';
+import { Pressable } from '@/components/ui/Pressable';
+import { Modal } from '@/components/ui/Modal';
 
 export interface GitSkillCandidate {
   name: string;
@@ -17,14 +19,12 @@ interface GitPickModalProps {
 }
 
 function GitPickModal({ open, candidates, selected, loading, onToggle, onConfirm, onCancel }: GitPickModalProps) {
-  if (!open) return null;
-
   const isSelected = (c: GitSkillCandidate) =>
     selected.some((s) => s.subpath === c.subpath);
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60] p-2 sm:p-4 animate-in fade-in duration-200">
-      <div className="glass-modal flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl">
+    <Modal open={open} onClose={onCancel} size="2xl" zIndex={60}>
+      <div className="flex max-h-[80vh] w-full flex-col overflow-hidden">
         {/* 头部 */}
         <div className="flex items-center justify-between border-b border-white/50 px-4 py-4 dark:border-white/10 sm:px-6">
           <div>
@@ -33,12 +33,14 @@ function GitPickModal({ open, candidates, selected, loading, onToggle, onConfirm
               已选择 {selected.length} 个技能
             </p>
           </div>
-          <button
+          <Pressable
             onClick={onCancel}
+            variant="icon"
             className="glass-icon-button"
+            aria-label="关闭"
           >
             <X size={18} />
-          </button>
+          </Pressable>
         </div>
 
         {/* 内容 */}
@@ -53,17 +55,18 @@ function GitPickModal({ open, candidates, selected, loading, onToggle, onConfirm
               {candidates.map((candidate) => {
                 const checked = isSelected(candidate);
                 return (
-                  <button
+                  <Pressable
                     key={candidate.subpath}
                     onClick={() => onToggle(candidate)}
-                    className={`group flex w-full items-center gap-4 rounded-xl border p-4 text-left transition-all ${
+                    aria-pressed={checked}
+                    className={`group flex w-full items-center gap-4 rounded-xl border p-4 text-left transition-colors duration-200 ease-out ${
                       checked
                         ? "border-blue-200/70 bg-blue-500/10 dark:border-sky-300/20"
                         : "border-white/55 bg-white/50 hover:bg-white/75 dark:border-white/10 dark:bg-white/8 dark:hover:bg-white/12"
                     }`}
                   >
                     <div
-                      className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                      className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
                         checked
                           ? "border-blue-600 bg-blue-600"
                           : "border-white/60 bg-white/60 dark:border-white/10 dark:bg-white/8"
@@ -71,7 +74,7 @@ function GitPickModal({ open, candidates, selected, loading, onToggle, onConfirm
                     >
                       {checked && <Check size={12} className="text-white" />}
                     </div>
-                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-sky-500">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#0A84FF] to-[#5856D6]">
                       <GitBranch size={18} className="text-white" />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -85,7 +88,7 @@ function GitPickModal({ open, candidates, selected, loading, onToggle, onConfirm
                         {candidate.subpath}
                       </div>
                     </div>
-                  </button>
+                  </Pressable>
                 );
               })}
             </div>
@@ -98,22 +101,22 @@ function GitPickModal({ open, candidates, selected, loading, onToggle, onConfirm
 
         {/* 底部 */}
         <div className="flex gap-3 border-t border-white/50 bg-white/25 px-4 py-4 dark:border-white/10 dark:bg-white/5 sm:px-6">
-          <button
+          <Pressable
             onClick={onCancel}
             className="glass-secondary-button flex-1"
           >
             取消
-          </button>
-          <button
+          </Pressable>
+          <Pressable
             onClick={onConfirm}
             disabled={selected.length === 0}
             className="glass-primary-button flex-1"
           >
             确认选择 {selected.length > 0 ? `(${selected.length})` : ''}
-          </button>
+          </Pressable>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

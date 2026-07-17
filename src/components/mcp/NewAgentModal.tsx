@@ -8,6 +8,9 @@ import {
   ArrowRight,
   Loader2,
 } from "lucide-react";
+import { Pressable } from "@/components/ui/Pressable";
+import { Modal } from "@/components/ui/Modal";
+import { MotionList, MotionListItem } from "@/components/ui/MotionList";
 
 interface AgentInfo {
   id: string;
@@ -18,6 +21,7 @@ interface AgentInfo {
 }
 
 interface NewAgentModalProps {
+  open: boolean;
   agents: AgentInfo[];
   installedAgents: AgentInfo[];
   onClose: () => void;
@@ -25,6 +29,7 @@ interface NewAgentModalProps {
 }
 
 const NewAgentModal: React.FC<NewAgentModalProps> = ({
+  open,
   agents,
   installedAgents,
   onClose,
@@ -87,8 +92,8 @@ const NewAgentModal: React.FC<NewAgentModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60] p-2 sm:p-4">
-      <div className="glass-modal flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl sm:max-h-[85vh]">
+    <Modal open={open} onClose={onClose} size="md" zIndex={60}>
+      <div className="flex max-h-[90vh] w-full flex-col overflow-hidden sm:max-h-[85vh]">
         {/* 头部 */}
         <div className="flex flex-shrink-0 items-start justify-between gap-3 border-b border-white/50 px-4 py-4 dark:border-white/10 sm:px-6 sm:py-5">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -103,12 +108,14 @@ const NewAgentModal: React.FC<NewAgentModalProps> = ({
               </p>
             </div>
           </div>
-          <button
+          <Pressable
             onClick={onClose}
+            variant="icon"
             className="glass-icon-button flex-shrink-0"
+            aria-label="关闭"
           >
             <X size={18} />
-          </button>
+          </Pressable>
         </div>
 
         {/* 检测到的工具列表 */}
@@ -116,12 +123,13 @@ const NewAgentModal: React.FC<NewAgentModalProps> = ({
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             检测到的工具
           </h3>
-          <div className="space-y-2">
+          <MotionList className="space-y-2">
             {agents.map((agent) => (
-              <button
-                key={agent.id}
+              <MotionListItem key={agent.id}>
+              <Pressable
                 onClick={() => toggleAgent(agent.id)}
-                className={`flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all ${
+                aria-pressed={selectedAgents[agent.id]}
+                className={`flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors duration-200 ease-out ${
                   selectedAgents[agent.id]
                     ? "border-blue-200/70 bg-blue-500/10 dark:border-sky-300/20"
                     : "border-white/55 bg-white/50 dark:border-white/10 dark:bg-white/8"
@@ -150,9 +158,10 @@ const NewAgentModal: React.FC<NewAgentModalProps> = ({
                   </span>
                   <ArrowRight size={14} className="text-slate-400" />
                 </div>
-              </button>
+              </Pressable>
+              </MotionListItem>
             ))}
-          </div>
+          </MotionList>
         </div>
 
         {/* 集成到的工具 */}
@@ -162,17 +171,18 @@ const NewAgentModal: React.FC<NewAgentModalProps> = ({
           </h3>
           <div className="flex flex-wrap gap-1.5 sm:gap-2">
             {installedAgents.map((agent) => (
-              <button
+              <Pressable
                 key={agent.id}
                 onClick={() => toggleApp(agent.id)}
-                className={`rounded-full border px-2.5 py-1.5 text-xs font-semibold transition-all sm:px-3 ${
+                aria-pressed={selectedApps[agent.id]}
+                className={`rounded-full border px-2.5 py-1.5 text-xs font-semibold transition-colors duration-200 ease-out sm:px-3 ${
                   selectedApps[agent.id]
                     ? "border-blue-500 bg-blue-600 text-white"
                     : "border-white/55 bg-white/50 text-slate-500 hover:text-slate-950 dark:border-white/10 dark:bg-white/8 dark:text-slate-400 dark:hover:text-white"
                 }`}
               >
                 {agent.name}
-              </button>
+              </Pressable>
             ))}
           </div>
         </div>
@@ -192,13 +202,13 @@ const NewAgentModal: React.FC<NewAgentModalProps> = ({
             )}
           </div>
           <div className="flex gap-2 order-1 sm:order-2 flex-shrink-0">
-            <button
+            <Pressable
               onClick={onClose}
               className="glass-secondary-button"
             >
               稍后同步
-            </button>
-            <button
+            </Pressable>
+            <Pressable
               onClick={handleSync}
               disabled={
                 syncing ||
@@ -208,11 +218,11 @@ const NewAgentModal: React.FC<NewAgentModalProps> = ({
               className="glass-primary-button"
             >
               {syncing ? "同步中..." : "同步 MCP 配置"}
-            </button>
+            </Pressable>
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };
 

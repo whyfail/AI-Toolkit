@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { toast } from "sonner";
 import { X, Check, AlertCircle, ClipboardPaste, ChevronDown, ChevronUp, Play, Loader2 } from "lucide-react";
 import { useUpsertMcpServer } from "@/hooks/useMcp";
 import { enhancementApi, mcpApi } from "@/lib/api";
 import type { McpServer, McpServerSpec } from "@/types";
+import { Pressable } from "@/components/ui/Pressable";
+import { Modal } from "@/components/ui/Modal";
 
 interface AgentInfo {
   id: string;
@@ -10,6 +13,7 @@ interface AgentInfo {
 }
 
 interface McpFormModalProps {
+  open: boolean;
   editingId?: string;
   initialData?: McpServer;
   installedAgents: AgentInfo[];
@@ -42,6 +46,7 @@ const EXAMPLE_JSON = `{
 }`;
 
 const McpFormModal: React.FC<McpFormModalProps> = ({
+  open,
   editingId,
   initialData,
   installedAgents,
@@ -195,7 +200,7 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
     e.preventDefault();
     if (!parsedServer) return;
     if (!Object.values(selectedApps).some(Boolean)) {
-      alert("请至少选择一个目标工具");
+      toast.error("请至少选择一个目标工具");
       return;
     }
 
@@ -236,8 +241,8 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4 animate-in fade-in duration-200">
-      <div className="glass-modal flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl sm:max-h-[85vh]">
+    <Modal open={open} onClose={onClose} size="full" zIndex={50}>
+      <div className="flex max-h-[90vh] w-full flex-col overflow-hidden sm:max-h-[85vh]">
         {/* 头部 */}
         <div className="flex flex-shrink-0 items-center justify-between border-b border-white/50 px-4 py-4 dark:border-white/10 sm:px-6 sm:py-5">
           <div className="min-w-0">
@@ -250,12 +255,14 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
               </p>
             )}
           </div>
-          <button
+          <Pressable
             onClick={onClose}
+            variant="icon"
             className="glass-icon-button flex-shrink-0"
+            aria-label="关闭"
           >
             <X size={18} />
-          </button>
+          </Pressable>
         </div>
 
         {/* 表单内容 */}
@@ -270,14 +277,15 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
                 <ClipboardPaste size={14} />
                 MCP 配置 JSON
               </label>
-              <button
+              <Pressable
                 type="button"
+                noScale
                 onClick={() => setShowExample(!showExample)}
-                className="text-xs text-[hsl(var(--primary))] hover:underline flex items-center gap-1 flex-shrink-0"
+                className="text-xs text-[hsl(var(--primary))] hover:underline flex items-center gap-1 flex-shrink-0 !bg-transparent !shadow-none !min-h-0 !p-0"
               >
                 {showExample ? "收起示例" : "查看示例"}
                 {showExample ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-              </button>
+              </Pressable>
             </div>
             <div className="relative">
               <textarea
@@ -330,11 +338,11 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
                   配置解析成功
                 </h3>
                 {parsedServer.server.command && (
-                  <button
+                  <Pressable
                     type="button"
                     onClick={handleTestConnection}
                     disabled={isTesting}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors duration-200 ease-out ${
                       testResult?.success
                         ? "bg-green-500/20 text-green-500"
                         : testResult?.success === false
@@ -352,7 +360,7 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
                       <Play size={12} />
                     )}
                     {isTesting ? "测试中..." : testResult?.success ? "测试通过" : testResult?.success === false ? "测试失败" : "测试连接"}
-                  </button>
+                  </Pressable>
                 )}
               </div>
 
@@ -378,24 +386,26 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
                     <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                       选择要导入的服务器
                     </span>
-                    <button
+                    <Pressable
                       type="button"
+                      noScale
                       onClick={() => {
                         const allSelected = selectedServerIds.size === parsedServers.length;
                         setSelectedServerIds(allSelected ? new Set() : new Set(parsedServers.map((server) => server.id)));
                       }}
-                      className="text-xs text-[hsl(var(--primary))] hover:underline"
+                      className="text-xs text-[hsl(var(--primary))] hover:underline !bg-transparent !shadow-none !min-h-0 !p-0"
                     >
                       {selectedServerIds.size === parsedServers.length ? "取消全选" : "全选"}
-                    </button>
+                    </Pressable>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {parsedServers.map((server) => (
-                      <button
+                      <Pressable
                         type="button"
                         key={server.id}
                         onClick={() => toggleServerSelection(server.id)}
-                        className={`rounded-lg border px-3 py-2 text-left text-xs transition ${
+                        aria-pressed={selectedServerIds.has(server.id)}
+                        className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors duration-200 ease-out ${
                           selectedServerIds.has(server.id)
                             ? "border-blue-300 bg-blue-500/10"
                             : "border-white/60 bg-white/45"
@@ -403,7 +413,7 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
                       >
                         <span className="block font-semibold">{server.name}</span>
                         <span className="mt-0.5 block truncate text-slate-500">{server.id}</span>
-                      </button>
+                      </Pressable>
                     ))}
                   </div>
                 </div>
@@ -425,13 +435,14 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">集成到工具</span>
               {installedAgents.length > 0 && (
-                <button
+                <Pressable
                   type="button"
+                  noScale
                   onClick={toggleAllApps}
-                  className="text-xs text-[hsl(var(--primary))] hover:underline flex-shrink-0"
+                  className="text-xs text-[hsl(var(--primary))] hover:underline flex-shrink-0 !bg-transparent !shadow-none !min-h-0 !p-0"
                 >
                   {Object.values(selectedApps).every(Boolean) ? "取消全选" : "全选"}
-                </button>
+                </Pressable>
               )}
             </div>
             {installedAgents.length > 0 ? (
@@ -439,11 +450,12 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
                 {installedAgents.map((agent) => {
                   const enabled = selectedApps[agent.id] ?? false;
                   return (
-                    <button
+                    <Pressable
                       key={agent.id}
                       type="button"
                       onClick={() => toggleApp(agent.id)}
-                      className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all ${
+                      aria-pressed={enabled}
+                      className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors duration-200 ease-out ${
                         enabled
                           ? "border-blue-200/70 bg-blue-500/10 dark:border-sky-300/20"
                           : "border-white/55 bg-white/50 hover:bg-white/75 dark:border-white/10 dark:bg-white/8 dark:hover:bg-white/12"
@@ -459,7 +471,7 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
                         {enabled && <Check size={12} className="text-white" />}
                       </div>
                       <span className="text-sm">{agent.name}</span>
-                    </button>
+                    </Pressable>
                   );
                 })}
               </div>
@@ -473,14 +485,14 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
 
         {/* 按钮 */}
         <div className="flex flex-shrink-0 flex-wrap justify-end gap-2 border-t border-white/50 bg-white/25 px-4 py-3 dark:border-white/10 dark:bg-white/5 sm:gap-3 sm:px-6 sm:py-4">
-          <button
+          <Pressable
             type="button"
             onClick={onClose}
             className="glass-secondary-button"
           >
             取消
-          </button>
-          <button
+          </Pressable>
+          <Pressable
             onClick={handleSubmit}
             disabled={
               !parsedServer ||
@@ -499,10 +511,10 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
               : parsedServers.length > 1
               ? `导入 ${selectedServerIds.size} 个服务器`
               : "添加服务器"}
-          </button>
+          </Pressable>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };
 

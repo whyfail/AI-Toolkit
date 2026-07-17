@@ -19,6 +19,9 @@ import { useInstalledTools, AgentInfo } from "@/contexts/InstalledToolsContext";
 import type { McpServer } from "@/types";
 import { APP_COLORS } from "@/lib/tools";
 import { agentApi, toolApi } from "@/lib/api";
+import { Pressable } from "@/components/ui/Pressable";
+import { Modal } from "@/components/ui/Modal";
+import { MotionList, MotionListItem } from "@/components/ui/MotionList";
 import McpFormModal from "./McpFormModal";
 import NewAgentModal from "./NewAgentModal";
 
@@ -156,29 +159,29 @@ const UnifiedMcpPanel: React.FC = () => {
               <Server size={13} />
               MCP
             </div>
-            <h2 className="mt-3 truncate text-2xl font-semibold tracking-tight sm:text-3xl">
+            <h2 className="mt-3 truncate text-display">
               MCP 服务器
             </h2>
-            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 sm:text-sm">
+            <p className="mt-2 text-caption text-slate-500 dark:text-slate-400 sm:text-body">
               管理所有 AI CLI 工具的 MCP 配置
             </p>
           </div>
           <div className="flex gap-2 flex-shrink-0">
-            <button
+            <Pressable
               onClick={handleScan}
               disabled={isScanning}
               className="glass-secondary-button"
             >
               <RefreshCw size={16} className={isScanning ? "animate-spin" : ""} />
               <span className="hidden sm:inline">扫描工具</span>
-            </button>
-            <button
+            </Pressable>
+            <Pressable
               onClick={handleAdd}
               className="glass-primary-button"
             >
               <Plus size={16} />
               <span className="hidden sm:inline">添加服务器</span>
-            </button>
+            </Pressable>
           </div>
         </div>
 
@@ -254,78 +257,77 @@ const UnifiedMcpPanel: React.FC = () => {
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <MotionList className="space-y-2.5">
             {serverEntries.map(([id, server]) => (
-              <McpServerRow
-                key={id}
-                id={id}
-                server={server}
-                installedAgents={installedAgents}
-                onToggleApp={handleToggleApp}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-              />
+              <MotionListItem key={id}>
+                <McpServerRow
+                  id={id}
+                  server={server}
+                  installedAgents={installedAgents}
+                  onToggleApp={handleToggleApp}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                />
+              </MotionListItem>
             ))}
-          </div>
+          </MotionList>
         )}
       </div>
 
       {/* 表单弹窗 */}
-      {isFormOpen && (
-        <McpFormModal
-          editingId={editingId || undefined}
-          initialData={
-            editingId && serversMap ? serversMap[editingId] : undefined
-          }
-          installedAgents={installedAgents}
-          onClose={() => {
-            setIsFormOpen(false);
-            setEditingId(null);
-          }}
-        />
-      )}
+      <McpFormModal
+        open={isFormOpen}
+        editingId={editingId || undefined}
+        initialData={
+          editingId && serversMap ? serversMap[editingId] : undefined
+        }
+        installedAgents={installedAgents}
+        onClose={() => {
+          setIsFormOpen(false);
+          setEditingId(null);
+        }}
+      />
 
       {/* 新工具发现弹窗 */}
-      {newAgents && (
-        <NewAgentModal
-          agents={newAgents}
-          installedAgents={installedAgents}
-          onClose={() => setNewAgents(null)}
-          onSyncComplete={() => {
-            setNewAgents(null);
-            refetch();
-          }}
-        />
-      )}
+      <NewAgentModal
+        open={!!newAgents}
+        agents={newAgents ?? []}
+        installedAgents={installedAgents}
+        onClose={() => setNewAgents(null)}
+        onSyncComplete={() => {
+          setNewAgents(null);
+          refetch();
+        }}
+      />
 
       {/* 删除确认弹窗 */}
-      {deleteId && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-          <div className="glass-modal w-full max-w-sm overflow-hidden rounded-2xl">
-            <div className="border-b border-white/50 px-6 py-5 dark:border-white/10">
-              <h3 className="text-lg font-semibold">确认删除？</h3>
-              <p className="mt-1 line-clamp-1 text-sm text-slate-500 dark:text-slate-400">
-                服务器: {deleteName || deleteId}
-              </p>
-            </div>
-            <div className="px-6 py-4 flex justify-end gap-3">
-              <button
-                onClick={() => setDeleteId(null)}
-                className="glass-secondary-button"
-              >
-                取消
-              </button>
-              <button
-                onClick={confirmDelete}
-                disabled={deleteServerMutation.isPending}
-                className="glass-danger-button"
-              >
-                {deleteServerMutation.isPending ? '删除中...' : '删除'}
-              </button>
-            </div>
-          </div>
+      <Modal
+        open={!!deleteId}
+        onClose={() => setDeleteId(null)}
+        size="sm"
+      >
+        <div className="border-b border-white/50 px-6 py-5 dark:border-white/10">
+          <h3 className="text-lg font-semibold">确认删除？</h3>
+          <p className="mt-1 line-clamp-1 text-sm text-slate-500 dark:text-slate-400">
+            服务器: {deleteName || deleteId}
+          </p>
         </div>
-      )}
+        <div className="px-6 py-4 flex justify-end gap-3">
+          <Pressable
+            onClick={() => setDeleteId(null)}
+            className="glass-secondary-button"
+          >
+            取消
+          </Pressable>
+          <Pressable
+            onClick={confirmDelete}
+            disabled={deleteServerMutation.isPending}
+            className="glass-danger-button"
+          >
+            {deleteServerMutation.isPending ? '删除中...' : '删除'}
+          </Pressable>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -368,20 +370,22 @@ const McpServerRow: React.FC<McpServerRowProps> = ({
         </div>
 
         <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
-          <button
+          <Pressable
             onClick={() => onEdit(id)}
+            variant="icon"
             className="glass-icon-button"
             title="编辑"
           >
             <Edit3 size={14} />
-          </button>
-          <button
+          </Pressable>
+          <Pressable
             onClick={() => onDelete(id, server.name)}
+            variant="icon"
             className="glass-icon-button hover:text-red-500"
             title="删除"
           >
             <Trash2 size={14} className="text-red-500" />
-          </button>
+          </Pressable>
         </div>
       </div>
 
@@ -391,31 +395,30 @@ const McpServerRow: React.FC<McpServerRowProps> = ({
           <span>已启用: {activeCount}/{installedAgents.length}</span>
         </div>
         <div className="flex flex-wrap gap-1.5 sm:gap-2">
-          {installedAgents.map((agent) => (
-            <label
-              key={agent.id}
-              className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-semibold transition-all sm:px-2.5 sm:py-1.5 ${
-                server.apps[agent.id]
-                  ? "border-blue-200/70 bg-blue-500/10 text-blue-700 dark:border-sky-300/20 dark:text-sky-300"
-                  : "border-white/55 bg-white/50 text-slate-500 hover:text-slate-950 dark:border-white/10 dark:bg-white/8 dark:text-slate-400 dark:hover:text-white"
-              }`}
-            >
-              <input
-                type="checkbox"
-                checked={!!server.apps[agent.id]}
-                onChange={(e) => onToggleApp(id, agent.id, e.target.checked)}
-                className="sr-only"
-              />
-              <div
-                className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                  server.apps[agent.id]
-                    ? APP_COLORS[agent.id as keyof typeof APP_COLORS]
-                    : "bg-current opacity-40"
+          {installedAgents.map((agent) => {
+            const enabled = !!server.apps[agent.id];
+            return (
+              <Pressable
+                key={agent.id}
+                onClick={() => onToggleApp(id, agent.id, !enabled)}
+                aria-pressed={enabled}
+                className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-semibold transition-colors duration-200 ease-out sm:px-2.5 sm:py-1.5 ${
+                  enabled
+                    ? "border-blue-200/70 bg-blue-500/10 text-blue-700 dark:border-sky-300/20 dark:text-sky-300"
+                    : "border-white/55 bg-white/50 text-slate-500 hover:text-slate-950 dark:border-white/10 dark:bg-white/8 dark:text-slate-400 dark:hover:text-white"
                 }`}
-              />
-              <span>{agent.name}</span>
-            </label>
-          ))}
+              >
+                <span
+                  className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                    enabled
+                      ? APP_COLORS[agent.id as keyof typeof APP_COLORS]
+                      : "bg-current opacity-40"
+                  }`}
+                />
+                <span>{agent.name}</span>
+              </Pressable>
+            );
+          })}
         </div>
       </div>
 

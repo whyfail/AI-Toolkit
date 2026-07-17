@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { motion } from "motion/react";
+import { Pressable } from "@/components/ui/Pressable";
 import {
   Activity,
   AlertTriangle,
@@ -350,26 +352,37 @@ export default function EnhancementsPanel() {
               MCP 批量导入、MCP 配置快照、健康检查、安全分享和启动预设
             </p>
           </div>
-          <button onClick={loadAll} disabled={loading} className="glass-secondary-button">
+          <Pressable onClick={loadAll} disabled={loading} className="glass-secondary-button">
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
             刷新
-          </button>
+          </Pressable>
         </div>
         <div className="mt-5 flex flex-wrap gap-2">
-          {panelItems.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => setActive(item.key)}
-              className={`inline-flex min-h-9 items-center gap-2 whitespace-nowrap rounded-xl px-3 text-xs font-semibold transition ${
-                active === item.key
-                  ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20"
-                  : "border border-white/60 bg-white/55 text-slate-600 hover:bg-white/80"
-              }`}
-            >
-              <item.icon size={14} />
-              {item.label}
-            </button>
-          ))}
+          {panelItems.map((item) => {
+            const isActive = active === item.key;
+            return (
+              <Pressable
+                key={item.key}
+                onClick={() => setActive(item.key)}
+                aria-pressed={isActive}
+                className={`relative z-10 inline-flex min-h-9 items-center gap-2 whitespace-nowrap rounded-xl px-3 text-xs font-medium transition-colors duration-200 ease-out ${
+                  isActive
+                    ? "text-white"
+                    : "border border-white/60 bg-white/55 text-slate-600 hover:bg-white/80 dark:border-white/10 dark:bg-white/8 dark:text-slate-300 dark:hover:bg-white/12"
+                }`}
+              >
+                {isActive && (
+                  <motion.span
+                    layoutId="enhancement-pill"
+                    className="absolute inset-0 -z-10 rounded-xl bg-gradient-to-r from-[#0A84FF] to-[#5AC8FA] shadow-[0_4px_12px_rgba(10,132,255,0.22)]"
+                    transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
+                  />
+                )}
+                <item.icon size={14} />
+                {item.label}
+              </Pressable>
+            );
+          })}
         </div>
       </div>
 
@@ -399,8 +412,8 @@ export default function EnhancementsPanel() {
               ))}
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
-              <button onClick={refresh} className="glass-secondary-button">扫描工具</button>
-              <button onClick={handleCreateSnapshot} className="glass-secondary-button">创建 MCP 配置快照</button>
+              <Pressable onClick={refresh} className="glass-secondary-button">扫描工具</Pressable>
+              <Pressable onClick={handleCreateSnapshot} className="glass-secondary-button">创建 MCP 配置快照</Pressable>
             </div>
           </SectionCard>
         )}
@@ -425,10 +438,10 @@ export default function EnhancementsPanel() {
                 />
                 覆盖同 ID 配置
               </label>
-              <button onClick={handleBulkImport} className="glass-primary-button">
+              <Pressable onClick={handleBulkImport} className="glass-primary-button">
                 <Import size={16} />
                 导入到已安装工具
-              </button>
+              </Pressable>
             </div>
           </SectionCard>
         )}
@@ -438,10 +451,10 @@ export default function EnhancementsPanel() {
             <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
               备份 MCP Server 数据和各工具 MCP 配置文件，可在配置改坏后恢复。
             </p>
-            <button onClick={handleCreateSnapshot} className="glass-primary-button">
+            <Pressable onClick={handleCreateSnapshot} className="glass-primary-button">
               <Archive size={16} />
               创建 MCP 配置快照
-            </button>
+            </Pressable>
             <div className="mt-4 space-y-2">
               {snapshots.map((snapshot) => (
                 <div key={snapshot.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/60 bg-white/45 p-3">
@@ -451,9 +464,9 @@ export default function EnhancementsPanel() {
                       {formatTime(snapshot.created_at)} · {snapshot.server_count} MCP · {snapshot.config_count} 配置文件
                     </p>
                   </div>
-                  <button onClick={() => handleRestoreSnapshot(snapshot.id)} className="glass-secondary-button">
+                  <Pressable onClick={() => handleRestoreSnapshot(snapshot.id)} className="glass-secondary-button">
                     恢复
-                  </button>
+                  </Pressable>
                 </div>
               ))}
             </div>
@@ -462,10 +475,10 @@ export default function EnhancementsPanel() {
 
         {active === "health" && (
           <SectionCard title="MCP 健康检查">
-            <button onClick={handleHealthCheck} className="glass-primary-button">
+            <Pressable onClick={handleHealthCheck} className="glass-primary-button">
               <Activity size={16} />
               开始检查
-            </button>
+            </Pressable>
             <div className="mt-4 space-y-2">
               {healthItems.map((item) => (
                 <div key={`${item.id}-${item.scope}-${item.message}`} className="rounded-xl border border-white/60 bg-white/45 p-3">
@@ -483,10 +496,10 @@ export default function EnhancementsPanel() {
 
         {active === "skills" && (
           <SectionCard title="Skills 更新预览">
-            <button onClick={handleSkillPreview} className="glass-primary-button">
+            <Pressable onClick={handleSkillPreview} className="glass-primary-button">
               <RefreshCw size={16} />
               生成更新预览
-            </button>
+            </Pressable>
             <div className="mt-4 space-y-2">
               {skillUpdates.map((item) => (
                 <div key={String(item.id)} className="rounded-xl border border-white/60 bg-white/45 p-3">
@@ -502,14 +515,14 @@ export default function EnhancementsPanel() {
         {active === "portable" && (
           <SectionCard title="配置压缩包导入 / 导出">
             <div className="flex flex-wrap gap-2">
-              <button onClick={handleExport} className="glass-primary-button">
+              <Pressable onClick={handleExport} className="glass-primary-button">
                 <Download size={16} />
                 导出压缩包
-              </button>
-              <button onClick={handlePickPackage} className="glass-secondary-button">
+              </Pressable>
+              <Pressable onClick={handlePickPackage} className="glass-secondary-button">
                 <Upload size={16} />
                 选择压缩包
-              </button>
+              </Pressable>
             </div>
             <div className="mt-3 rounded-xl border border-white/60 bg-white/45 p-3 text-sm text-slate-600 dark:border-white/10 dark:bg-white/8 dark:text-slate-300">
               {packagePath ? (
@@ -540,13 +553,13 @@ export default function EnhancementsPanel() {
 
         {active === "conflicts" && (
           <SectionCard title="冲突检测与智能合并提示">
-            <button
+            <Pressable
               onClick={async () => setConflicts(await enhancementApi.detectConfigConflicts())}
               className="glass-primary-button"
             >
               <Wrench size={16} />
               重新检测
-            </button>
+            </Pressable>
             <div className="mt-4 space-y-2">
               {conflicts.length === 0 && <p className="text-sm text-slate-500">暂无冲突。</p>}
               {conflicts.map((item) => (
@@ -565,13 +578,13 @@ export default function EnhancementsPanel() {
 
         {active === "security" && (
           <SectionCard title="敏感信息保护">
-            <button
+            <Pressable
               onClick={async () => setSecurityFindings(await enhancementApi.scanSecurityFindings())}
               className="glass-primary-button"
             >
               <Shield size={16} />
               扫描敏感字段
-            </button>
+            </Pressable>
             <div className="mt-4 space-y-2">
               {securityFindings.length === 0 && <p className="text-sm text-slate-500">未发现明显敏感字段。</p>}
               {securityFindings.map((item) => (
@@ -614,9 +627,9 @@ export default function EnhancementsPanel() {
                 placeholder="启动目录，例如 ~/Desktop/project"
               />
             </div>
-            <button onClick={handleSavePreset} className="glass-primary-button mt-3">
+            <Pressable onClick={handleSavePreset} className="glass-primary-button mt-3">
               保存预设
-            </button>
+            </Pressable>
             <div className="mt-4 space-y-2">
               {presets.map((preset) => (
                 <div key={preset.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/60 bg-white/45 p-3">
@@ -626,10 +639,10 @@ export default function EnhancementsPanel() {
                       {preset.agent_id} · {preset.working_dir} · {preset.enabled_mcp_servers.length} MCP
                     </p>
                   </div>
-                  <button onClick={() => handleLaunchPreset(preset)} className="glass-secondary-button">
+                  <Pressable onClick={() => handleLaunchPreset(preset)} className="glass-secondary-button">
                     <Play size={15} />
                     启动
-                  </button>
+                  </Pressable>
                 </div>
               ))}
             </div>

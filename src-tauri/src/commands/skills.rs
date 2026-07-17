@@ -605,7 +605,7 @@ pub async fn install_git(
     let skill_record = SkillRecord {
         id: result.skill_id.clone(),
         name: result.name.clone(),
-        description: None,
+        description: result.description.clone(),
         source_type: "git".to_string(),
         source_ref: Some(repo_url.clone()),
         source_subpath: result.source_subpath.clone(),
@@ -622,7 +622,7 @@ pub async fn install_git(
     Ok(ManagedSkill {
         id: result.skill_id,
         name: result.name,
-        description: None,
+        description: result.description,
         source_type: "git".to_string(),
         source_ref: Some(repo_url),
         source_subpath: result.source_subpath,
@@ -717,7 +717,7 @@ pub async fn install_git_selection(
     let skill_record = SkillRecord {
         id: result.skill_id.clone(),
         name: result.name.clone(),
-        description: None,
+        description: result.description.clone(),
         source_type: "git".to_string(),
         source_ref: Some(repo_url.clone()),
         source_subpath: result.source_subpath.clone(),
@@ -734,7 +734,7 @@ pub async fn install_git_selection(
     Ok(ManagedSkill {
         id: result.skill_id,
         name: result.name,
-        description: None,
+        description: result.description,
         source_type: "git".to_string(),
         source_ref: Some(repo_url),
         source_subpath: result.source_subpath,
@@ -794,6 +794,11 @@ pub async fn install_local_selection(
 
             copy_dir_recursive(&selected_dir, &central_path).map_err(|e| e.to_string())?;
 
+            // Parse description from the freshly-installed SKILL.md so it's
+            // persisted in the DB (otherwise the UI sees an empty description
+            // until the user opens the detail modal).
+            let description = crate::core::installer::read_skill_description(&central_path);
+
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs() as i64)
@@ -802,7 +807,7 @@ pub async fn install_local_selection(
             Ok(ManagedSkill {
                 id: format!("local-{}", skill_name),
                 name: skill_name,
-                description: None,
+                description,
                 source_type: "local".to_string(),
                 source_ref: Some(selected_dir.to_string_lossy().to_string()),
                 source_subpath: None,

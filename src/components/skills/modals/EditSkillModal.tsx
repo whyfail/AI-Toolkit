@@ -3,6 +3,8 @@ import { X, Loader2, Github, Folder, GitBranch } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ManagedSkill } from '../types';
 import { skillsApi } from '@/lib/api';
+import { Pressable } from '@/components/ui/Pressable';
+import { Modal } from '@/components/ui/Modal';
 
 interface GitSkillCandidate {
   name: string;
@@ -47,26 +49,22 @@ function EditSkillModal({ open, skill, onClose, onSkillEdited }: EditSkillModalP
       .catch(() => setExistingSkillNames(new Set()));
   }, [open]);
 
-  if (!open || !skill) return null;
+  if (!skill) return null;
 
   const doSave = async () => {
     let finalName = name.trim();
     if (finalName.toLowerCase() !== skill.name.toLowerCase() && existingSkillNames.has(finalName.toLowerCase())) {
-      const choice = window.prompt(
-        `技能 "${finalName}" 已存在，请输入处理方式：\n2 自动重命名\n3 取消保存`,
-        '2'
-      );
-      if (choice !== '2') {
-        return;
-      }
+      // No native equivalent for `window.prompt` in Tauri webview; auto-rename
+      // is the safer default that does not block the user.
       let index = 2;
       let nextName = `${finalName}-${index}`;
       while (existingSkillNames.has(nextName.toLowerCase())) {
-        index++;
+        index += 1;
         nextName = `${finalName}-${index}`;
       }
       finalName = nextName;
       setName(nextName);
+      toast.message(`技能名称已自动调整为 "${finalName}"`);
     }
 
     setSaving(true);
@@ -152,8 +150,8 @@ function EditSkillModal({ open, skill, onClose, onSkillEdited }: EditSkillModalP
   const isGitHubUrl = sourceRef.startsWith('http://') || sourceRef.startsWith('https://');
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-      <div className="glass-modal w-full max-w-md overflow-hidden rounded-2xl">
+    <Modal open={open} onClose={onClose} size="md">
+      <div className="w-full">
         {/* 头部 */}
         <div className="flex items-center justify-between border-b border-white/50 px-6 py-5 dark:border-white/10">
           <div className="flex items-center gap-3">
@@ -171,12 +169,12 @@ function EditSkillModal({ open, skill, onClose, onSkillEdited }: EditSkillModalP
               </p>
             </div>
           </div>
-          <button
+          <Pressable
             onClick={onClose}
             className="glass-icon-button"
           >
             <X size={18} />
-          </button>
+          </Pressable>
         </div>
 
         {/* 内容 */}
@@ -220,13 +218,13 @@ function EditSkillModal({ open, skill, onClose, onSkillEdited }: EditSkillModalP
 
         {/* 底部 */}
         <div className="flex justify-end gap-3 border-t border-white/50 bg-white/25 px-6 py-4 dark:border-white/10 dark:bg-white/5">
-          <button
+          <Pressable
             onClick={onClose}
             className="glass-secondary-button"
           >
             取消
-          </button>
-          <button
+          </Pressable>
+          <Pressable
             onClick={handleScan}
             disabled={saving || scanning}
             className="glass-secondary-button"
@@ -239,8 +237,8 @@ function EditSkillModal({ open, skill, onClose, onSkillEdited }: EditSkillModalP
             ) : (
               '扫描'
             )}
-          </button>
-          <button
+          </Pressable>
+          <Pressable
             onClick={handleSave}
             disabled={saving || !name.trim()}
             className="glass-primary-button"
@@ -253,77 +251,78 @@ function EditSkillModal({ open, skill, onClose, onSkillEdited }: EditSkillModalP
             ) : (
               '保存'
             )}
-          </button>
+          </Pressable>
         </div>
       </div>
 
       {/* 多技能仓库选择弹窗 */}
-      {showPickModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60] p-4 animate-in fade-in duration-200">
-          <div className="glass-modal w-full max-w-md overflow-hidden rounded-2xl">
-            <div className="flex items-center justify-between border-b border-white/50 px-6 py-5 dark:border-white/10">
-              <div>
-                <h3 className="text-lg font-semibold">选择技能</h3>
-                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                  该仓库包含 {gitCandidates.length} 个技能
-                </p>
-              </div>
-              <button
-                onClick={handlePickModalCancel}
-                className="glass-icon-button"
-              >
-                <X size={18} />
-              </button>
+      <Modal open={showPickModal} onClose={handlePickModalCancel} size="md" zIndex={60}>
+        <div>
+          <div className="flex items-center justify-between border-b border-white/50 px-6 py-5 dark:border-white/10">
+            <div>
+              <h3 className="text-lg font-semibold">选择技能</h3>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                该仓库包含 {gitCandidates.length} 个技能
+              </p>
             </div>
+            <Pressable
+              onClick={handlePickModalCancel}
+              variant="icon"
+              className="glass-icon-button"
+              aria-label="关闭"
+            >
+              <X size={18} />
+            </Pressable>
+          </div>
 
-            <div className="max-h-64 overflow-y-auto p-4 space-y-2">
-              {gitCandidates.map((candidate) => (
-                <button
-                  key={candidate.subpath}
-                  onClick={() => handleCandidateSelect(candidate)}
-                  className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-all ${
-                    selectedCandidate?.subpath === candidate.subpath
-                      ? "border-blue-200/70 bg-blue-500/10 dark:border-sky-300/20"
-                      : "border-white/55 bg-white/50 hover:bg-white/75 dark:border-white/10 dark:bg-white/8 dark:hover:bg-white/12"
-                  }`}
-                >
-                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-sky-500">
-                    <GitBranch size={14} className="text-white" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{candidate.name}</div>
-                    {candidate.description && (
-                      <div className="mt-0.5 line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
-                        {candidate.description}
-                      </div>
-                    )}
-                    <div className="mt-1 font-mono text-xs text-slate-500 dark:text-slate-400">
-                      {candidate.subpath}
+          <div className="max-h-64 overflow-y-auto p-4 space-y-2">
+            {gitCandidates.map((candidate) => (
+              <Pressable
+                key={candidate.subpath}
+                onClick={() => handleCandidateSelect(candidate)}
+                aria-pressed={selectedCandidate?.subpath === candidate.subpath}
+                className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-colors duration-200 ease-out ${
+                  selectedCandidate?.subpath === candidate.subpath
+                    ? "border-blue-200/70 bg-blue-500/10 dark:border-sky-300/20"
+                    : "border-white/55 bg-white/50 hover:bg-white/75 dark:border-white/10 dark:bg-white/8 dark:hover:bg-white/12"
+                }`}
+              >
+                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#0A84FF] to-[#5856D6]">
+                  <GitBranch size={14} className="text-white" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{candidate.name}</div>
+                  {candidate.description && (
+                    <div className="mt-0.5 line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
+                      {candidate.description}
                     </div>
+                  )}
+                  <div className="mt-1 font-mono text-xs text-slate-500 dark:text-slate-400">
+                    {candidate.subpath}
                   </div>
-                </button>
-              ))}
-            </div>
+                </div>
+              </Pressable>
+            ))}
+          </div>
 
-            <div className="flex gap-3 border-t border-white/50 bg-white/25 px-6 py-4 dark:border-white/10 dark:bg-white/5">
-              <button
-                onClick={handlePickModalCancel}
-                className="glass-secondary-button flex-1"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleCandidateConfirm}
-                disabled={!selectedCandidate}
-                className="glass-primary-button flex-1"
-              >
-                确定
-              </button>
-            </div>
+          <div className="flex gap-3 border-t border-white/50 bg-white/25 px-6 py-4 dark:border-white/10 dark:bg-white/5">
+            <Pressable
+              onClick={handlePickModalCancel}
+              className="glass-secondary-button flex-1"
+            >
+              取消
+            </Pressable>
+            <Pressable
+              onClick={handleCandidateConfirm}
+              disabled={!selectedCandidate}
+              className="glass-primary-button flex-1"
+            >
+              确定
+            </Pressable>
           </div>
         </div>
-      )}
-    </div>
+      </Modal>
+    </Modal>
   );
 }
 

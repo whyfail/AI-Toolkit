@@ -1,6 +1,6 @@
 {
   "name": "ai-toolkit",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "description": "Universal MCP Server & Skills Manager for AI CLI Tools",
   "author": "whyfail",
   "license": "MIT",
@@ -24,6 +24,7 @@
     "@tauri-apps/plugin-shell": "^2.0.0",
     "i18next": "^24.0.0",
     "lucide-react": "^0.453.0",
+    "motion": "^12.42.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.53.0",
