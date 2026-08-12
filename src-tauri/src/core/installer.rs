@@ -688,6 +688,90 @@ pub(crate) fn read_skill_description(dir: &Path) -> Option<String> {
         .and_then(|(_, d)| d)
 }
 
+pub(crate) fn copy_local_skill_dir_verified(source: &Path, target: &Path) -> Result<()> {
+    if !source.is_dir() {
+        anyhow::bail!("本地技能来源不是目录: {:?}", source);
+    }
+
+    let source_doc = find_skill_md(source)
+        .ok_or_else(|| anyhow::anyhow!("本地技能缺少 SKILL.md 或 skill.md: {:?}", source))?;
+    let source_doc_size = std::fs::metadata(&source_doc)
+        .with_context(|| format!("读取本地技能文件信息失败: {:?}", source_doc))?
+        .len();
+    if source_doc_size == 0 {
+        anyhow::bail!("本地技能的 SKILL.md 为空: {:?}", source_doc);
+    }
+
+    let source_hash =
+        hash_dir(source).with_context(|| format!("计算本地技能内容哈希失败: {:?}", source))?;
+    let copy_result = copy_dir_recursive(source, target)
+        .with_context(|| format!("复制本地技能失败: {:?} -> {:?}", source, target));
+
+    let verification = copy_result.and_then(|_| {
+        let target_doc = find_skill_md(target).ok_or_else(|| {
+            anyhow::anyhow!("复制后的技能缺少 SKILL.md 或 skill.md: {:?}", target)
+        })?;
+        if std::fs::metadata(&target_doc)
+            .with_context(|| format!("读取复制后的技能文件信息失败: {:?}", target_doc))?
+            .len()
+            == 0
+        {
+            anyhow::bail!("复制后的 SKILL.md 为空: {:?}", target_doc);
+        }
+
+        let target_hash = hash_dir(target)
+            .with_context(|| format!("计算复制后的技能内容哈希失败: {:?}", target))?;
+        if source_hash != target_hash {
+            anyhow::bail!("本地技能复制校验失败: 源目录与中央目录内容不一致");
+        }
+        Ok(())
+    });
+
+    if verification.is_err() && std::fs::symlink_metadata(target).is_ok() {
+        let _ = std::fs::remove_dir_all(target);
+    }
+    verification
+}
+
+#[cfg(test)]
+mod local_copy_tests {
+    use super::*;
+
+    #[test]
+    fn verified_local_copy_preserves_contents() {
+        let source = tempfile::tempdir().unwrap();
+        let destination_parent = tempfile::tempdir().unwrap();
+        let destination = destination_parent.path().join("copied-skill");
+        std::fs::create_dir(source.path().join("scripts")).unwrap();
+        std::fs::write(
+            source.path().join("SKILL.md"),
+            "---\nname: copied-skill\ndescription: test\n---\n\n# Body\n",
+        )
+        .unwrap();
+        std::fs::write(source.path().join("scripts/run.sh"), "echo test\n").unwrap();
+
+        copy_local_skill_dir_verified(source.path(), &destination).unwrap();
+
+        assert_eq!(
+            hash_dir(source.path()).unwrap(),
+            hash_dir(&destination).unwrap()
+        );
+    }
+
+    #[test]
+    fn verified_local_copy_rejects_empty_skill_doc_without_creating_target() {
+        let source = tempfile::tempdir().unwrap();
+        let destination_parent = tempfile::tempdir().unwrap();
+        let destination = destination_parent.path().join("copied-skill");
+        std::fs::write(source.path().join("SKILL.md"), "").unwrap();
+
+        let error = copy_local_skill_dir_verified(source.path(), &destination).unwrap_err();
+
+        assert!(error.to_string().contains("SKILL.md 为空"));
+        assert!(!destination.exists());
+    }
+}
+
 fn parse_skill_md_with_reason(path: &Path) -> Result<(String, Option<String>), &'static str> {
     let text = std::fs::read_to_string(path).map_err(|_| "read_failed")?;
 

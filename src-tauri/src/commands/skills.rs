@@ -248,6 +248,7 @@ pub async fn get_managed_skills(state: State<'_, AppState>) -> Result<Vec<Manage
             source_type,
             source_ref,
             source_subpath,
+            description,
             created_at,
             updated_at,
             last_sync_at,
@@ -257,6 +258,7 @@ pub async fn get_managed_skills(state: State<'_, AppState>) -> Result<Vec<Manage
                 db_skill.source_type.clone(),
                 db_skill.source_ref.clone(),
                 db_skill.source_subpath.clone(),
+                db_skill.description.clone(),
                 db_skill.created_at,
                 db_skill.updated_at,
                 db_skill.last_sync_at,
@@ -267,6 +269,7 @@ pub async fn get_managed_skills(state: State<'_, AppState>) -> Result<Vec<Manage
                 "local".to_string(),
                 Some(central_path.to_string_lossy().to_string()),
                 None,
+                crate::core::installer::read_skill_description(&central_path),
                 now,
                 now,
                 None,
@@ -276,7 +279,7 @@ pub async fn get_managed_skills(state: State<'_, AppState>) -> Result<Vec<Manage
         result.push(ManagedSkill {
             id: skill_id,
             name: skill_name.clone(),
-            description: None,
+            description,
             source_type,
             source_ref,
             source_subpath,
@@ -749,6 +752,7 @@ pub async fn install_git_selection(
 
 #[tauri::command]
 pub async fn install_local_selection(
+    state: State<'_, AppState>,
     base_path: String,
     subpath: String,
     name: Option<String>,
@@ -761,7 +765,7 @@ pub async fn install_local_selection(
     let result: ManagedSkill =
         tokio::task::spawn_blocking(move || -> Result<ManagedSkill, String> {
             use crate::core::central_repo::{ensure_central_repo, resolve_central_repo_path};
-            use crate::core::sync_engine::copy_dir_recursive;
+            use crate::core::installer::copy_local_skill_dir_verified;
 
             let base = PathBuf::from(&base_path);
             let selected_dir = if subpath.is_empty() || subpath == "." {
@@ -792,7 +796,8 @@ pub async fn install_local_selection(
                 ));
             }
 
-            copy_dir_recursive(&selected_dir, &central_path).map_err(|e| e.to_string())?;
+            copy_local_skill_dir_verified(&selected_dir, &central_path)
+                .map_err(|e| e.to_string())?;
 
             // Parse description from the freshly-installed SKILL.md so it's
             // persisted in the DB (otherwise the UI sees an empty description
@@ -821,6 +826,23 @@ pub async fn install_local_selection(
         })
         .await
         .map_err(|e| e.to_string())??;
+
+    let skill_record = SkillRecord {
+        id: result.id.clone(),
+        name: result.name.clone(),
+        description: result.description.clone(),
+        source_type: result.source_type.clone(),
+        source_ref: result.source_ref.clone(),
+        source_subpath: result.source_subpath.clone(),
+        central_path: result.central_path.clone(),
+        created_at: result.created_at,
+        updated_at: result.updated_at,
+        last_sync_at: result.last_sync_at,
+    };
+    if let Err(error) = state.db.save_skill(&skill_record) {
+        let _ = std::fs::remove_dir_all(&result.central_path);
+        return Err(format!("保存本地技能记录失败: {}", error));
+    }
 
     Ok(result)
 }

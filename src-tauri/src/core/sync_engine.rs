@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[cfg(windows)]
 use crate::utils::SuppressConsole;
@@ -19,7 +21,58 @@ pub struct SyncOutcome {
     pub replaced: bool,
 }
 
+type TargetLock = Arc<Mutex<()>>;
+
+static TARGET_LOCKS: OnceLock<Mutex<HashMap<PathBuf, TargetLock>>> = OnceLock::new();
+
+fn normalized_target_key(target: &Path) -> PathBuf {
+    let parent = target.parent().unwrap_or_else(|| Path::new("."));
+    let normalized_parent = parent
+        .canonicalize()
+        .unwrap_or_else(|_| parent.to_path_buf());
+    match target.file_name() {
+        Some(name) => normalized_parent.join(name),
+        None => normalized_parent,
+    }
+}
+
+fn sync_target_lock(target: &Path) -> Result<TargetLock> {
+    let locks = TARGET_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = locks
+        .lock()
+        .map_err(|_| anyhow::anyhow!("sync target lock registry is poisoned"))?;
+    Ok(map
+        .entry(normalized_target_key(target))
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone())
+}
+
+fn paths_resolve_to_same_entry(source: &Path, target: &Path) -> bool {
+    match (source.canonicalize(), target.canonicalize()) {
+        (Ok(source), Ok(target)) => source == target,
+        _ => false,
+    }
+}
+
+fn reject_destructive_self_overwrite(source: &Path, target: &Path) -> Result<()> {
+    if paths_resolve_to_same_entry(source, target) && !is_same_link(target, source) {
+        anyhow::bail!(
+            "refusing to overwrite source directory with itself: {:?}",
+            source
+        );
+    }
+    Ok(())
+}
+
 pub fn sync_dir_hybrid(source: &Path, target: &Path) -> Result<SyncOutcome> {
+    let target_lock = sync_target_lock(target)?;
+    let _target_guard = target_lock
+        .lock()
+        .map_err(|_| anyhow::anyhow!("sync target lock is poisoned"))?;
+    sync_dir_hybrid_inner(source, target)
+}
+
+fn sync_dir_hybrid_inner(source: &Path, target: &Path) -> Result<SyncOutcome> {
     if target.exists() {
         if is_same_link(target, source) {
             return Ok(SyncOutcome {
@@ -63,6 +116,11 @@ pub fn sync_dir_hybrid_with_overwrite(
     target: &Path,
     overwrite: bool,
 ) -> Result<SyncOutcome> {
+    let target_lock = sync_target_lock(target)?;
+    let _target_guard = target_lock
+        .lock()
+        .map_err(|_| anyhow::anyhow!("sync target lock is poisoned"))?;
+    reject_destructive_self_overwrite(source, target)?;
     let mut did_replace = false;
     if std::fs::symlink_metadata(target).is_ok() {
         if is_same_link(target, source) {
@@ -82,7 +140,7 @@ pub fn sync_dir_hybrid_with_overwrite(
         }
     }
 
-    sync_dir_hybrid(source, target).map(|mut out| {
+    sync_dir_hybrid_inner(source, target).map(|mut out| {
         out.replaced = did_replace;
         out
     })
@@ -93,6 +151,11 @@ pub fn sync_dir_copy_with_overwrite(
     target: &Path,
     overwrite: bool,
 ) -> Result<SyncOutcome> {
+    let target_lock = sync_target_lock(target)?;
+    let _target_guard = target_lock
+        .lock()
+        .map_err(|_| anyhow::anyhow!("sync target lock is poisoned"))?;
+    reject_destructive_self_overwrite(source, target)?;
     let mut did_replace = false;
     if std::fs::symlink_metadata(target).is_ok() {
         if overwrite {
@@ -273,6 +336,14 @@ fn should_skip_copy(entry: &walkdir::DirEntry) -> bool {
 }
 
 pub fn copy_dir_recursive(source: &Path, target: &Path) -> Result<()> {
+    if paths_resolve_to_same_entry(source, target) {
+        anyhow::bail!(
+            "refusing to copy directory onto itself: {:?} -> {:?}",
+            source,
+            target
+        );
+    }
+
     for entry in walkdir::WalkDir::new(source)
         .follow_links(false)
         .into_iter()
@@ -292,9 +363,75 @@ pub fn copy_dir_recursive(source: &Path, target: &Path) -> Result<()> {
             if let Some(parent) = target_path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
+            if paths_resolve_to_same_entry(entry.path(), &target_path) {
+                anyhow::bail!(
+                    "refusing to copy file onto itself: {:?} -> {:?}",
+                    entry.path(),
+                    target_path
+                );
+            }
             std::fs::copy(entry.path(), &target_path)
                 .with_context(|| format!("copy file {:?} -> {:?}", entry.path(), target_path))?;
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn copy_dir_recursive_rejects_same_directory_without_truncating_files() {
+        let source = tempfile::tempdir().unwrap();
+        let skill = source.path().join("SKILL.md");
+        std::fs::write(&skill, "skill contents").unwrap();
+
+        let error = copy_dir_recursive(source.path(), source.path()).unwrap_err();
+
+        assert!(error.to_string().contains("onto itself"));
+        assert_eq!(std::fs::read_to_string(skill).unwrap(), "skill contents");
+    }
+
+    #[test]
+    fn overwrite_rejects_same_directory_without_deleting_it() {
+        let source = tempfile::tempdir().unwrap();
+        let skill = source.path().join("SKILL.md");
+        std::fs::write(&skill, "skill contents").unwrap();
+
+        let error = sync_dir_hybrid_with_overwrite(source.path(), source.path(), true).unwrap_err();
+
+        assert!(error.to_string().contains("with itself"));
+        assert_eq!(std::fs::read_to_string(skill).unwrap(), "skill contents");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn concurrent_syncs_to_shared_target_preserve_source_contents() {
+        let source = tempfile::tempdir().unwrap();
+        let target_parent = tempfile::tempdir().unwrap();
+        let skill = source.path().join("SKILL.md");
+        let target = target_parent.path().join("shared-skill");
+        std::fs::write(&skill, "skill contents").unwrap();
+
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let source = source.path().to_path_buf();
+                let target = target.clone();
+                std::thread::spawn(move || {
+                    sync_dir_hybrid_with_overwrite(&source, &target, true).unwrap()
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        assert_eq!(std::fs::read_to_string(&skill).unwrap(), "skill contents");
+        assert_eq!(
+            target.canonicalize().unwrap(),
+            source.path().canonicalize().unwrap()
+        );
+    }
 }
