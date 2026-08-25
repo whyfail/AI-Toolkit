@@ -1,10 +1,11 @@
 use indexmap::IndexMap;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::agents::get_agent_config_paths;
+use crate::agents::{get_agent_config_paths, normalized_path_key};
 use crate::database::{McpApps, McpServer, McpServerSpec};
 use crate::mcp::AppType;
 
@@ -316,6 +317,7 @@ fn parse_server_config(id: &str, config: &serde_json::Value, app: &AppType) -> O
 /// 从所有支持的来源导入 MCP 配置
 pub fn import_all() -> IndexMap<String, McpServer> {
     let mut all_servers: IndexMap<String, McpServer> = IndexMap::new();
+    let mut scanned_paths = HashSet::new();
 
     // Iterate through all apps and check their OS-specific paths
     for app in AppType::all() {
@@ -323,6 +325,9 @@ pub fn import_all() -> IndexMap<String, McpServer> {
 
         // Check each possible path for this app
         for path in &paths {
+            if !scanned_paths.insert(normalized_path_key(path)) {
+                continue;
+            }
             if let Some(result) = import_from_path(app.clone(), path) {
                 for (id, server) in result.servers {
                     // If server already exists, merge the app status
@@ -350,4 +355,51 @@ pub fn import_all() -> IndexMap<String, McpServer> {
 struct ClaudeMcpConfig {
     #[serde(rename = "mcpServers")]
     mcp_servers: Option<HashMap<String, serde_json::Value>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn imports_workbuddy_http_and_sse_servers_with_shared_alias_state() {
+        let servers = parse_mcp_json(
+            r#"{
+                "mcpServers": {
+                    "local": {"type":"stdio","command":"npx","args":["-y","demo"]},
+                    "http": {"type":"http","url":"https://example.com/mcp"},
+                    "events": {"type":"sse","url":"https://example.com/events"}
+                }
+            }"#,
+            &AppType::WorkBuddyCn,
+        )
+        .expect("parse WorkBuddy MCP config");
+
+        assert_eq!(
+            servers["local"].server.spec_type.as_deref(),
+            Some("stdio")
+        );
+        assert_eq!(servers["local"].server.command.as_deref(), Some("npx"));
+        assert_eq!(
+            servers["http"].server.spec_type.as_deref(),
+            Some("http")
+        );
+        assert_eq!(
+            servers["events"].server.spec_type.as_deref(),
+            Some("sse")
+        );
+        assert!(servers["http"].apps.workbuddy);
+        assert!(servers["http"].apps.workbuddy_cn);
+    }
+
+    #[test]
+    fn workbuddy_editions_resolve_to_one_bulk_import_path() {
+        let mut paths = HashSet::new();
+        for app in [AppType::WorkBuddy, AppType::WorkBuddyCn] {
+            for path in get_agent_config_paths(&app) {
+                paths.insert(normalized_path_key(&path));
+            }
+        }
+        assert_eq!(paths.len(), 1);
+    }
 }

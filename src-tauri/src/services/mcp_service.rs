@@ -85,6 +85,7 @@ impl McpService {
             AppType::CodeBuddy,
             AppType::Hermes,
             AppType::MimoCode,
+            AppType::WorkBuddy,
         ] {
             imported.extend(read_servers_from_app(app)?);
         }
@@ -215,9 +216,7 @@ fn import_hermes_servers(config_path: &Path) -> Result<Vec<McpServer>, AppError>
 fn parse_command_array_server(value: &serde_json::Value) -> Result<McpServerSpec, AppError> {
     let mut spec = McpServerSpec::default();
     let Some(object) = value.as_object() else {
-        return Err(AppError::Parse(
-            "MCP entry must be an object".to_string(),
-        ));
+        return Err(AppError::Parse("MCP entry must be an object".to_string()));
     };
 
     if let Some(url) = object.get("url").and_then(|value| value.as_str()) {

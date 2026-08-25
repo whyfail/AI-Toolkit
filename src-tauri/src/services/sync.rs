@@ -1,8 +1,10 @@
 use indexmap::IndexMap;
+use std::collections::HashSet;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::agents::resolve_path;
+use crate::agents::{normalized_path_key, resolve_path};
 use crate::database::McpServer;
 use crate::error::AppError;
 use crate::mcp::AppType;
@@ -18,6 +20,14 @@ pub fn sync_app_config(app: &AppType, servers: &[McpServer]) -> Result<(), AppEr
         return sync_hermes_config(&config_path, servers);
     }
 
+    sync_json_config(&config_path, app, servers)
+}
+
+fn sync_json_config(
+    config_path: &PathBuf,
+    app: &AppType,
+    servers: &[McpServer],
+) -> Result<(), AppError> {
     // 读取现有配置（保留非 MCP 字段）
     let mut config: serde_json::Value = if Path::new(&config_path).exists() {
         let content = fs::read_to_string(&config_path).map_err(|e| {
@@ -180,6 +190,13 @@ fn build_hermes_mcp_yaml(servers: &[McpServer]) -> Result<serde_yaml::Value, App
 fn build_mcp_entry_json(server: &McpServer) -> serde_json::Map<String, serde_json::Value> {
     let mut entry = serde_json::Map::new();
 
+    if let Some(spec_type) = &server.server.spec_type {
+        entry.insert(
+            "type".to_string(),
+            serde_json::Value::String(spec_type.clone()),
+        );
+    }
+
     if let Some(cmd) = &server.server.command {
         entry.insert(
             "command".to_string(),
@@ -246,7 +263,10 @@ fn build_opencode_mcp_json(servers: &[McpServer]) -> serde_json::Map<String, ser
 
         // 判断连接类型：有 url 则为 remote，否则为 local
         let is_remote = server.server.url.is_some()
-            || matches!(server.server.spec_type.as_deref(), Some("remote" | "http" | "sse"));
+            || matches!(
+                server.server.spec_type.as_deref(),
+                Some("remote" | "http" | "sse")
+            );
 
         if is_remote {
             entry.insert(
@@ -312,7 +332,10 @@ fn build_mimo_mcp_json(servers: &[McpServer]) -> serde_json::Map<String, serde_j
         let mut entry = serde_json::Map::new();
 
         let is_remote = server.server.url.is_some()
-            || matches!(server.server.spec_type.as_deref(), Some("remote" | "http" | "sse"));
+            || matches!(
+                server.server.spec_type.as_deref(),
+                Some("remote" | "http" | "sse")
+            );
 
         if is_remote {
             entry.insert(
@@ -364,7 +387,10 @@ fn build_mimo_mcp_json(servers: &[McpServer]) -> serde_json::Map<String, serde_j
         }
 
         for (key, value) in &server.server.extra {
-            if !matches!(key.as_str(), "type" | "command" | "environment" | "url" | "headers") {
+            if !matches!(
+                key.as_str(),
+                "type" | "command" | "environment" | "url" | "headers"
+            ) {
                 entry.insert(key.clone(), value.clone());
             }
         }
@@ -376,8 +402,12 @@ fn build_mimo_mcp_json(servers: &[McpServer]) -> serde_json::Map<String, serde_j
 
 /// 同步所有应用的 MCP 配置（包括没有任何启用服务器的应用，以清除残留配置）
 pub fn sync_all_live_configs(servers: &IndexMap<String, McpServer>) -> Result<(), AppError> {
-    // 遍历所有应用类型，确保即使没有启用服务器也会同步（清除配置文件中的残留）
+    let mut synced_paths = HashSet::new();
     for app in AppType::all() {
+        let config_path = resolve_path(&get_config_path_for_app(&app)?);
+        if !synced_paths.insert(normalized_path_key(&config_path)) {
+            continue;
+        }
         let app_servers: Vec<McpServer> = servers
             .values()
             .filter(|s| s.apps.is_enabled_for(&app))
@@ -483,22 +513,46 @@ pub(crate) fn get_config_path_for_app(app: &AppType) -> Result<String, AppError>
                 "~/.config/mimocode/mimocode.json"
             }
         }
+        AppType::WorkBuddy | AppType::WorkBuddyCn => {
+            if cfg!(windows) {
+                "%USERPROFILE%\\.workbuddy\\.mcp.json"
+            } else {
+                "~/.workbuddy/.mcp.json"
+            }
+        }
     }
     .to_string())
 }
 
 fn atomic_write(path: &PathBuf, content: &str) -> Result<(), AppError> {
-    let temp_path = path.with_extension("tmp");
-    fs::write(&temp_path, content).map_err(|e| {
+    let parent = path.parent().ok_or_else(|| {
+        AppError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "config path has no parent directory",
+        ))
+    })?;
+    let mut temp_file = tempfile::NamedTempFile::new_in(parent).map_err(|e| {
         AppError::Io(std::io::Error::new(
             std::io::ErrorKind::Other,
             e.to_string(),
         ))
     })?;
-    fs::rename(&temp_path, path).map_err(|e| {
+    temp_file.write_all(content.as_bytes()).map_err(|e| {
         AppError::Io(std::io::Error::new(
             std::io::ErrorKind::Other,
             e.to_string(),
+        ))
+    })?;
+    temp_file.as_file().sync_all().map_err(|e| {
+        AppError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string(),
+        ))
+    })?;
+    temp_file.persist(path).map_err(|e| {
+        AppError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.error.to_string(),
         ))
     })?;
     Ok(())
@@ -598,14 +652,19 @@ mcp_servers:
 
         let json = build_mimo_mcp_json(&[server]);
         let demo = json.get("demo").expect("demo server");
-        assert_eq!(demo.get("type").and_then(|value| value.as_str()), Some("local"));
         assert_eq!(
-            demo.get("command").and_then(|value| value.as_array()).map(|items| {
-                items
-                    .iter()
-                    .filter_map(|item| item.as_str())
-                    .collect::<Vec<_>>()
-            }),
+            demo.get("type").and_then(|value| value.as_str()),
+            Some("local")
+        );
+        assert_eq!(
+            demo.get("command")
+                .and_then(|value| value.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str())
+                        .collect::<Vec<_>>()
+                }),
             Some(vec!["npx", "-y", "demo-server"])
         );
         assert_eq!(
@@ -614,6 +673,70 @@ mcp_servers:
                 .and_then(|value| value.as_str()),
             Some("secret")
         );
+    }
+
+    #[test]
+    fn syncs_workbuddy_standard_mcp_and_preserves_other_top_level_fields() {
+        let file = temp_file(
+            "mcp-workbuddy",
+            r#"{"theme":"system","mcpServers":{"old":{"command":"old"}}}"#,
+        );
+        let server = McpServer {
+            id: "remote".to_string(),
+            name: "remote".to_string(),
+            server: McpServerSpec {
+                spec_type: Some("sse".to_string()),
+                url: Some("https://example.com/events".to_string()),
+                headers: Some(HashMap::from([(
+                    "Authorization".to_string(),
+                    "Bearer token".to_string(),
+                )])),
+                ..Default::default()
+            },
+            apps: McpApps::default(),
+            description: None,
+            homepage: None,
+            docs: None,
+            tags: vec![],
+        };
+
+        sync_json_config(&file.path().to_path_buf(), &AppType::WorkBuddy, &[server])
+            .expect("sync WorkBuddy config");
+
+        let content = std::fs::read_to_string(file.path()).expect("read WorkBuddy config");
+        let json: serde_json::Value = serde_json::from_str(&content).expect("parse config");
+        assert_eq!(
+            json.get("theme").and_then(|value| value.as_str()),
+            Some("system")
+        );
+        let remote = json
+            .get("mcpServers")
+            .and_then(|value| value.get("remote"))
+            .expect("remote MCP server");
+        assert_eq!(
+            remote.get("type").and_then(|value| value.as_str()),
+            Some("sse")
+        );
+        assert_eq!(
+            remote.get("url").and_then(|value| value.as_str()),
+            Some("https://example.com/events")
+        );
+        assert!(!file.path().with_extension("tmp").exists());
+    }
+
+    #[test]
+    fn workbuddy_editions_resolve_to_one_sync_target() {
+        let international = resolve_path(
+            &get_config_path_for_app(&AppType::WorkBuddy).expect("international config path"),
+        );
+        let china = resolve_path(
+            &get_config_path_for_app(&AppType::WorkBuddyCn).expect("China config path"),
+        );
+        let paths = HashSet::from([
+            normalized_path_key(&international),
+            normalized_path_key(&china),
+        ]);
+        assert_eq!(paths.len(), 1);
     }
 
     #[test]
@@ -676,14 +799,19 @@ mcp_servers:
             .get("mcp")
             .and_then(|value| value.get("demo"))
             .expect("demo server");
-        assert_eq!(demo.get("type").and_then(|value| value.as_str()), Some("local"));
         assert_eq!(
-            demo.get("command").and_then(|value| value.as_array()).map(|items| {
-                items
-                    .iter()
-                    .filter_map(|item| item.as_str())
-                    .collect::<Vec<_>>()
-            }),
+            demo.get("type").and_then(|value| value.as_str()),
+            Some("local")
+        );
+        assert_eq!(
+            demo.get("command")
+                .and_then(|value| value.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str())
+                        .collect::<Vec<_>>()
+                }),
             Some(vec!["npx", "-y", "demo-server"])
         );
     }

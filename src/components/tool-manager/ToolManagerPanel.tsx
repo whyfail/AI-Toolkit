@@ -98,19 +98,24 @@ const ToolCard: React.FC<{
       needs_confirm: boolean;
     }>;
     homepage: string;
+    edition_unknown: boolean;
   };
   onInstall: (methodIndex: number, needsConfirm: boolean, command: string) => void;
   onUpdate: (updateKind: "cli" | "desktop") => void;
   onScan: () => void;
   onLaunch: (launchKind: "cli" | "desktop") => void;
   onDelete: () => void;
+  onOpenDownload: () => void;
+  switchingEdition: boolean;
   installing: boolean;
   updating: boolean;
   scanning: boolean;
   deleting: boolean;
-}> = ({ tool, onInstall, onUpdate, onScan, onLaunch, onDelete, installing, updating, scanning, deleting }) => {
+}> = ({ tool, onInstall, onUpdate, onScan, onLaunch, onDelete, onOpenDownload, switchingEdition, installing, updating, scanning, deleting }) => {
   const [showMethods, setShowMethods] = useState(false);
-  const hasUpdate = tool.installed && tool.version && tool.latest_version && compareVersions(tool.version, tool.latest_version);
+  const installedVersion = tool.desktop_version || tool.version;
+  const hasUpdate = Boolean(tool.installed && installedVersion && tool.latest_version && compareVersions(installedVersion, tool.latest_version));
+  const isWorkBuddy = tool.app_type === "workbuddy" || tool.app_type === "workbuddy-cn";
   const docsUrl = getToolMeta(tool.app_type)?.docsUrl;
   const installBadgeLabel = tool.has_cli && tool.has_desktop_app
     ? "CLI + 桌面端"
@@ -185,6 +190,16 @@ const ToolCard: React.FC<{
                     <span className="text-slate-400 dark:text-slate-500">({tool.latest_version})</span>
                   )}
                 </span>
+              ) : tool.edition_unknown ? (
+                <span className="flex items-center gap-1 text-amber-600 dark:text-amber-300">
+                  <AlertCircle size={12} />
+                  版本类型未知
+                </span>
+              ) : switchingEdition ? (
+                <span className="flex items-center gap-1 text-amber-600 dark:text-amber-300">
+                  <AlertCircle size={12} />
+                  {tool.app_type === "workbuddy" ? "已安装国内版" : "已安装国际版"}
+                </span>
               ) : (
                 <span className="flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-[hsl(var(--muted-foreground))]" />
@@ -195,7 +210,7 @@ const ToolCard: React.FC<{
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {tool.installed && tool.detected_method && tool.detected_method !== "下载安装" && (
+          {tool.installed && !isWorkBuddy && tool.detected_method && tool.detected_method !== "下载安装" && (
             <Pressable
               onClick={onDelete}
               className={`${iconButton} hover:text-red-500`}
@@ -232,74 +247,61 @@ const ToolCard: React.FC<{
       <div className="flex gap-2">
         {tool.installed ? (
           <>
-            {tool.methods.length > 0 &&
-            tool.methods[0].method_type !== "download" ? (
-              <>
-                {isLaunchable(tool.app_type) && tool.has_cli && (
-                  <Pressable
-                    onClick={() => onLaunch("cli")}
-                    className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-3 py-2 text-xs font-semibold text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(16,185,129,0.28)]"
-                    title="启动 CLI"
-                  >
-                    <Play size={14} />
-                    启动 CLI
-                  </Pressable>
-                )}
-                {isLaunchable(tool.app_type) && tool.has_desktop_app && (
-                  <Pressable
-                    onClick={() => onLaunch("desktop")}
-                    className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-blue-500 px-3 py-2 text-xs font-semibold text-white shadow-[0_10px_24px_rgba(59,130,246,0.22)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(59,130,246,0.28)]"
-                    title="启动桌面端"
-                  >
-                    <Play size={14} />
-                    启动桌面端
-                  </Pressable>
-                )}
-                <Pressable
-                  onClick={onScan}
-                  disabled={scanning || updating}
-                  className={secondaryButton}
-                  title="扫描版本"
-                >
-                  <RefreshCw
-                    size={14}
-                    className={scanning ? 'animate-spin' : ''}
-                  />
-                  {scanning ? "扫描中..." : "扫描"}
-                </Pressable>
-                {tool.has_cli && (
-                  <Pressable
-                    onClick={() => onUpdate("cli")}
-                    disabled={updating}
-                    className={primaryButton}
-                    title="更新 CLI"
-                  >
-                    {updating ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : (
-                      <RefreshCw size={14} />
-                    )}
-                    {updating ? "更新中..." : "更新 CLI"}
-                  </Pressable>
-                )}
-                {tool.has_desktop_app && (
-                  <Pressable
-                    onClick={() => onUpdate("desktop")}
-                    className={primaryButton}
-                    title="更新桌面端"
-                  >
-                    <RefreshCw size={14} />
-                    更新桌面端
-                  </Pressable>
-                )}
-              </>
-            ) : (
+            {isLaunchable(tool.app_type) && tool.has_cli && (
               <Pressable
-                onClick={() => openUrl(tool.homepage).catch(console.error)}
-                className={primaryButton}
+                onClick={() => onLaunch("cli")}
+                className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-3 py-2 text-xs font-semibold text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(16,185,129,0.28)]"
+                title="启动 CLI"
               >
-                <ExternalLink size={12} />
-                访问官网
+                <Play size={14} />
+                启动 CLI
+              </Pressable>
+            )}
+            {isLaunchable(tool.app_type) && tool.has_desktop_app && (
+              <Pressable
+                onClick={() => onLaunch("desktop")}
+                className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-blue-500 px-3 py-2 text-xs font-semibold text-white shadow-[0_10px_24px_rgba(59,130,246,0.22)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(59,130,246,0.28)]"
+                title="启动桌面端"
+              >
+                <Play size={14} />
+                启动桌面端
+              </Pressable>
+            )}
+            <Pressable
+              onClick={onScan}
+              disabled={scanning || updating}
+              className={secondaryButton}
+              title="扫描版本"
+            >
+              <RefreshCw
+                size={14}
+                className={scanning ? 'animate-spin' : ''}
+              />
+              {scanning ? "扫描中..." : "扫描"}
+            </Pressable>
+            {tool.has_cli && (
+              <Pressable
+                onClick={() => onUpdate("cli")}
+                disabled={updating}
+                className={primaryButton}
+                title="更新 CLI"
+              >
+                {updating ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={14} />
+                )}
+                {updating ? "更新中..." : "更新 CLI"}
+              </Pressable>
+            )}
+            {tool.has_desktop_app && (
+              <Pressable
+                onClick={() => onUpdate("desktop")}
+                className={primaryButton}
+                title="更新桌面端"
+              >
+                <RefreshCw size={14} />
+                更新桌面端
               </Pressable>
             )}
           </>
@@ -313,11 +315,11 @@ const ToolCard: React.FC<{
               if (singleDownloadOnly) {
                 return (
                   <Pressable
-                    onClick={() => openUrl(downloadMethod!.url || tool.homepage).catch(console.error)}
+                    onClick={onOpenDownload}
                     className={primaryButton}
                   >
                     <ExternalLink size={12} />
-                    下载安装
+                    {switchingEdition ? "切换版本" : tool.edition_unknown ? "重新安装" : "下载安装"}
                   </Pressable>
                 );
               }
@@ -675,6 +677,23 @@ const ToolManagerPanel: React.FC = () => {
     updateMutation.mutate({ appType, updateKind });
   };
 
+  const handleOpenDownload = (tool: { app_type: string; name: string; homepage: string }, switchingEdition: boolean) => {
+    if (!switchingEdition) {
+      openUrl(tool.homepage).catch((e) => toast.error(`打开下载页面失败: ${e}`));
+      return;
+    }
+    setConfirmDialog({
+      open: true,
+      title: "确认切换 WorkBuddy 版本",
+      message: `安装 ${tool.name} 会替换当前已安装的 WorkBuddy 版本，但不会删除共享的 ~/.workbuddy 配置、MCP 或 Skills 数据。`,
+      confirmText: "打开下载页面",
+      onConfirm: () => {
+        setConfirmDialog(null);
+        openUrl(tool.homepage).catch((e) => toast.error(`打开下载页面失败: ${e}`));
+      },
+    });
+  };
+
   const handleLaunch = async (appType: string, launchKind: "cli" | "desktop") => {
     try {
       await agentApi.launchAgent(appType, undefined, launchKind);
@@ -828,24 +847,35 @@ const ToolManagerPanel: React.FC = () => {
           </div>
         ) : (
           <MotionList className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            {visibleTools.map((tool) => (
-              <MotionListItem key={tool.app_type}>
-              <ToolCard
-                tool={tool}
-                onInstall={(methodIndex, needsConfirm, command) =>
-                  handleInstall(tool.app_type, methodIndex, needsConfirm, command)
-                }
-                onUpdate={(updateKind) => handleUpdate(tool.app_type, updateKind)}
-                onScan={() => scanMutation.mutate(tool.app_type)}
-                onLaunch={(launchKind) => handleLaunch(tool.app_type, launchKind)}
-                onDelete={() => handleDelete(tool.app_type, tool.name)}
-                installing={installingTool === tool.app_type}
-                updating={updatingTools.has(tool.app_type)}
-                scanning={scanningTool === tool.app_type}
-                deleting={deletingTool === tool.app_type}
-              />
-              </MotionListItem>
-            ))}
+            {visibleTools.map((tool) => {
+              const otherWorkBuddyId = tool.app_type === "workbuddy"
+                ? "workbuddy-cn"
+                : tool.app_type === "workbuddy-cn"
+                  ? "workbuddy"
+                  : null;
+              const switchingEdition = otherWorkBuddyId !== null
+                && Boolean(tools?.find((candidate) => candidate.app_type === otherWorkBuddyId)?.installed);
+              return (
+                <MotionListItem key={tool.app_type}>
+                  <ToolCard
+                    tool={tool}
+                    onInstall={(methodIndex, needsConfirm, command) =>
+                      handleInstall(tool.app_type, methodIndex, needsConfirm, command)
+                    }
+                    onUpdate={(updateKind) => handleUpdate(tool.app_type, updateKind)}
+                    onScan={() => scanMutation.mutate(tool.app_type)}
+                    onLaunch={(launchKind) => handleLaunch(tool.app_type, launchKind)}
+                    onDelete={() => handleDelete(tool.app_type, tool.name)}
+                    onOpenDownload={() => handleOpenDownload(tool, switchingEdition)}
+                    switchingEdition={switchingEdition}
+                    installing={installingTool === tool.app_type}
+                    updating={updatingTools.has(tool.app_type)}
+                    scanning={scanningTool === tool.app_type}
+                    deleting={deletingTool === tool.app_type}
+                  />
+                </MotionListItem>
+              );
+            })}
           </MotionList>
         )}
       </div>

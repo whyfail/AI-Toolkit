@@ -1,6 +1,6 @@
 /**
  * 统一工具定义
- * 所有模块共享这套工具定义，与 README 支持的 14 种工具保持一致
+ * 所有模块共享这套工具定义，与 README 支持的 16 种工具保持一致
  */
 
 // 工具 ID 类型（使用 kebab-case，与 AppType serde 名一致）
@@ -18,7 +18,9 @@ export type ToolId =
   | 'qodercli'
   | 'codebuddy'
   | 'hermes'
-  | 'mimo-code';
+  | 'mimo-code'
+  | 'workbuddy'
+  | 'workbuddy-cn';
 
 // 工具元数据
 export interface ToolMeta {
@@ -159,6 +161,24 @@ export const SUPPORTED_TOOLS: ToolMeta[] = [
     binaryName: 'mimo',
     docsUrl: 'https://mimo.xiaomi.com/mimocode/install',
   },
+  {
+    id: 'workbuddy',
+    name: 'workbuddy',
+    displayName: 'WorkBuddy',
+    skillsDir: '.workbuddy/skills',
+    detectDir: '.workbuddy',
+    binaryName: 'workbuddy',
+    docsUrl: 'https://www.workbuddy.ai/',
+  },
+  {
+    id: 'workbuddy-cn',
+    name: 'workbuddy-cn',
+    displayName: 'WorkBuddy CN',
+    skillsDir: '.workbuddy/skills',
+    detectDir: '.workbuddy',
+    binaryName: 'workbuddy',
+    docsUrl: 'https://www.workbuddy.cn/',
+  },
 ];
 
 // 工具颜色映射
@@ -177,6 +197,8 @@ export const APP_COLORS: Record<ToolId, string> = {
   'codebuddy': 'bg-red-500',
   'hermes': 'bg-teal-500',
   'mimo-code': 'bg-rose-500',
+  'workbuddy': 'bg-lime-600',
+  'workbuddy-cn': 'bg-pink-500',
 };
 
 // 根据 ID 获取工具元数据
@@ -191,7 +213,8 @@ export function getToolMetaByBinary(binaryName: string): ToolMeta | undefined {
 
 // 获取所有可启动的工具（具有 CLI 命令）
 export const LAUNCHABLE_TOOLS: ToolId[] = [
-  'qwen-code', 'claude', 'codex', 'gemini', 'opencode', 'qodercli', 'codebuddy', 'hermes', 'mimo-code'
+  'qwen-code', 'claude', 'codex', 'gemini', 'opencode', 'qodercli', 'codebuddy', 'hermes', 'mimo-code',
+  'workbuddy', 'workbuddy-cn'
 ];
 
 // 判断工具是否可启动

@@ -42,6 +42,4 @@ uuid = { version = "1", features = ["v4"] }
 futures = "0.3"
 junction = "0.2"
 zip = "2"
-
-[dev-dependencies]
 tempfile = "3"

@@ -31,6 +31,10 @@ pub enum AppType {
     Hermes,
     #[serde(rename = "mimo-code")]
     MimoCode,
+    #[serde(rename = "workbuddy")]
+    WorkBuddy,
+    #[serde(rename = "workbuddy-cn")]
+    WorkBuddyCn,
 }
 
 /// 安装方式
@@ -109,6 +113,8 @@ impl AppType {
             Self::CodeBuddy,
             Self::Hermes,
             Self::MimoCode,
+            Self::WorkBuddy,
+            Self::WorkBuddyCn,
         ]
     }
 
@@ -128,6 +134,8 @@ impl AppType {
             Self::CodeBuddy => "codebuddy",
             Self::Hermes => "hermes",
             Self::MimoCode => "mimo-code",
+            Self::WorkBuddy => "workbuddy",
+            Self::WorkBuddyCn => "workbuddy-cn",
         }
     }
 
@@ -296,6 +304,24 @@ impl AppType {
                 version_cmd: "mimo --version".into(),
                 homepage: "https://mimo.xiaomi.com/zh/mimocode/start".into(),
             }),
+            Self::WorkBuddy => Some(InstallInfo {
+                name: "WorkBuddy".into(),
+                methods: vec![InstallMethod::Download {
+                    url: "https://www.workbuddy.ai/".into(),
+                }],
+                update_cmd: String::new(),
+                version_cmd: String::new(),
+                homepage: "https://www.workbuddy.ai/".into(),
+            }),
+            Self::WorkBuddyCn => Some(InstallInfo {
+                name: "WorkBuddy CN".into(),
+                methods: vec![InstallMethod::Download {
+                    url: "https://www.workbuddy.cn/".into(),
+                }],
+                update_cmd: String::new(),
+                version_cmd: String::new(),
+                homepage: "https://www.workbuddy.cn/".into(),
+            }),
         }
     }
 }
@@ -319,6 +345,8 @@ impl std::str::FromStr for AppType {
             "codebuddy" => Ok(Self::CodeBuddy),
             "hermes" => Ok(Self::Hermes),
             "mimo-code" => Ok(Self::MimoCode),
+            "workbuddy" => Ok(Self::WorkBuddy),
+            "workbuddy-cn" => Ok(Self::WorkBuddyCn),
             _ => Err(format!("Unknown app type: {}", s)),
         }
     }

@@ -74,6 +74,7 @@ impl Database {
                 enabled_codebuddy BOOLEAN DEFAULT FALSE,
                 enabled_hermes BOOLEAN DEFAULT FALSE,
                 enabled_mimo_code BOOLEAN DEFAULT FALSE,
+                enabled_workbuddy BOOLEAN DEFAULT FALSE,
                 created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
                 updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
             );
@@ -158,6 +159,10 @@ impl Database {
             [],
         );
         let _ = conn.execute(
+            "ALTER TABLE mcp_servers ADD COLUMN enabled_workbuddy BOOLEAN DEFAULT FALSE",
+            [],
+        );
+        let _ = conn.execute(
             "ALTER TABLE managed_skills ADD COLUMN source_subpath TEXT",
             [],
         );
@@ -210,4 +215,100 @@ macro_rules! lock_conn {
     ($conn:expr) => {
         $conn.lock()
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mcp::AppType;
+    use parking_lot::Mutex;
+    use rusqlite::Connection;
+    use std::sync::Arc;
+
+    fn in_memory_database() -> Database {
+        let db = Database {
+            conn: Arc::new(Mutex::new(
+                Connection::open_in_memory().expect("open database"),
+            )),
+        };
+        db.init_schema().expect("initialize schema");
+        db
+    }
+
+    #[test]
+    fn migrates_existing_mcp_table_with_shared_workbuddy_column() {
+        let connection = Connection::open_in_memory().expect("open database");
+        connection
+            .execute_batch(
+                "CREATE TABLE mcp_servers (
+                    id TEXT PRIMARY KEY, name TEXT NOT NULL, server_config TEXT NOT NULL,
+                    description TEXT, homepage TEXT, docs TEXT, tags TEXT DEFAULT '[]',
+                    enabled_qwen_code BOOLEAN DEFAULT FALSE,
+                    enabled_claude BOOLEAN DEFAULT FALSE, enabled_codex BOOLEAN DEFAULT FALSE,
+                    enabled_gemini BOOLEAN DEFAULT FALSE, enabled_opencode BOOLEAN DEFAULT FALSE,
+                    enabled_trae BOOLEAN DEFAULT FALSE, enabled_trae_cn BOOLEAN DEFAULT FALSE,
+                    enabled_trae_work BOOLEAN DEFAULT FALSE, enabled_trae_solo_cn BOOLEAN DEFAULT FALSE,
+                    enabled_qoder BOOLEAN DEFAULT FALSE, enabled_qodercli BOOLEAN DEFAULT FALSE,
+                    enabled_codebuddy BOOLEAN DEFAULT FALSE, enabled_hermes BOOLEAN DEFAULT FALSE,
+                    enabled_mimo_code BOOLEAN DEFAULT FALSE,
+                    created_at INTEGER DEFAULT 0, updated_at INTEGER DEFAULT 0
+                );
+                INSERT INTO mcp_servers (id, name, server_config, enabled_codex)
+                VALUES ('existing', 'Existing', '{}', TRUE);",
+            )
+            .expect("create old schema");
+        let db = Database {
+            conn: Arc::new(Mutex::new(connection)),
+        };
+
+        db.init_schema().expect("migrate schema");
+
+        let conn = db.conn.lock();
+        let workbuddy_enabled: bool = conn
+            .query_row(
+                "SELECT enabled_workbuddy FROM mcp_servers WHERE id = 'existing'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read migrated column");
+        let codex_enabled: bool = conn
+            .query_row(
+                "SELECT enabled_codex FROM mcp_servers WHERE id = 'existing'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read existing state");
+        assert!(!workbuddy_enabled);
+        assert!(codex_enabled);
+    }
+
+    #[test]
+    fn persists_workbuddy_aliases_as_one_shared_switch() {
+        let db = in_memory_database();
+        let mut apps = McpApps::default();
+        apps.set_enabled_for(&AppType::WorkBuddyCn, true);
+        let server = McpServer {
+            id: "shared".to_string(),
+            name: "Shared".to_string(),
+            server: McpServerSpec::default(),
+            apps,
+            description: None,
+            homepage: None,
+            docs: None,
+            tags: vec![],
+        };
+
+        db.save_mcp_server(&server).expect("save server");
+        let saved = db
+            .get_all_mcp_servers()
+            .expect("load servers")
+            .swap_remove("shared")
+            .expect("shared server");
+        assert!(saved.apps.workbuddy);
+        assert!(saved.apps.workbuddy_cn);
+
+        let mut disabled = saved;
+        disabled.apps.set_enabled_for(&AppType::WorkBuddy, false);
+        assert!(!disabled.apps.is_enabled_for(&AppType::WorkBuddyCn));
+    }
 }

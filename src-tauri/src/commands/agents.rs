@@ -16,7 +16,7 @@ use std::process::Command;
 #[cfg(target_os = "macos")]
 use std::{fs, os::unix::fs::PermissionsExt};
 
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 fn powershell_escape_single_quoted(input: &str) -> String {
     input.replace('\'', "''")
 }
@@ -427,6 +427,7 @@ fn get_agent_launch_command(app: &AppType) -> Option<String> {
         AppType::CodeBuddy => Some("codebuddy".to_string()),
         AppType::Hermes => Some("hermes".to_string()),
         AppType::MimoCode => Some("mimo".to_string()),
+        AppType::WorkBuddy | AppType::WorkBuddyCn => None,
     }
 }
 
@@ -442,7 +443,10 @@ fn launch_desktop_agent(app_type: &AppType) -> Result<bool, String> {
     {
         for app_name in crate::services::tool_manager::mac_app_names(app_type) {
             let app_path = format!("/Applications/{}", app_name);
-            if std::path::Path::new(&app_path).exists() {
+            if std::path::Path::new(&app_path).exists()
+                && (!matches!(app_type, AppType::WorkBuddy | AppType::WorkBuddyCn)
+                    || crate::services::tool_manager::is_app_installed_mac(app_type))
+            {
                 Command::new("open")
                     .suppress_console()
                     .arg(&app_path)
@@ -473,6 +477,23 @@ fn launch_desktop_agent(app_type: &AppType) -> Result<bool, String> {
     }
 
     Ok(false)
+}
+
+#[cfg(test)]
+mod workbuddy_launch_tests {
+    use super::powershell_escape_single_quoted;
+
+    #[test]
+    fn escapes_spaces_and_apostrophes_for_start_process_file_path() {
+        let path = r"C:\Program Files\O'Brien\WorkBuddy.exe";
+        assert_eq!(
+            format!(
+                "Start-Process -FilePath '{}'",
+                powershell_escape_single_quoted(path)
+            ),
+            r"Start-Process -FilePath 'C:\Program Files\O''Brien\WorkBuddy.exe'"
+        );
+    }
 }
 
 /// 启动 Agent 工具（打开默认终端并运行命令）

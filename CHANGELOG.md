@@ -1,5 +1,15 @@
 # Changelog
 
+## 未发布
+
+### 新功能
+
+- **WorkBuddy 跨平台接入**：新增 WorkBuddy 国际版与国内版工具卡，支持 macOS 和 Windows 的 edition 识别、桌面启动、版本检测、官方更新入口、MCP 导入同步和 Skills 同步。
+
+### 改进
+
+- **WorkBuddy 共享数据保护**：两版共享 `~/.workbuddy` 配置目录、MCP 开关和 Skills 状态；同步与导入按规范化路径去重，切换 edition 时保留用户数据且不提供自动卸载。
+
 ## v1.7.1 (2026-08-12)
 
 ### 修复

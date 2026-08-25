@@ -58,6 +58,17 @@ pub fn resolve_path(path_str: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+/// Stable key for deduplicating paths that may be spelled differently.
+pub fn normalized_path_key(path: &Path) -> String {
+    let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let key = resolved.to_string_lossy().replace('\\', "/");
+    if cfg!(windows) {
+        key.to_ascii_lowercase()
+    } else {
+        key
+    }
+}
+
 /// 获取指定 Agent 工具的配置文件路径列表
 pub fn get_agent_config_paths(app: &AppType) -> Vec<PathBuf> {
     let paths: Vec<&str> = match app {
@@ -167,6 +178,13 @@ pub fn get_agent_config_paths(app: &AppType) -> Vec<PathBuf> {
                 ]
             }
         }
+        AppType::WorkBuddy | AppType::WorkBuddyCn => {
+            if cfg!(windows) {
+                vec!["%USERPROFILE%\\.workbuddy\\.mcp.json"]
+            } else {
+                vec!["~/.workbuddy/.mcp.json"]
+            }
+        }
     };
     paths.iter().map(|p| resolve_path(p)).collect()
 }
@@ -188,6 +206,8 @@ pub fn get_agent_name(app: &AppType) -> String {
         AppType::CodeBuddy => "CodeBuddy CN CLI".to_string(),
         AppType::Hermes => "Hermes Agent".to_string(),
         AppType::MimoCode => "Mimo Code".to_string(),
+        AppType::WorkBuddy => "WorkBuddy".to_string(),
+        AppType::WorkBuddyCn => "WorkBuddy CN".to_string(),
     }
 }
 
@@ -286,6 +306,13 @@ pub fn get_agent_detect_dir(app: &AppType) -> Option<PathBuf> {
                 "~/.config/mimocode"
             }
         }
+        AppType::WorkBuddy | AppType::WorkBuddyCn => {
+            if cfg!(windows) {
+                "%USERPROFILE%\\.workbuddy"
+            } else {
+                "~/.workbuddy"
+            }
+        }
     };
     Some(resolve_path(path_str))
 }
@@ -307,6 +334,7 @@ fn get_agent_binary_name(app: &AppType) -> &'static str {
         AppType::CodeBuddy => "codebuddy",
         AppType::Hermes => "hermes",
         AppType::MimoCode => "mimo",
+        AppType::WorkBuddy | AppType::WorkBuddyCn => "workbuddy",
     }
 }
 
@@ -316,7 +344,9 @@ fn is_agent_installed(app: &AppType) -> bool {
     let binary_name = get_agent_binary_name(app);
 
     // Primary: binary 检测（CLI 工具卸载后 binary 会被移除，最可靠的判断依据）
-    if which_binary(binary_name).is_some() {
+    if !matches!(app, AppType::WorkBuddy | AppType::WorkBuddyCn)
+        && which_binary(binary_name).is_some()
+    {
         return true;
     }
 

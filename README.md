@@ -17,7 +17,7 @@ AI Toolkit是一款**通用的 AI 编程工具管理工具**，支持统一管�
 ## ✨ 核心特性
 
 ### 🎯 MCP 服务器管理
-- 支持 **14 种** 主流 AI 编程工具：Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, TRAE IDE, TRAE IDE CN, TRAE Work, TRAE Work CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent, Mimo Code
+- 支持 **16 种** 主流 AI 编程工具：Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, TRAE IDE, TRAE IDE CN, TRAE Work, TRAE Work CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent, Mimo Code, WorkBuddy, WorkBuddy CN
 - 在单一界面中添加、编辑、删除 MCP 服务器
 - 自动检测系统中已安装的 AI 工具，新工具发现时弹窗提示
 - 切换开关**实时同步**到对应工具的配置文件
@@ -135,6 +135,10 @@ cp -R /Volumes/AI\ Toolkit/AI\ Toolkit.app /Applications/
 | CodeBuddy | `~/.codebuddy/mcp.json` |
 | Hermes Agent | `~/.hermes/config.yaml` |
 | Mimo Code | `~/.config/mimocode/mimocode.json` |
+| WorkBuddy（国际版） | `~/.workbuddy/.mcp.json` |
+| WorkBuddy CN（国内版） | `~/.workbuddy/.mcp.json` |
+
+WorkBuddy 国际版与国内版共享应用名及 `~/.workbuddy` 配置、MCP 和 Skills 目录，不能同时安装；安装另一版本会替换当前应用，但不会删除共享数据。Windows 对应路径为 `%USERPROFILE%\.workbuddy\.mcp.json` 和 `%USERPROFILE%\.workbuddy\skills\`。
 
 ## 🛠️ 技术栈
 

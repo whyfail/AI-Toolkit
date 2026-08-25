@@ -66,6 +66,8 @@ export const SUPPORTED_APPS: Array<{ id: string; name: string; icon: string }> =
   { id: "codebuddy", name: "CodeBuddy CN CLI", icon: "codebuddy" },
   { id: "hermes", name: "Hermes Agent", icon: "hermes" },
   { id: "mimo-code", name: "Mimo Code", icon: "mimo-code" },
+  { id: "workbuddy", name: "WorkBuddy", icon: "workbuddy" },
+  { id: "workbuddy-cn", name: "WorkBuddy CN", icon: "workbuddy-cn" },
 ];
 
 // 工具安装方式
@@ -94,6 +96,7 @@ export interface ToolInfo {
   detected_method: string | null;
   methods: ToolMethodInfo[];
   homepage: string;
+  edition_unknown: boolean;
 }
 
 // 安装进度

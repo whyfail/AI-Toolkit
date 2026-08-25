@@ -13,8 +13,8 @@ use crate::core::skills_search::{
 };
 use crate::database::SkillRecord;
 use crate::skill_core::tool_adapters::{
-    adapter_by_key, default_tool_adapters, get_all_tool_status, is_tool_installed,
-    resolve_default_path, scan_tool_dir, ToolStatus,
+    adapter_by_key, allows_skills_dir_install_fallback, default_tool_adapters, get_all_tool_status,
+    is_tool_installed, resolve_default_path, scan_tool_dir, ToolStatus,
 };
 use crate::utils::SuppressConsole;
 use serde::Serialize;
@@ -206,7 +206,9 @@ pub async fn get_managed_skills(state: State<'_, AppState>) -> Result<Vec<Manage
         .filter_map(|tool| {
             let skills_dir = resolve_default_path(tool).ok()?;
             // 只要 binary 存在或 skills 目录存在，就认为工具已安装
-            if is_tool_installed(tool) || skills_dir.exists() {
+            if is_tool_installed(tool)
+                || (allows_skills_dir_install_fallback(tool) && skills_dir.exists())
+            {
                 Some(InstalledToolInfo {
                     tool_id: tool.id.as_key().to_string(),
                     skills_dir,
@@ -359,13 +361,15 @@ pub async fn preview_skill_delete(
     let mut seen_paths = std::collections::HashSet::new();
     for tool in default_tool_adapters() {
         let skills_dir = resolve_default_path(&tool).map_err(|e| e.to_string())?;
-        if !is_tool_installed(&tool) && !skills_dir.exists() {
+        if !is_tool_installed(&tool)
+            && (!allows_skills_dir_install_fallback(&tool) || !skills_dir.exists())
+        {
             continue;
         }
         let target_path = skills_dir.join(&skill_name);
         let exists = target_path.exists() || target_path.symlink_metadata().is_ok();
         if exists {
-            let path_key = target_path.to_string_lossy().to_string();
+            let path_key = crate::agents::normalized_path_key(&target_path);
             if seen_paths.insert(path_key.clone()) {
                 let metadata = target_path.symlink_metadata().ok();
                 affected_paths.push(SkillDeletePreviewPath {
@@ -929,7 +933,7 @@ pub async fn delete_managed_skill(
     for tool in &all_tools {
         let skills_dir = resolve_default_path(tool).map_err(|e| e.to_string())?;
         let installed = is_tool_installed(tool);
-        if !installed && !skills_dir.exists() {
+        if !installed && (!allows_skills_dir_install_fallback(tool) || !skills_dir.exists()) {
             continue;
         }
 
@@ -937,7 +941,7 @@ pub async fn delete_managed_skill(
 
         for skill in skills {
             if skill.name == skill_name {
-                let path_key = skill.path.to_string_lossy().to_string();
+                let path_key = crate::agents::normalized_path_key(&skill.path);
                 if seen_paths.insert(path_key) {
                     paths_to_delete.push((skill.path.clone(), skill.is_link));
                 }

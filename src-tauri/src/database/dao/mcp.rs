@@ -39,6 +39,10 @@ pub struct McpApps {
     pub hermes: bool,
     #[serde(default)]
     pub mimo_code: bool,
+    #[serde(default)]
+    pub workbuddy: bool,
+    #[serde(default)]
+    pub workbuddy_cn: bool,
 }
 
 impl McpApps {
@@ -58,6 +62,7 @@ impl McpApps {
             AppType::CodeBuddy => self.codebuddy,
             AppType::Hermes => self.hermes,
             AppType::MimoCode => self.mimo_code,
+            AppType::WorkBuddy | AppType::WorkBuddyCn => self.workbuddy || self.workbuddy_cn,
         }
     }
 
@@ -77,6 +82,10 @@ impl McpApps {
             AppType::CodeBuddy => self.codebuddy = enabled,
             AppType::Hermes => self.hermes = enabled,
             AppType::MimoCode => self.mimo_code = enabled,
+            AppType::WorkBuddy | AppType::WorkBuddyCn => {
+                self.workbuddy = enabled;
+                self.workbuddy_cn = enabled;
+            }
         }
     }
 }
@@ -131,7 +140,7 @@ impl Database {
                         enabled_qwen_code, enabled_claude, enabled_codex, enabled_gemini,
                         enabled_opencode, enabled_trae, enabled_trae_cn,
                         enabled_trae_work, enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
-                        enabled_codebuddy, enabled_hermes, enabled_mimo_code
+                        enabled_codebuddy, enabled_hermes, enabled_mimo_code, enabled_workbuddy
                  FROM mcp_servers
                  ORDER BY name ASC, id ASC",
             )
@@ -160,6 +169,7 @@ impl Database {
                 let enabled_codebuddy: bool = row.get(18)?;
                 let enabled_hermes: bool = row.get(19)?;
                 let enabled_mimo_code: bool = row.get(20)?;
+                let enabled_workbuddy: bool = row.get(21)?;
 
                 let server: McpServerSpec =
                     serde_json::from_str(&server_config_str).unwrap_or_default();
@@ -186,6 +196,8 @@ impl Database {
                             codebuddy: enabled_codebuddy,
                             hermes: enabled_hermes,
                             mimo_code: enabled_mimo_code,
+                            workbuddy: enabled_workbuddy,
+                            workbuddy_cn: enabled_workbuddy,
                         },
                         description,
                         homepage,
@@ -213,8 +225,8 @@ impl Database {
                 enabled_qwen_code, enabled_claude, enabled_codex, enabled_gemini,
                 enabled_opencode, enabled_trae, enabled_trae_cn,
                 enabled_trae_work, enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
-                enabled_codebuddy, enabled_hermes, enabled_mimo_code, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
+                enabled_codebuddy, enabled_hermes, enabled_mimo_code, enabled_workbuddy, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22,
                       strftime('%s', 'now') * 1000)",
             rusqlite::params![
                 server.id,
@@ -241,6 +253,7 @@ impl Database {
                 server.apps.codebuddy,
                 server.apps.hermes,
                 server.apps.mimo_code,
+                server.apps.workbuddy || server.apps.workbuddy_cn,
             ],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-/// 支持 skills 同步的工具 ID（14 种）
+/// 支持 skills 同步的工具 ID（16 种）
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ToolId {
     ClaudeCode,
@@ -19,6 +19,8 @@ pub enum ToolId {
     CodeBuddy,
     Hermes,
     MimoCode,
+    WorkBuddy,
+    WorkBuddyCn,
 }
 
 impl serde::Serialize for ToolId {
@@ -34,7 +36,7 @@ impl serde::Serialize for ToolId {
 impl ToolId {
     pub fn as_key(&self) -> &'static str {
         match self {
-            // 支持的 14 种工具（与 README 和 AppType 保持一致）
+            // 支持的 16 种工具（与 README 和 AppType 保持一致）
             ToolId::QwenCode => "qwen-code",
             ToolId::ClaudeCode => "claude",
             ToolId::Codex => "codex",
@@ -49,6 +51,8 @@ impl ToolId {
             ToolId::CodeBuddy => "codebuddy",
             ToolId::Hermes => "hermes",
             ToolId::MimoCode => "mimo-code",
+            ToolId::WorkBuddy => "workbuddy",
+            ToolId::WorkBuddyCn => "workbuddy-cn",
         }
     }
 }
@@ -79,9 +83,10 @@ pub struct ToolStatus {
     pub skills: Vec<DetectedSkill>,
 }
 
-/// 支持的工具列表（与 README 保持一致，共 14 种）
+/// 支持的工具列表（与 README 保持一致，共 16 种）
 /// MCP 服务器管理支持的工具: Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode,
-/// Qoder, Qoder CLI, TRAE IDE, TRAE IDE CN, TRAE Work, TRAE Work CN, CodeBuddy, Hermes Agent, Mimo Code
+/// Qoder, Qoder CLI, TRAE IDE, TRAE IDE CN, TRAE Work, TRAE Work CN, CodeBuddy, Hermes Agent,
+/// Mimo Code, WorkBuddy, WorkBuddy CN
 pub fn default_tool_adapters() -> Vec<ToolAdapter> {
     vec![
         ToolAdapter {
@@ -170,6 +175,18 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".config/mimocode/skills",
             relative_detect_dir: ".config/mimocode",
         },
+        ToolAdapter {
+            id: ToolId::WorkBuddy,
+            display_name: "WorkBuddy",
+            relative_skills_dir: ".workbuddy/skills",
+            relative_detect_dir: ".workbuddy",
+        },
+        ToolAdapter {
+            id: ToolId::WorkBuddyCn,
+            display_name: "WorkBuddy CN",
+            relative_skills_dir: ".workbuddy/skills",
+            relative_detect_dir: ".workbuddy",
+        },
     ]
 }
 
@@ -244,7 +261,7 @@ pub fn resolve_detect_path(adapter: &ToolAdapter) -> Result<PathBuf> {
     Ok(home.join(adapter.relative_detect_dir))
 }
 
-/// 获取 ToolId 对应的 CLI binary 名称（仅支持 skills 模块的 14 种工具）
+/// 获取 ToolId 对应的 CLI binary 名称（仅支持 skills 模块的 16 种工具）
 fn get_tool_binary_name(id: &ToolId) -> &'static str {
     match id {
         ToolId::ClaudeCode => "claude",
@@ -261,11 +278,15 @@ fn get_tool_binary_name(id: &ToolId) -> &'static str {
         ToolId::CodeBuddy => "codebuddy",
         ToolId::Hermes => "hermes",
         ToolId::MimoCode => "mimo",
+        ToolId::WorkBuddy | ToolId::WorkBuddyCn => "workbuddy",
     }
 }
 
 /// 使用 which_binary 检测工具是否已安装
 pub fn is_tool_installed_by_binary(id: &ToolId) -> bool {
+    if matches!(id, ToolId::WorkBuddy | ToolId::WorkBuddyCn) {
+        return false;
+    }
     use crate::services::tool_manager::which_binary;
     let binary_name = get_tool_binary_name(id);
     which_binary(binary_name).is_some()
@@ -288,6 +309,8 @@ pub fn is_tool_installed(adapter: &ToolAdapter) -> bool {
             ToolId::TraeWork => Some(crate::mcp::AppType::TraeWork),
             ToolId::TraeSoloCn => Some(crate::mcp::AppType::TraeSoloCn),
             ToolId::Qoder => Some(crate::mcp::AppType::Qoder),
+            ToolId::WorkBuddy => Some(crate::mcp::AppType::WorkBuddy),
+            ToolId::WorkBuddyCn => Some(crate::mcp::AppType::WorkBuddyCn),
             _ => None,
         };
         if let Some(app) = app {
@@ -307,6 +330,8 @@ pub fn is_tool_installed(adapter: &ToolAdapter) -> bool {
             ToolId::TraeWork => Some(crate::mcp::AppType::TraeWork),
             ToolId::TraeSoloCn => Some(crate::mcp::AppType::TraeSoloCn),
             ToolId::Qoder => Some(crate::mcp::AppType::Qoder),
+            ToolId::WorkBuddy => Some(crate::mcp::AppType::WorkBuddy),
+            ToolId::WorkBuddyCn => Some(crate::mcp::AppType::WorkBuddyCn),
             _ => None,
         };
         if let Some(app) = app {
@@ -321,6 +346,10 @@ pub fn is_tool_installed(adapter: &ToolAdapter) -> bool {
     // 对于纯 GUI 应用（Trae/TraeCn/Qoder），通过 /Applications/*.app 检测已足够
 
     false
+}
+
+pub fn allows_skills_dir_install_fallback(adapter: &ToolAdapter) -> bool {
+    !matches!(adapter.id, ToolId::WorkBuddy | ToolId::WorkBuddyCn)
 }
 
 pub fn scan_tool_dir(tool: &ToolAdapter, dir: &Path) -> Result<Vec<DetectedSkill>> {
@@ -399,4 +428,33 @@ pub fn get_all_tool_status() -> Result<Vec<ToolStatus>> {
     }
 
     Ok(tool_statuses)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workbuddy_editions_share_skills_directory_and_not_installation_fallback() {
+        let international = adapter_by_key("workbuddy").expect("international adapter");
+        let china = adapter_by_key("workbuddy-cn").expect("China adapter");
+
+        assert_eq!(international.relative_skills_dir, ".workbuddy/skills");
+        assert_eq!(china.relative_skills_dir, ".workbuddy/skills");
+        assert_eq!(
+            resolve_default_path(&international).expect("international path"),
+            resolve_default_path(&china).expect("China path")
+        );
+        assert!(!allows_skills_dir_install_fallback(&international));
+        assert!(!allows_skills_dir_install_fallback(&china));
+    }
+
+    #[test]
+    fn workbuddy_shared_directory_group_contains_both_editions() {
+        let international = adapter_by_key("workbuddy").expect("international adapter");
+        let shared = adapters_sharing_skills_dir(&international);
+        let ids: Vec<&str> = shared.iter().map(|adapter| adapter.id.as_key()).collect();
+        assert!(ids.contains(&"workbuddy"));
+        assert!(ids.contains(&"workbuddy-cn"));
+    }
 }

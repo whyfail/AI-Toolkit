@@ -27,6 +27,7 @@ pub struct ToolInfo {
     pub detected_method: Option<String>,
     pub methods: Vec<ToolMethodInfo>,
     pub homepage: String,
+    pub edition_unknown: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

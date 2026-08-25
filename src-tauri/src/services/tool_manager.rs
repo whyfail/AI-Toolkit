@@ -1,6 +1,7 @@
 use crate::mcp::{AppType, InstallMethod};
 use crate::utils::SuppressConsole;
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,6 +29,139 @@ impl InstallMethodType {
 
 pub struct ToolManagerService;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkBuddyEdition {
+    International,
+    China,
+}
+
+fn expected_workbuddy_edition(app: &AppType) -> Option<WorkBuddyEdition> {
+    match app {
+        AppType::WorkBuddy => Some(WorkBuddyEdition::International),
+        AppType::WorkBuddyCn => Some(WorkBuddyEdition::China),
+        _ => None,
+    }
+}
+
+fn detect_workbuddy_edition(content: &str) -> Option<WorkBuddyEdition> {
+    let normalized = content.to_ascii_lowercase();
+    let international = normalized.contains("workbuddy.ai");
+    let china = normalized.contains("workbuddy.cn");
+    match (international, china) {
+        (true, false) => Some(WorkBuddyEdition::International),
+        (false, true) => Some(WorkBuddyEdition::China),
+        _ => None,
+    }
+}
+
+fn workbuddy_product_path(executable: &Path) -> Option<PathBuf> {
+    let install_dir = executable.parent()?;
+    let resources_dir = if install_dir.file_name().and_then(|name| name.to_str()) == Some("MacOS") {
+        install_dir.parent()?.join("Resources")
+    } else {
+        install_dir.join("resources")
+    };
+    Some(
+        resources_dir
+            .join("app.asar.unpacked")
+            .join("cli")
+            .join("product.json"),
+    )
+}
+
+fn workbuddy_edition_matches(app: &AppType, executable: &Path) -> bool {
+    let Some(expected) = expected_workbuddy_edition(app) else {
+        return false;
+    };
+    let Some(product_path) = workbuddy_product_path(executable) else {
+        return false;
+    };
+    let Ok(content) = std::fs::read_to_string(product_path) else {
+        return false;
+    };
+    detect_workbuddy_edition(&content) == Some(expected)
+}
+
+fn workbuddy_windows_candidates(
+    local_appdata: Option<&Path>,
+    program_files: Option<&Path>,
+    program_files_x86: Option<&Path>,
+) -> Vec<PathBuf> {
+    [
+        local_appdata.map(|base| {
+            base.join("Programs")
+                .join("WorkBuddy")
+                .join("WorkBuddy.exe")
+        }),
+        local_appdata.map(|base| base.join("WorkBuddy").join("WorkBuddy.exe")),
+        program_files.map(|base| base.join("WorkBuddy").join("WorkBuddy.exe")),
+        program_files_x86.map(|base| base.join("WorkBuddy").join("WorkBuddy.exe")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn workbuddy_installation_is_unknown() -> bool {
+    let executable = Path::new("/Applications/WorkBuddy.app/Contents/MacOS/Electron");
+    executable.exists()
+        && workbuddy_product_path(executable)
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .and_then(|content| detect_workbuddy_edition(&content))
+            .is_none()
+}
+
+#[cfg(target_os = "windows")]
+fn workbuddy_installation_is_unknown() -> bool {
+    let Some(executable) = workbuddy_windows_candidates_from_env()
+        .into_iter()
+        .find(|path| path.exists())
+    else {
+        return false;
+    };
+    workbuddy_product_path(&executable)
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|content| detect_workbuddy_edition(&content))
+        .is_none()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn workbuddy_installation_is_unknown() -> bool {
+    false
+}
+
+fn workbuddy_update_platform(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
+        ("macos", "aarch64") => Some("workbuddy-darwin-arm64"),
+        ("macos", "x86_64") => Some("workbuddy-darwin-x64"),
+        ("windows", _) => Some("workbuddy-win32-x64-user"),
+        _ => None,
+    }
+}
+
+fn workbuddy_update_origin(app: &AppType) -> Option<&'static str> {
+    match app {
+        AppType::WorkBuddy => Some("https://www.workbuddy.ai"),
+        AppType::WorkBuddyCn => Some("https://www.workbuddy.cn"),
+        _ => None,
+    }
+}
+
+fn normalize_workbuddy_version(version: &str) -> Option<String> {
+    let parts: Vec<&str> = version
+        .trim()
+        .split('.')
+        .take(3)
+        .filter(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+        .collect();
+    (parts.len() == 3).then(|| parts.join("."))
+}
+
+fn powershell_escape_single_quoted(input: &str) -> String {
+    input.replace('\'', "''")
+}
+
 fn get_binary_name(app: &AppType) -> String {
     match app {
         AppType::Trae => "trae".into(),
@@ -38,6 +172,7 @@ fn get_binary_name(app: &AppType) -> String {
         AppType::Claude => "claude".into(),
         AppType::Hermes => "hermes".into(),
         AppType::MimoCode => "mimo".into(),
+        AppType::WorkBuddy | AppType::WorkBuddyCn => "workbuddy".into(),
         _ => app.name().to_lowercase(),
     }
 }
@@ -52,6 +187,7 @@ pub fn mac_app_names(app: &AppType) -> &'static [&'static str] {
         AppType::TraeWork => &["TRAE Work.app"],
         AppType::TraeSoloCn => &["TRAE Work CN.app", "TRAE SOLO CN.app"],
         AppType::Qoder => &["Qoder.app"],
+        AppType::WorkBuddy | AppType::WorkBuddyCn => &["WorkBuddy.app"],
         _ => &[],
     }
 }
@@ -61,9 +197,13 @@ pub fn mac_app_name(app: &AppType) -> Option<&'static str> {
 }
 
 pub fn is_app_installed_mac(app: &AppType) -> bool {
+    if expected_workbuddy_edition(app).is_some() {
+        let executable = Path::new("/Applications/WorkBuddy.app/Contents/MacOS/Electron");
+        return executable.exists() && workbuddy_edition_matches(app, executable);
+    }
     mac_app_names(app)
         .iter()
-        .any(|app_name| std::path::Path::new(&format!("/Applications/{}", app_name)).exists())
+        .any(|app_name| Path::new(&format!("/Applications/{}", app_name)).exists())
 }
 
 pub fn is_app_installed_windows(app: &AppType) -> bool {
@@ -77,6 +217,12 @@ pub fn find_app_executable_windows(app: &AppType) -> Option<std::path::PathBuf> 
     if !cfg!(windows) {
         return None;
     }
+    if expected_workbuddy_edition(app).is_some() {
+        return workbuddy_windows_candidates_from_env()
+            .into_iter()
+            .find(|path| path.exists() && workbuddy_edition_matches(app, path));
+    }
+
     let candidates: &[&str] = match app {
         AppType::Claude => &["Claude.exe", "Claude Code.exe", "ClaudeCode.exe"],
         AppType::Codex => &["Codex.exe", "OpenAI Codex.exe", "OpenAICodex.exe"],
@@ -152,9 +298,15 @@ pub fn find_app_executable_windows(app: &AppType) -> Option<std::path::PathBuf> 
     None
 }
 
-#[cfg(target_os = "windows")]
-fn powershell_escape_single_quoted(input: &str) -> String {
-    input.replace('\'', "''")
+fn workbuddy_windows_candidates_from_env() -> Vec<PathBuf> {
+    let local_appdata = std::env::var("LOCALAPPDATA").ok().map(PathBuf::from);
+    let program_files = std::env::var("ProgramFiles").ok().map(PathBuf::from);
+    let program_files_x86 = std::env::var("ProgramFiles(x86)").ok().map(PathBuf::from);
+    workbuddy_windows_candidates(
+        local_appdata.as_deref(),
+        program_files.as_deref(),
+        program_files_x86.as_deref(),
+    )
 }
 
 fn ensure_npm_path_in_shell_config() -> Result<(), String> {
@@ -596,6 +748,9 @@ fn npm_list_global(package: &str) -> Option<bool> {
 
 impl ToolManagerService {
     pub fn has_cli(app: &AppType) -> bool {
+        if expected_workbuddy_edition(app).is_some() {
+            return false;
+        }
         let binary_name = get_binary_name(app);
         which_binary(&binary_name).is_some()
     }
@@ -625,7 +780,12 @@ impl ToolManagerService {
     pub async fn detect_install_method(app: &AppType) -> Option<InstallMethodType> {
         if matches!(
             app,
-            AppType::Trae | AppType::TraeCn | AppType::TraeWork | AppType::TraeSoloCn
+            AppType::Trae
+                | AppType::TraeCn
+                | AppType::TraeWork
+                | AppType::TraeSoloCn
+                | AppType::WorkBuddy
+                | AppType::WorkBuddyCn
         ) {
             return None;
         }
@@ -866,7 +1026,11 @@ impl ToolManagerService {
                 if output.status.success() {
                     let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     if !version.is_empty() {
-                        return Some(version);
+                        return if expected_workbuddy_edition(app).is_some() {
+                            normalize_workbuddy_version(&version)
+                        } else {
+                            Some(version)
+                        };
                     }
                 }
             }
@@ -891,7 +1055,11 @@ impl ToolManagerService {
             if output.status.success() {
                 let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 if !version.is_empty() {
-                    return Some(version);
+                    return if expected_workbuddy_edition(app).is_some() {
+                        normalize_workbuddy_version(&version)
+                    } else {
+                        Some(version)
+                    };
                 }
             }
         }
@@ -900,6 +1068,24 @@ impl ToolManagerService {
     }
 
     pub async fn get_latest_version(app: &AppType) -> Option<String> {
+        if expected_workbuddy_edition(app).is_some() {
+            let platform = workbuddy_update_platform(std::env::consts::OS, std::env::consts::ARCH)?;
+            let origin = workbuddy_update_origin(app)?;
+            let response = reqwest::get(format!("{origin}/v2/update?platform={platform}"))
+                .await
+                .ok()?
+                .error_for_status()
+                .ok()?
+                .json::<serde_json::Value>()
+                .await
+                .ok()?;
+            let version = response
+                .get("productVersion")
+                .or_else(|| response.get("version"))?
+                .as_str()?;
+            return normalize_workbuddy_version(version);
+        }
+
         let install_info = app.get_install_info()?;
 
         for method in &install_info.methods {
@@ -1525,5 +1711,118 @@ pub async fn build_tool_info(app: &AppType) -> Option<crate::commands::tool_mana
         detected_method,
         methods,
         homepage: install_info.homepage,
+        edition_unknown: expected_workbuddy_edition(app).is_some()
+            && workbuddy_installation_is_unknown(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identifies_workbuddy_editions_and_rejects_unknown_or_conflicting_metadata() {
+        assert_eq!(
+            detect_workbuddy_edition(r#"{"updateUrl":"https://www.workbuddy.ai/v2/update"}"#),
+            Some(WorkBuddyEdition::International)
+        );
+        assert_eq!(
+            detect_workbuddy_edition(r#"{"updateUrl":"https://www.workbuddy.cn/v2/update"}"#),
+            Some(WorkBuddyEdition::China)
+        );
+        assert_eq!(detect_workbuddy_edition("{}"), None);
+        assert_eq!(
+            detect_workbuddy_edition("workbuddy.ai and workbuddy.cn"),
+            None
+        );
+    }
+
+    #[test]
+    fn resolves_product_json_for_macos_and_windows_install_layouts() {
+        assert_eq!(
+            workbuddy_product_path(Path::new(
+                "/Applications/WorkBuddy.app/Contents/MacOS/Electron"
+            )),
+            Some(PathBuf::from(
+                "/Applications/WorkBuddy.app/Contents/Resources/app.asar.unpacked/cli/product.json"
+            ))
+        );
+        assert_eq!(
+            workbuddy_product_path(Path::new(
+                "C:/Users/Demo User/AppData/Local/Programs/WorkBuddy/WorkBuddy.exe"
+            )),
+            Some(PathBuf::from(
+                "C:/Users/Demo User/AppData/Local/Programs/WorkBuddy/resources/app.asar.unpacked/cli/product.json"
+            ))
+        );
+    }
+
+    #[test]
+    fn builds_exact_windows_workbuddy_candidates_in_priority_order() {
+        let candidates = workbuddy_windows_candidates(
+            Some(Path::new("C:/Users/Demo User/AppData/Local")),
+            Some(Path::new("C:/Program Files")),
+            Some(Path::new("C:/Program Files (x86)")),
+        );
+        assert_eq!(
+            candidates,
+            vec![
+                PathBuf::from("C:/Users/Demo User/AppData/Local/Programs/WorkBuddy/WorkBuddy.exe"),
+                PathBuf::from("C:/Users/Demo User/AppData/Local/WorkBuddy/WorkBuddy.exe"),
+                PathBuf::from("C:/Program Files/WorkBuddy/WorkBuddy.exe"),
+                PathBuf::from("C:/Program Files (x86)/WorkBuddy/WorkBuddy.exe"),
+            ]
+        );
+    }
+
+    #[test]
+    fn maps_all_official_workbuddy_update_platforms() {
+        assert_eq!(
+            workbuddy_update_platform("macos", "aarch64"),
+            Some("workbuddy-darwin-arm64")
+        );
+        assert_eq!(
+            workbuddy_update_platform("macos", "x86_64"),
+            Some("workbuddy-darwin-x64")
+        );
+        assert_eq!(
+            workbuddy_update_platform("windows", "x86_64"),
+            Some("workbuddy-win32-x64-user")
+        );
+        assert_eq!(
+            workbuddy_update_platform("windows", "aarch64"),
+            Some("workbuddy-win32-x64-user")
+        );
+    }
+
+    #[test]
+    fn maps_workbuddy_editions_to_official_update_domains() {
+        assert_eq!(
+            workbuddy_update_origin(&AppType::WorkBuddy),
+            Some("https://www.workbuddy.ai")
+        );
+        assert_eq!(
+            workbuddy_update_origin(&AppType::WorkBuddyCn),
+            Some("https://www.workbuddy.cn")
+        );
+        assert_eq!(workbuddy_update_origin(&AppType::Codex), None);
+    }
+
+    #[test]
+    fn normalizes_official_build_version_to_product_version() {
+        assert_eq!(
+            normalize_workbuddy_version("5.4.2.36857725"),
+            Some("5.4.2".to_string())
+        );
+        assert_eq!(normalize_workbuddy_version("5.4"), None);
+        assert_eq!(normalize_workbuddy_version("5.4.beta.1"), None);
+    }
+
+    #[test]
+    fn escapes_powershell_single_quoted_paths() {
+        assert_eq!(
+            powershell_escape_single_quoted(r"C:\Users\O'Brien\Work Buddy\WorkBuddy.exe"),
+            r"C:\Users\O''Brien\Work Buddy\WorkBuddy.exe"
+        );
+    }
 }
