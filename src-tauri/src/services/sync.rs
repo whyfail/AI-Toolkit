@@ -565,13 +565,13 @@ mod tests {
     use std::collections::HashMap;
     use std::io::Write;
 
-    fn temp_file(name: &str, content: &str) -> tempfile::NamedTempFile {
+    fn temp_file(name: &str, content: &str) -> tempfile::TempPath {
         let mut file = tempfile::Builder::new()
             .prefix(name)
             .tempfile()
             .expect("create temp file");
         file.write_all(content.as_bytes()).expect("write temp file");
-        file
+        file.into_temp_path()
     }
 
     #[test]
@@ -587,6 +587,7 @@ mcp_servers:
     command: old
 "#,
         );
+        let path = file.to_path_buf();
         let server = McpServer {
             id: "demo".to_string(),
             name: "demo".to_string(),
@@ -603,9 +604,9 @@ mcp_servers:
             tags: vec![],
         };
 
-        sync_hermes_config(&file.path().to_path_buf(), &[server]).expect("sync hermes yaml");
+        sync_hermes_config(&path, &[server]).expect("sync hermes yaml");
 
-        let content = std::fs::read_to_string(file.path()).expect("read yaml");
+        let content = std::fs::read_to_string(&path).expect("read yaml");
         let yaml: serde_yaml::Value = serde_yaml::from_str(&content).expect("parse yaml");
         assert_eq!(
             yaml.get("model").and_then(|value| value.as_str()),
@@ -681,6 +682,7 @@ mcp_servers:
             "mcp-workbuddy",
             r#"{"theme":"system","mcpServers":{"old":{"command":"old"}}}"#,
         );
+        let path = file.to_path_buf();
         let server = McpServer {
             id: "remote".to_string(),
             name: "remote".to_string(),
@@ -700,10 +702,10 @@ mcp_servers:
             tags: vec![],
         };
 
-        sync_json_config(&file.path().to_path_buf(), &AppType::WorkBuddy, &[server])
+        sync_json_config(&path, &AppType::WorkBuddy, &[server])
             .expect("sync WorkBuddy config");
 
-        let content = std::fs::read_to_string(file.path()).expect("read WorkBuddy config");
+        let content = std::fs::read_to_string(&path).expect("read WorkBuddy config");
         let json: serde_json::Value = serde_json::from_str(&content).expect("parse config");
         assert_eq!(
             json.get("theme").and_then(|value| value.as_str()),
@@ -721,7 +723,7 @@ mcp_servers:
             remote.get("url").and_then(|value| value.as_str()),
             Some("https://example.com/events")
         );
-        assert!(!file.path().with_extension("tmp").exists());
+        assert!(!path.with_extension("tmp").exists());
     }
 
     #[test]
