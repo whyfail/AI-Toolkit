@@ -428,6 +428,7 @@ fn get_agent_launch_command(app: &AppType) -> Option<String> {
         AppType::Hermes => Some("hermes".to_string()),
         AppType::MimoCode => Some("mimo".to_string()),
         AppType::WorkBuddy | AppType::WorkBuddyCn => None,
+        AppType::Zcode => Some("zcode".to_string()),
     }
 }
 

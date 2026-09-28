@@ -34,6 +34,7 @@ const agentColors: Record<string, string> = {
   qodercli: "bg-amber-500",
   codebuddy: "bg-red-500",
   hermes: "bg-teal-500",
+  zcode: "bg-emerald-500",
 };
 
 const EXAMPLE_JSON = `{

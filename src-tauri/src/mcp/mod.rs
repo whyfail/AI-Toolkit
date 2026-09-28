@@ -35,6 +35,8 @@ pub enum AppType {
     WorkBuddy,
     #[serde(rename = "workbuddy-cn")]
     WorkBuddyCn,
+    #[serde(rename = "zcode")]
+    Zcode,
 }
 
 /// 安装方式
@@ -115,6 +117,7 @@ impl AppType {
             Self::MimoCode,
             Self::WorkBuddy,
             Self::WorkBuddyCn,
+            Self::Zcode,
         ]
     }
 
@@ -136,6 +139,7 @@ impl AppType {
             Self::MimoCode => "mimo-code",
             Self::WorkBuddy => "workbuddy",
             Self::WorkBuddyCn => "workbuddy-cn",
+            Self::Zcode => "zcode",
         }
     }
 
@@ -322,6 +326,15 @@ impl AppType {
                 version_cmd: String::new(),
                 homepage: "https://www.workbuddy.cn/".into(),
             }),
+            Self::Zcode => Some(InstallInfo {
+                name: "ZCode".into(),
+                methods: vec![InstallMethod::Download {
+                    url: "https://docs.z.ai".into(),
+                }],
+                update_cmd: String::new(),
+                version_cmd: "zcode --version".into(),
+                homepage: "https://docs.z.ai".into(),
+            }),
         }
     }
 }
@@ -347,6 +360,7 @@ impl std::str::FromStr for AppType {
             "mimo-code" => Ok(Self::MimoCode),
             "workbuddy" => Ok(Self::WorkBuddy),
             "workbuddy-cn" => Ok(Self::WorkBuddyCn),
+            "zcode" => Ok(Self::Zcode),
             _ => Err(format!("Unknown app type: {}", s)),
         }
     }

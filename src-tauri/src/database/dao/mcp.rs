@@ -43,6 +43,8 @@ pub struct McpApps {
     pub workbuddy: bool,
     #[serde(default)]
     pub workbuddy_cn: bool,
+    #[serde(default)]
+    pub zcode: bool,
 }
 
 impl McpApps {
@@ -63,6 +65,7 @@ impl McpApps {
             AppType::Hermes => self.hermes,
             AppType::MimoCode => self.mimo_code,
             AppType::WorkBuddy | AppType::WorkBuddyCn => self.workbuddy || self.workbuddy_cn,
+            AppType::Zcode => self.zcode,
         }
     }
 
@@ -86,6 +89,7 @@ impl McpApps {
                 self.workbuddy = enabled;
                 self.workbuddy_cn = enabled;
             }
+            AppType::Zcode => self.zcode = enabled,
         }
     }
 }
@@ -140,7 +144,8 @@ impl Database {
                         enabled_qwen_code, enabled_claude, enabled_codex, enabled_gemini,
                         enabled_opencode, enabled_trae, enabled_trae_cn,
                         enabled_trae_work, enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
-                        enabled_codebuddy, enabled_hermes, enabled_mimo_code, enabled_workbuddy
+                        enabled_codebuddy, enabled_hermes, enabled_mimo_code, enabled_workbuddy,
+                        enabled_zcode
                  FROM mcp_servers
                  ORDER BY name ASC, id ASC",
             )
@@ -170,6 +175,7 @@ impl Database {
                 let enabled_hermes: bool = row.get(19)?;
                 let enabled_mimo_code: bool = row.get(20)?;
                 let enabled_workbuddy: bool = row.get(21)?;
+                let enabled_zcode: bool = row.get(22)?;
 
                 let server: McpServerSpec =
                     serde_json::from_str(&server_config_str).unwrap_or_default();
@@ -198,6 +204,7 @@ impl Database {
                             mimo_code: enabled_mimo_code,
                             workbuddy: enabled_workbuddy,
                             workbuddy_cn: enabled_workbuddy,
+                            zcode: enabled_zcode,
                         },
                         description,
                         homepage,
@@ -225,8 +232,9 @@ impl Database {
                 enabled_qwen_code, enabled_claude, enabled_codex, enabled_gemini,
                 enabled_opencode, enabled_trae, enabled_trae_cn,
                 enabled_trae_work, enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
-                enabled_codebuddy, enabled_hermes, enabled_mimo_code, enabled_workbuddy, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22,
+                enabled_codebuddy, enabled_hermes, enabled_mimo_code, enabled_workbuddy,
+                enabled_zcode, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23,
                       strftime('%s', 'now') * 1000)",
             rusqlite::params![
                 server.id,
@@ -254,6 +262,7 @@ impl Database {
                 server.apps.hermes,
                 server.apps.mimo_code,
                 server.apps.workbuddy || server.apps.workbuddy_cn,
+                server.apps.zcode,
             ],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;

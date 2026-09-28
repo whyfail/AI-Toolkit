@@ -86,6 +86,7 @@ impl McpService {
             AppType::Hermes,
             AppType::MimoCode,
             AppType::WorkBuddy,
+            AppType::Zcode,
         ] {
             imported.extend(read_servers_from_app(app)?);
         }
@@ -111,6 +112,7 @@ fn read_servers_from_app(app: AppType) -> Result<Vec<(AppType, McpServer)>, AppE
     let servers = match app {
         AppType::Codex => import_codex_servers(&config_path)?,
         AppType::Hermes => import_hermes_servers(&config_path)?,
+        AppType::Zcode => import_zcode_servers(&config_path)?,
         _ => import_json_servers(&config_path, &app)?,
     };
 
@@ -164,6 +166,28 @@ fn import_json_servers(config_path: &Path, app: &AppType) -> Result<Vec<McpServe
                 serde_json::from_value::<McpServerSpec>(value.clone())
                     .map_err(|e| AppError::Parse(e.to_string()))?
             };
+            Ok(imported_server(id, spec))
+        })
+        .collect()
+}
+
+fn import_zcode_servers(config_path: &Path) -> Result<Vec<McpServer>, AppError> {
+    let content = fs::read_to_string(config_path)?;
+    let config: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| AppError::Parse(e.to_string()))?;
+    let Some(servers) = config
+        .get("mcp")
+        .and_then(|value| value.get("servers"))
+        .and_then(|value| value.as_object())
+    else {
+        return Ok(vec![]);
+    };
+
+    servers
+        .iter()
+        .map(|(id, value)| {
+            let spec = serde_json::from_value::<McpServerSpec>(value.clone())
+                .map_err(|e| AppError::Parse(e.to_string()))?;
             Ok(imported_server(id, spec))
         })
         .collect()

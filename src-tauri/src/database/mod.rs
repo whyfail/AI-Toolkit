@@ -75,6 +75,7 @@ impl Database {
                 enabled_hermes BOOLEAN DEFAULT FALSE,
                 enabled_mimo_code BOOLEAN DEFAULT FALSE,
                 enabled_workbuddy BOOLEAN DEFAULT FALSE,
+                enabled_zcode BOOLEAN DEFAULT FALSE,
                 created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
                 updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
             );
@@ -160,6 +161,10 @@ impl Database {
         );
         let _ = conn.execute(
             "ALTER TABLE mcp_servers ADD COLUMN enabled_workbuddy BOOLEAN DEFAULT FALSE",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE mcp_servers ADD COLUMN enabled_zcode BOOLEAN DEFAULT FALSE",
             [],
         );
         let _ = conn.execute(

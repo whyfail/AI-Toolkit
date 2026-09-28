@@ -19,6 +19,9 @@ pub fn sync_app_config(app: &AppType, servers: &[McpServer]) -> Result<(), AppEr
     if matches!(app, AppType::Hermes) {
         return sync_hermes_config(&config_path, servers);
     }
+    if matches!(app, AppType::Zcode) {
+        return sync_zcode_config(&config_path, servers);
+    }
 
     sync_json_config(&config_path, app, servers)
 }
@@ -185,6 +188,69 @@ fn build_hermes_mcp_yaml(servers: &[McpServer]) -> Result<serde_yaml::Value, App
     }
 
     Ok(serde_yaml::Value::Mapping(mcp_servers))
+}
+
+fn sync_zcode_config(path: &PathBuf, servers: &[McpServer]) -> Result<(), AppError> {
+    // 读取现有配置（保留 provider、plugins、hooks 等非 MCP 字段）
+    let mut config: serde_json::Value = if Path::new(path).exists() {
+        let content = fs::read_to_string(path).map_err(|e| {
+            AppError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            ))
+        })?;
+        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
+    } else {
+        if let Some(parent) = Path::new(path).parent() {
+            fs::create_dir_all(parent).map_err(|e| {
+                AppError::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
+            })?;
+        }
+        serde_json::json!({})
+    };
+
+    // ZCode 使用嵌套的 mcp.servers 键
+    if let Some(obj) = config.as_object_mut() {
+        let mcp = obj
+            .entry("mcp".to_string())
+            .or_insert_with(|| serde_json::json!({}));
+        if let Some(mcp_obj) = mcp.as_object_mut() {
+            mcp_obj.insert(
+                "servers".to_string(),
+                serde_json::Value::Object(build_zcode_mcp_json(servers)),
+            );
+        }
+    }
+
+    let content = serde_json::to_string_pretty(&config)
+        .map_err(|e| AppError::Serialization(e.to_string()))?;
+
+    atomic_write(path, &content)?;
+    Ok(())
+}
+
+fn build_zcode_mcp_json(servers: &[McpServer]) -> serde_json::Map<String, serde_json::Value> {
+    let mut entries = serde_json::Map::new();
+
+    for server in servers {
+        let mut entry = build_mcp_entry_json(server);
+        // ZCode 条目要求显式的 type；缺省时按形态推断（url → http，否则 stdio）
+        entry
+            .entry("type".to_string())
+            .or_insert_with(|| {
+                if server.server.url.is_some() {
+                    serde_json::Value::String("http".to_string())
+                } else {
+                    serde_json::Value::String("stdio".to_string())
+                }
+            });
+        entries.insert(server.id.clone(), serde_json::Value::Object(entry));
+    }
+
+    entries
 }
 
 fn build_mcp_entry_json(server: &McpServer) -> serde_json::Map<String, serde_json::Value> {
@@ -520,6 +586,13 @@ pub(crate) fn get_config_path_for_app(app: &AppType) -> Result<String, AppError>
                 "~/.workbuddy/.mcp.json"
             }
         }
+        AppType::Zcode => {
+            if cfg!(windows) {
+                "%USERPROFILE%\\.zcode\\cli\\config.json"
+            } else {
+                "~/.zcode/cli/config.json"
+            }
+        }
     }
     .to_string())
 }
@@ -621,6 +694,63 @@ mcp_servers:
         let demo = servers
             .get(serde_yaml::Value::String("demo".to_string()))
             .expect("demo server");
+        assert_eq!(
+            demo.get("command").and_then(|value| value.as_str()),
+            Some("npx")
+        );
+        assert_eq!(
+            demo.get("env")
+                .and_then(|value| value.get("TOKEN"))
+                .and_then(|value| value.as_str()),
+            Some("secret")
+        );
+    }
+
+    #[test]
+    fn syncs_zcode_nested_mcp_servers_and_preserves_other_fields() {
+        let file = temp_file(
+            "mcp-zcode",
+            r#"{"provider":{"default":"glm"},"plugins":{"enabledPlugins":{}},"mcp":{"servers":{"old":{"type":"stdio","command":"old"}}}}"#,
+        );
+        let path = file.to_path_buf();
+        let server = McpServer {
+            id: "demo".to_string(),
+            name: "demo".to_string(),
+            server: McpServerSpec {
+                command: Some("npx".to_string()),
+                args: Some(vec!["-y".to_string(), "demo-server".to_string()]),
+                env: Some(HashMap::from([("TOKEN".to_string(), "secret".to_string())])),
+                ..Default::default()
+            },
+            apps: McpApps::default(),
+            description: None,
+            homepage: None,
+            docs: None,
+            tags: vec![],
+        };
+
+        sync_zcode_config(&path, &[server]).expect("sync zcode config");
+
+        let content = std::fs::read_to_string(&path).expect("read config");
+        let json: serde_json::Value = serde_json::from_str(&content).expect("parse config");
+        assert_eq!(
+            json.get("provider")
+                .and_then(|value| value.get("default"))
+                .and_then(|value| value.as_str()),
+            Some("glm")
+        );
+        assert!(json.get("plugins").is_some());
+        let servers = json
+            .get("mcp")
+            .and_then(|value| value.get("servers"))
+            .and_then(|value| value.as_object())
+            .expect("nested servers map");
+        assert_eq!(servers.len(), 1);
+        let demo = servers.get("demo").expect("demo server");
+        assert_eq!(
+            demo.get("type").and_then(|value| value.as_str()),
+            Some("stdio")
+        );
         assert_eq!(
             demo.get("command").and_then(|value| value.as_str()),
             Some("npx")

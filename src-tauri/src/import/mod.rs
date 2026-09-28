@@ -63,6 +63,20 @@ fn parse_mcp_json(content: &str, app: &AppType) -> Option<IndexMap<String, McpSe
             }
         }
     }
+    // ZCode (~/.zcode/cli/config.json): { "mcp": { "servers": { "id": { ... } } } }
+    else if matches!(app, AppType::Zcode) {
+        if let Some(obj) = json
+            .get("mcp")
+            .and_then(|value| value.get("servers"))
+            .and_then(|value| value.as_object())
+        {
+            for (id, config) in obj {
+                if let Some(server) = parse_server_config(id, config, app) {
+                    servers.insert(id.clone(), server);
+                }
+            }
+        }
+    }
     // Trae / OpenCode / Mimo Code: { "mcp": { "id": { ... } } }
     else if let Some(mcp) = json.get("mcp") {
         if let Some(obj) = mcp.as_object() {

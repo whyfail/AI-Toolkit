@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-/// 支持 skills 同步的工具 ID（16 种）
+/// 支持 skills 同步的工具 ID（17 种）
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ToolId {
     ClaudeCode,
@@ -21,6 +21,7 @@ pub enum ToolId {
     MimoCode,
     WorkBuddy,
     WorkBuddyCn,
+    Zcode,
 }
 
 impl serde::Serialize for ToolId {
@@ -36,7 +37,7 @@ impl serde::Serialize for ToolId {
 impl ToolId {
     pub fn as_key(&self) -> &'static str {
         match self {
-            // 支持的 16 种工具（与 README 和 AppType 保持一致）
+            // 支持的 17 种工具（与 README 和 AppType 保持一致）
             ToolId::QwenCode => "qwen-code",
             ToolId::ClaudeCode => "claude",
             ToolId::Codex => "codex",
@@ -53,6 +54,7 @@ impl ToolId {
             ToolId::MimoCode => "mimo-code",
             ToolId::WorkBuddy => "workbuddy",
             ToolId::WorkBuddyCn => "workbuddy-cn",
+            ToolId::Zcode => "zcode",
         }
     }
 }
@@ -83,10 +85,10 @@ pub struct ToolStatus {
     pub skills: Vec<DetectedSkill>,
 }
 
-/// 支持的工具列表（与 README 保持一致，共 16 种）
+/// 支持的工具列表（与 README 保持一致，共 17 种）
 /// MCP 服务器管理支持的工具: Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode,
 /// Qoder, Qoder CLI, TRAE IDE, TRAE IDE CN, TRAE Work, TRAE Work CN, CodeBuddy, Hermes Agent,
-/// Mimo Code, WorkBuddy, WorkBuddy CN
+/// Mimo Code, WorkBuddy, WorkBuddy CN, ZCode
 pub fn default_tool_adapters() -> Vec<ToolAdapter> {
     vec![
         ToolAdapter {
@@ -187,6 +189,12 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_skills_dir: ".workbuddy/skills",
             relative_detect_dir: ".workbuddy",
         },
+        ToolAdapter {
+            id: ToolId::Zcode,
+            display_name: "ZCode",
+            relative_skills_dir: ".zcode/skills",
+            relative_detect_dir: ".zcode",
+        },
     ]
 }
 
@@ -261,7 +269,7 @@ pub fn resolve_detect_path(adapter: &ToolAdapter) -> Result<PathBuf> {
     Ok(home.join(adapter.relative_detect_dir))
 }
 
-/// 获取 ToolId 对应的 CLI binary 名称（仅支持 skills 模块的 16 种工具）
+/// 获取 ToolId 对应的 CLI binary 名称（仅支持 skills 模块的 17 种工具）
 fn get_tool_binary_name(id: &ToolId) -> &'static str {
     match id {
         ToolId::ClaudeCode => "claude",
@@ -279,6 +287,7 @@ fn get_tool_binary_name(id: &ToolId) -> &'static str {
         ToolId::Hermes => "hermes",
         ToolId::MimoCode => "mimo",
         ToolId::WorkBuddy | ToolId::WorkBuddyCn => "workbuddy",
+        ToolId::Zcode => "zcode",
     }
 }
 
@@ -311,6 +320,7 @@ pub fn is_tool_installed(adapter: &ToolAdapter) -> bool {
             ToolId::Qoder => Some(crate::mcp::AppType::Qoder),
             ToolId::WorkBuddy => Some(crate::mcp::AppType::WorkBuddy),
             ToolId::WorkBuddyCn => Some(crate::mcp::AppType::WorkBuddyCn),
+            ToolId::Zcode => Some(crate::mcp::AppType::Zcode),
             _ => None,
         };
         if let Some(app) = app {
@@ -332,6 +342,7 @@ pub fn is_tool_installed(adapter: &ToolAdapter) -> bool {
             ToolId::Qoder => Some(crate::mcp::AppType::Qoder),
             ToolId::WorkBuddy => Some(crate::mcp::AppType::WorkBuddy),
             ToolId::WorkBuddyCn => Some(crate::mcp::AppType::WorkBuddyCn),
+            ToolId::Zcode => Some(crate::mcp::AppType::Zcode),
             _ => None,
         };
         if let Some(app) = app {

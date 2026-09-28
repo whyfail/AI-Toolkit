@@ -188,6 +188,7 @@ pub fn mac_app_names(app: &AppType) -> &'static [&'static str] {
         AppType::TraeSoloCn => &["TRAE Work CN.app", "TRAE SOLO CN.app"],
         AppType::Qoder => &["Qoder.app"],
         AppType::WorkBuddy | AppType::WorkBuddyCn => &["WorkBuddy.app"],
+        AppType::Zcode => &["ZCode.app"],
         _ => &[],
     }
 }
@@ -232,6 +233,7 @@ pub fn find_app_executable_windows(app: &AppType) -> Option<std::path::PathBuf> 
         AppType::TraeWork => &["Trae.exe", "TRAE Work.exe"],
         AppType::TraeSoloCn => &["Trae.exe", "TRAE Work CN.exe", "TRAE SOLO CN.exe"],
         AppType::Qoder => &["Qoder.exe"],
+        AppType::Zcode => &["ZCode.exe", "zcode.exe"],
         _ => return None,
     };
 
@@ -261,6 +263,8 @@ pub fn find_app_executable_windows(app: &AppType) -> Option<std::path::PathBuf> 
         "OpenCode",
         "opencode",
         "Qoder",
+        "ZCode",
+        "zcode",
         "Programs\\Claude",
         "Programs\\Claude Code",
         "Programs\\ClaudeCode",
@@ -276,6 +280,7 @@ pub fn find_app_executable_windows(app: &AppType) -> Option<std::path::PathBuf> 
         "Programs\\OpenCode",
         "Programs\\opencode",
         "Programs\\Qoder",
+        "Programs\\ZCode",
         "Microsoft\\WindowsApps",
     ];
 

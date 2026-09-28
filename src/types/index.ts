@@ -68,6 +68,7 @@ export const SUPPORTED_APPS: Array<{ id: string; name: string; icon: string }> =
   { id: "mimo-code", name: "Mimo Code", icon: "mimo-code" },
   { id: "workbuddy", name: "WorkBuddy", icon: "workbuddy" },
   { id: "workbuddy-cn", name: "WorkBuddy CN", icon: "workbuddy-cn" },
+  { id: "zcode", name: "ZCode", icon: "zcode" },
 ];
 
 // 工具安装方式

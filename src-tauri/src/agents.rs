@@ -185,6 +185,13 @@ pub fn get_agent_config_paths(app: &AppType) -> Vec<PathBuf> {
                 vec!["~/.workbuddy/.mcp.json"]
             }
         }
+        AppType::Zcode => {
+            if cfg!(windows) {
+                vec!["%USERPROFILE%\\.zcode\\cli\\config.json"]
+            } else {
+                vec!["~/.zcode/cli/config.json"]
+            }
+        }
     };
     paths.iter().map(|p| resolve_path(p)).collect()
 }
@@ -208,6 +215,7 @@ pub fn get_agent_name(app: &AppType) -> String {
         AppType::MimoCode => "Mimo Code".to_string(),
         AppType::WorkBuddy => "WorkBuddy".to_string(),
         AppType::WorkBuddyCn => "WorkBuddy CN".to_string(),
+        AppType::Zcode => "ZCode".to_string(),
     }
 }
 
@@ -313,6 +321,13 @@ pub fn get_agent_detect_dir(app: &AppType) -> Option<PathBuf> {
                 "~/.workbuddy"
             }
         }
+        AppType::Zcode => {
+            if cfg!(windows) {
+                "%USERPROFILE%\\.zcode"
+            } else {
+                "~/.zcode"
+            }
+        }
     };
     Some(resolve_path(path_str))
 }
@@ -335,6 +350,7 @@ fn get_agent_binary_name(app: &AppType) -> &'static str {
         AppType::Hermes => "hermes",
         AppType::MimoCode => "mimo",
         AppType::WorkBuddy | AppType::WorkBuddyCn => "workbuddy",
+        AppType::Zcode => "zcode",
     }
 }
 
@@ -403,6 +419,13 @@ fn count_mcp_in_config(path: &Path) -> usize {
             for key in ["mcpServers", "mcp"] {
                 if let Some(obj) = json.get(key) {
                     if let Some(servers) = obj.as_object() {
+                        // ZCode 格式: { "mcp": { "servers": { ... } } }
+                        if key == "mcp" {
+                            if let Some(nested) = servers.get("servers").and_then(|v| v.as_object())
+                            {
+                                return nested.len();
+                            }
+                        }
                         return servers.len();
                     }
                     if let Some(arr) = obj.as_array() {
