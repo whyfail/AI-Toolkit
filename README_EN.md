@@ -17,7 +17,7 @@ AI Toolkit is a **universal AI programming tools management tool** that supports
 ## ✨ Key Features
 
 ### 🎯 MCP Server Management
-- Support for **16** mainstream AI programming tools: Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, TRAE IDE, TRAE IDE CN, TRAE Work, TRAE Work CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent, Mimo Code, WorkBuddy, WorkBuddy CN
+- Support for **17** mainstream AI programming tools: Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, TRAE IDE, TRAE IDE CN, TRAE Work, TRAE Work CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent, Mimo Code, WorkBuddy, WorkBuddy CN, ZCode
 - Add, edit, and delete MCP servers in a single interface
 - Automatically detects installed AI tools on your system and prompts for MCP sync when new tools are discovered
 - Toggle switches **sync in real-time** to the corresponding tool's configuration file
@@ -137,6 +137,7 @@ Since the current version is not code-signed or notarized by Apple, macOS Gateke
 | Mimo Code | `~/.config/mimocode/mimocode.json` |
 | WorkBuddy (International) | `~/.workbuddy/.mcp.json` |
 | WorkBuddy CN (China) | `~/.workbuddy/.mcp.json` |
+| ZCode | `~/.zcode/cli/config.json` |
 
 The international and China editions of WorkBuddy share the same application name and the same `~/.workbuddy` configuration, MCP, and Skills directories, so they cannot coexist. Installing the other edition replaces the application without deleting shared data. On Windows, the shared paths are `%USERPROFILE%\.workbuddy\.mcp.json` and `%USERPROFILE%\.workbuddy\skills\`.
 

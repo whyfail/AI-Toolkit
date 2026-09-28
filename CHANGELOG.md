@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.9.0 (2026-09-28)
+
+### 新功能
+
+- **ZCode 接入**：新增 ZCode 工具卡，支持 `~/.zcode/cli/config.json`（嵌套 `mcp.servers`）的 MCP 配置导入与同步，stdio 与 http 条目按 ZCode 原生格式写入并保留其余配置字段；支持 `~/.zcode/skills` 技能同步；支持桌面应用（macOS `ZCode.app` / Windows）与 `zcode` CLI 双重安装检测和启动。
+
 ## v1.8.0 (2026-08-25)
 
 ### 新功能
