@@ -90,10 +90,12 @@ pub(crate) fn local_credentials() -> Result<Option<Credentials>, String> {
     }
     let entry =
         keyring::Entry::new("trae_cli", "auth_info").map_err(|_| "系统凭据库不可用".to_string())?;
-    let read = || match entry.get_password() {
-        Ok(raw) => Ok(Some(raw)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(_) => Err("无法读取钥匙串中的 trae_cli 凭据，请在系统弹窗中允许访问".into()),
+    let read = || -> Result<Option<String>, String> {
+        match entry.get_password() {
+            Ok(raw) => Ok(Some(raw)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(_) => Err("无法读取钥匙串中的 trae_cli 凭据，请在系统弹窗中允许访问".into()),
+        }
     };
     #[cfg(target_os = "macos")]
     let raw = super::super::secrets::macos::access(true, read)?;
