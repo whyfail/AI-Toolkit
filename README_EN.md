@@ -71,6 +71,7 @@ Platform APIs and account permissions determine the actual availability of balan
 
 ### 📌 System Tray
 - Closing the main window keeps the app in the system tray; an active proxy and background tasks continue running
+- On macOS, closing the main window leaves only the menu bar icon and hides the Dock icon; restoring the window shows the Dock icon again
 - Restore the window from the tray's Open Main Window menu item, or launch the app again to activate the existing instance
 - Quit App (Stop Proxy) exits the app and stops the proxy; `Cmd+Q` on macOS also exits
 

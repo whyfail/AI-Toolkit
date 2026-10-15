@@ -33,7 +33,10 @@ pub fn restore_main_window<R: Runtime>(app: &AppHandle<R>) {
         .ok_or(tauri::Error::WindowNotFound)
         .and_then(|window| {
             #[cfg(target_os = "macos")]
-            app.show()?;
+            {
+                app.set_activation_policy(tauri::ActivationPolicy::Regular)?;
+                app.show()?;
+            }
             window.show()?;
             window.unminimize()?;
             window.set_focus()
@@ -54,6 +57,11 @@ pub fn handle_run_event<R: Runtime>(app: &AppHandle<R>, event: &RunEvent) {
             if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
                 if let Err(error) = window.hide() {
                     eprintln!("隐藏主窗口失败: {error}");
+                    return;
+                }
+                #[cfg(target_os = "macos")]
+                if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Accessory) {
+                    eprintln!("隐藏 Dock 图标失败: {error}");
                 }
             }
         }
