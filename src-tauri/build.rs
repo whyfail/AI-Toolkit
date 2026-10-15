@@ -1,14 +1,18 @@
 fn main() {
-    tauri_build::build();
+    let attributes = tauri_build::Attributes::new().windows_attributes(
+        tauri_build::WindowsAttributes::new_without_app_manifest(),
+    );
+    tauri_build::try_build(attributes).expect("failed to run tauri-build");
     embed_windows_test_manifest();
 }
 
-// tauri-build only links its Common-Controls v6 manifest into bin targets, so
-// `cargo test` executables start with Common-Controls v5 and die with
-// STATUS_ENTRYPOINT_NOT_FOUND once a dependency imports the v6 entry points
-// (tauri-apps/tauri#11028). Same workaround as tauri's own workspace: the
-// all-targets flag is the only one that also covers the lib unit-test harness,
-// and it coexists with the bin's .res manifest just fine.
+// tauri-build links its Common-Controls v6 manifest via a .res that only
+// reaches lib and bin builds, so `cargo test` executables start with
+// Common-Controls v5 and die with STATUS_ENTRYPOINT_NOT_FOUND
+// (tauri-apps/tauri#11028). Providing the manifest once for every target
+// via /MANIFEST:EMBED replaces it — the .res and /MANIFEST:EMBED cannot
+// coexist (CVT1100 duplicate resource), so the winresource one is disabled
+// above. Same workaround as tauri's own workspace build script.
 fn embed_windows_test_manifest() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows")
         || std::env::var("CARGO_CFG_TARGET_ENV").as_deref() != Ok("msvc")
