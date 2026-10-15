@@ -17,16 +17,18 @@ import {
 } from "@/hooks/useMcp";
 import { useInstalledTools, AgentInfo } from "@/contexts/InstalledToolsContext";
 import type { McpServer } from "@/types";
-import { APP_COLORS } from "@/lib/tools";
-import { agentApi, toolApi } from "@/lib/api";
+import { agentApi } from "@/lib/api";
 import { Pressable } from "@/components/ui/Pressable";
+import { AgentIcon } from "@/components/ui/AgentIcon";
 import { Modal } from "@/components/ui/Modal";
 import { MotionList, MotionListItem } from "@/components/ui/MotionList";
 import McpFormModal from "./McpFormModal";
 import NewAgentModal from "./NewAgentModal";
+import TraeMigrationModal from "./TraeMigrationModal";
 
 const UnifiedMcpPanel: React.FC = () => {
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isTraeMigrationOpen, setIsTraeMigrationOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [newAgents, setNewAgents] = useState<AgentInfo[] | null>(null);
@@ -35,7 +37,7 @@ const UnifiedMcpPanel: React.FC = () => {
   const [deleteName, setDeleteName] = useState<string>('');
 
   // 使用共享的工具检测上下文
-  const { installedAgents } = useInstalledTools();
+  const { installedAgents, refresh: refreshInstalledTools, isLoading: agentsLoading } = useInstalledTools();
 
   const { data: serversMap, isLoading, refetch } = useAllMcpServers();
   const toggleAppMutation = useToggleMcpApp();
@@ -70,12 +72,8 @@ const UnifiedMcpPanel: React.FC = () => {
   const handleScan = async () => {
     setIsScanning(true);
     try {
-      // 调用全局刷新
-      const report = await toolApi.refreshInstalledTools();
-      const existing = report.agents.filter((a) => a.exists);
-      if (existing.length > 0) {
-        setNewAgents(existing);
-      }
+      await refreshInstalledTools();
+      await refetch();
     } catch (e) {
       console.error("Failed to detect agents:", e);
     }
@@ -166,7 +164,13 @@ const UnifiedMcpPanel: React.FC = () => {
               管理所有 AI CLI 工具的 MCP 配置
             </p>
           </div>
-          <div className="flex gap-2 flex-shrink-0">
+          <div className="flex flex-wrap gap-2 flex-shrink-0">
+            <Pressable
+              onClick={() => setIsTraeMigrationOpen(true)}
+              className="glass-secondary-button"
+            >
+              迁移旧 TRAE
+            </Pressable>
             <Pressable
               onClick={handleScan}
               disabled={isScanning}
@@ -215,9 +219,7 @@ const UnifiedMcpPanel: React.FC = () => {
                   onClick={() => handleOpenConfig(agent.id)}
                   title="点击打开配置文件"
                 >
-                  <div
-                    className={`h-2 w-2 flex-shrink-0 rounded-full ${APP_COLORS[agent.id as keyof typeof APP_COLORS]}`}
-                  />
+                  <AgentIcon id={agent.id} name={agent.name} className="h-4 w-4" />
                   <span className="flex items-center gap-1 text-slate-500 transition-colors group-hover:text-slate-950 dark:text-slate-400 dark:group-hover:text-white">
                     {agent.name}:{" "}
                     <span className="font-semibold text-slate-950 dark:text-white">
@@ -237,7 +239,7 @@ const UnifiedMcpPanel: React.FC = () => {
 
       {/* 服务器列表 */}
       <div className="glass-content px-3 sm:px-8">
-        {isLoading || isScanning ? (
+        {isLoading || agentsLoading || isScanning ? (
           <div className="flex items-center justify-center h-64">
             <div className="glass-pill flex items-center gap-2">
               <Loader2 size={18} className="animate-spin" />
@@ -286,6 +288,12 @@ const UnifiedMcpPanel: React.FC = () => {
           setIsFormOpen(false);
           setEditingId(null);
         }}
+      />
+
+      <TraeMigrationModal
+        open={isTraeMigrationOpen}
+        onClose={() => setIsTraeMigrationOpen(false)}
+        onChanged={() => { void refetch(); }}
       />
 
       {/* 新工具发现弹窗 */}
@@ -402,20 +410,16 @@ const McpServerRow: React.FC<McpServerRowProps> = ({
                 key={agent.id}
                 onClick={() => onToggleApp(id, agent.id, !enabled)}
                 aria-pressed={enabled}
-                className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-semibold transition-colors duration-200 ease-out sm:px-2.5 sm:py-1.5 ${
+                aria-label={agent.name}
+                title={agent.name}
+                className={`relative inline-flex h-9 min-w-9 cursor-pointer items-center justify-center rounded-xl border p-2 transition-colors duration-200 ease-out ${
                   enabled
                     ? "border-blue-200/70 bg-blue-500/10 text-blue-700 dark:border-sky-300/20 dark:text-sky-300"
                     : "border-white/55 bg-white/50 text-slate-500 hover:text-slate-950 dark:border-white/10 dark:bg-white/8 dark:text-slate-400 dark:hover:text-white"
                 }`}
               >
-                <span
-                  className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                    enabled
-                      ? APP_COLORS[agent.id as keyof typeof APP_COLORS]
-                      : "bg-current opacity-40"
-                  }`}
-                />
-                <span>{agent.name}</span>
+                <AgentIcon id={agent.id} name={agent.name} />
+                {enabled ? <span aria-hidden="true" className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-blue-500 ring-1 ring-white dark:bg-sky-300 dark:ring-slate-900" /> : null}
               </Pressable>
             );
           })}

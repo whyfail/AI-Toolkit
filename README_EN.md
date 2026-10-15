@@ -17,7 +17,7 @@ AI Toolkit is a **universal AI programming tools management tool** that supports
 ## ✨ Key Features
 
 ### 🎯 MCP Server Management
-- Support for **17** mainstream AI programming tools: Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, TRAE IDE, TRAE IDE CN, TRAE Work, TRAE Work CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent, Mimo Code, WorkBuddy, WorkBuddy CN, ZCode
+- Support for **22** mainstream AI programming tools: Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, TRAE, TRAE CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent, Mimo Code, WorkBuddy, ZCode, Cursor, Windsurf, Cline, Roo Code, Kilo Code, Continue, Goose, Kiro
 - Add, edit, and delete MCP servers in a single interface
 - Automatically detects installed AI tools on your system and prompts for MCP sync when new tools are discovered
 - Toggle switches **sync in real-time** to the corresponding tool's configuration file
@@ -40,7 +40,7 @@ AI Toolkit is a **universal AI programming tools management tool** that supports
 - **MCP and Tool Config Snapshots**: Back up MCP Server data and tool MCP config files with one-click restore
 - **Health Checks**: Validate MCP commands, environment variables, config files, and sync status
 - **Zip Package Import/Export**: Export MCP, Skills files, and settings as a `.zip` package without pushing large file contents into the page
-- **Task Logs**: Track tool install/update/scan, Skills sync, and import results
+- **Task Logs**: Track local scans, Skills sync, and import results
 - **Agent Launch Presets**: Save tool, working directory, and MCP combinations for one-click launches
 
 ### 🔧 Developer Friendly
@@ -52,19 +52,24 @@ AI Toolkit is a **universal AI programming tools management tool** that supports
 
 ### 🚀 Quick Agent Launch
 - **One-Click Launch**: Start AI tools directly from a terminal
-- **Terminal Preference**: Choose the preferred launch terminal in Settings (macOS: Terminal / iTerm / Warp / Ghostty; Windows: Windows Terminal / PowerShell / Command Prompt)
 
-### 📦 Tool Management
-- **Installation Wizard**: Shows multiple installation methods (Homebrew, npm, curl scripts)
-- **CLI / Desktop Detection**: Detect CLI and desktop app installs separately, with separate launch actions for OpenCode, Claude Code, Codex, and more
-- **Version Detection**: Auto-detect CLI versions and desktop app versions
-- **One-Click Update**: CLI updates use package managers; desktop updates open the official update page
-- **Usage Docs**: Each tool card links to official documentation for quick reference
-- **Concurrent Updates**: Update multiple tools at the same time with independent progress states
+### 🔎 Local Agent Discovery
+- Display only installed CLI tools, desktop apps, and IDE extensions; no Agent download, install, update, or uninstall actions
+- Scan automatically at startup or refresh from the sidebar, Skills, or MCP page; every module shares the same installation report
+- Detect executables, app bundles, and IDE extension manifests; leftover config and Skills directories do not count as installations
+- Codex CLI, desktop, and IDE share one Codex entry; both WorkBuddy editions share one WorkBuddy entry
+- Added MCP and Skills adapters for Cline, Roo Code, Kilo Code, Continue, Goose, Cursor, Windsurf, and Kiro
+- Kimi Code and MiniMax Code support desktop and CLI discovery, official icons, MCP, and Skills sync
+- See [Agent adapter paths and official sources](docs/agent-adapters.md)
 
 ### 🔄 App Updates & Sharing
 - **Startup Update Check**: Automatically checks for new releases on first launch and lets users decide whether to install
 - **One-Click Sharing**: Copy the official website URL from Settings to share the app easily
+
+### 📌 System Tray
+- Closing the main window keeps the app in the system tray; an active proxy and background tasks continue running
+- Restore the window from the tray's Open Main Window menu item, or launch the app again to activate the existing instance
+- Quit App (Stop Proxy) exits the app and stops the proxy; `Cmd+Q` on macOS also exits
 
 ## 📸 Screenshots
 
@@ -77,7 +82,7 @@ AI Toolkit is a **universal AI programming tools management tool** that supports
 |--------|--------|-------------|
 | **macOS 12+** | ✅ Supported | Full feature support |
 | **Linux** | 🚧 In Progress | Basic functionality available |
-| **Windows 10+** | ✅ Supported | MCP, Skills, tool launching, and terminal preferences are supported |
+| **Windows 10+** | ✅ Supported | MCP, Skills, and tool launching are supported |
 
 ## 🚀 Quick Start
 
@@ -128,18 +133,27 @@ Since the current version is not code-signed or notarized by Apple, macOS Gateke
 | OpenCode | `~/.config/opencode/opencode.json` |
 | Qoder | `~/Library/Application Support/Qoder/SharedClientCache/mcp.json` |
 | Qoder CLI | `~/.qodercli/settings.json` |
-| TRAE IDE | `~/Library/Application Support/Trae/User/mcp.json` |
-| TRAE IDE CN | `~/Library/Application Support/Trae CN/User/mcp.json` |
-| TRAE Work | `~/Library/Application Support/TRAE Work/User/mcp.json` |
-| TRAE Work CN | `~/Library/Application Support/TRAE Work CN/User/mcp.json` (compatible with the legacy `TRAE SOLO CN` path) |
+| TRAE (International) | `~/Library/Application Support/Trae/User/mcp.json` |
+| TRAE CN (China) | `~/Library/Application Support/Trae CN/User/mcp.json` |
 | CodeBuddy | `~/.codebuddy/mcp.json` |
 | Hermes Agent | `~/.hermes/config.yaml` |
 | Mimo Code | `~/.config/mimocode/mimocode.json` |
-| WorkBuddy (International) | `~/.workbuddy/.mcp.json` |
-| WorkBuddy CN (China) | `~/.workbuddy/.mcp.json` |
+| WorkBuddy | `~/.workbuddy/.mcp.json` |
 | ZCode | `~/.zcode/cli/config.json` |
+| Cursor | `~/.cursor/mcp.json` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` / `~/.config/devin/mcp_config.json` |
+| Cline | `~/.cline/data/settings/cline_mcp_settings.json` |
+| Roo Code | `<IDE User>/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json` |
+| Kilo Code | `~/.config/kilo/kilo.json` / `kilo.jsonc` |
+| Continue | `~/.continue/config.yaml` |
+| Goose | `~/.config/goose/config.yaml` / `~/Library/Application Support/Block/goose/config.yaml` |
+| Kiro | `~/.kiro/settings/mcp.json` |
 
 The international and China editions of WorkBuddy share the same application name and the same `~/.workbuddy` configuration, MCP, and Skills directories, so they cannot coexist. Installing the other edition replaces the application without deleting shared data. On Windows, the shared paths are `%USERPROFILE%\.workbuddy\.mcp.json` and `%USERPROFILE%\.workbuddy\skills\`.
+
+TRAE has two management entries: the international edition and the China edition. Agent and IDE in each new edition share local MCP configuration and the Skills directory (`~/.trae/skills` internationally and `~/.trae-cn/skills` in China), so Work is no longer a separate sync target. Legacy `TRAE Work`, `TRAE Work CN`, and `TRAE SOLO CN` installations and configuration remain detectable and can be previewed and migrated to the new edition. Existing configuration IDs and synced Skills records remain readable. This integration manages local configuration; cloud Agents are outside its scope.
+
+Use “迁移旧 TRAE” on the MCP page to preview and select legacy configuration. Conflicting server IDs require a new name. Migration creates a backup and supports undo, which stops if later edits would be overwritten. Legacy Windows skills in `%APPDATA%\Trae\skills` and `%APPDATA%\Trae CN\skills` appear as read-only sources on the Skills page. Import them manually before syncing to the new edition; source files are retained.
 
 ## 🛠️ Tech Stack
 

@@ -5,7 +5,7 @@ import type { ManagedSkill, ToolOption } from '../types';
 import { APP_COLORS } from '@/lib/tools';
 import { Pressable } from '@/components/ui/Pressable';
 import { Modal } from '@/components/ui/Modal';
-import { enhancementApi, skillsApi } from '@/lib/api';
+import { skillsApi } from '@/lib/api';
 
 interface BatchSyncModalProps {
   open: boolean;
@@ -141,13 +141,6 @@ function BatchSyncModal({
 
       const successCount = results.filter(result => result.ok).length;
       const failCount = results.length - successCount;
-
-      await enhancementApi.recordTaskLog({
-        kind: 'skill-batch-sync',
-        title: '批量同步 Skills 完成',
-        detail: `${selectedSkillsList.length} 个 Skill，${successCount} 成功，${failCount} 失败`,
-        status: failCount === 0 ? 'success' : 'warn',
-      });
 
       if (failCount === 0) {
         toast.success(`成功同步 ${selectedSkillsList.length} 个 Skill 到 ${selectedTools.size} 个工具`);

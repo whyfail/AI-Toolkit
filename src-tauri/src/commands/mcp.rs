@@ -54,6 +54,28 @@ pub async fn import_mcp_from_apps(state: State<'_, AppState>) -> Result<usize, S
     McpService::import_from_apps(&state).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn preview_trae_migration(
+    state: State<'_, AppState>,
+) -> Result<crate::services::trae_migration::MigrationPreview, String> {
+    crate::services::trae_migration::preview(&state).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn apply_trae_migration(
+    state: State<'_, AppState>,
+    revision: String,
+    selections: Vec<crate::services::trae_migration::MigrationSelection>,
+) -> Result<crate::services::trae_migration::MigrationOutcome, String> {
+    crate::services::trae_migration::apply(&state, &revision, &selections)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn restore_trae_migration(state: State<'_, AppState>, backup_id: String) -> Result<(), String> {
+    crate::services::trae_migration::restore(&state, &backup_id).map_err(|error| error.to_string())
+}
+
 /// 测试 MCP 服务器连接
 #[derive(Serialize)]
 pub struct TestConnectionResult {

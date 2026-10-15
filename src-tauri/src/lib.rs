@@ -2,6 +2,7 @@ pub mod agents;
 pub mod app_state;
 pub mod commands;
 pub mod core;
+pub mod credits;
 pub mod database;
 pub mod error;
 pub mod import;
@@ -10,6 +11,7 @@ pub mod migration;
 pub mod services;
 pub mod skill_core;
 pub mod tool_detection;
+mod tray;
 pub mod utils;
 
 use agents::{get_last_detected_agents, save_detected_agents};
@@ -99,6 +101,9 @@ pub fn run() {
     expand_path_from_shell();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tray::restore_main_window(app);
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -106,20 +111,23 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            tray::setup(app)?;
+
             // 迁移旧数据目录 ~/.ai-tool-manager/ → ~/.ai-toolkit/
             // 必须在数据库初始化之前执行
             migration::migrate_from_old_dir();
 
             // 初始化数据库
             let db = Database::new()?;
-            app.manage(AppState::new(db));
+            app.manage(AppState::new(db)?);
 
-            // 自动导入所有已存在的 MCP 配置
+            // 自动导入已安装 Agent 的 MCP 配置
             let state = app.state::<AppState>();
+            let credit_manager = state.credits.clone();
+            spawn(async move { credit_manager.start_scheduler(); });
             commands::app::init_skills_install_location(&state);
-            let imported_servers = import::import_all();
-            for (_, server) in imported_servers {
-                let _ = state.db.save_mcp_server(&server);
+            if let Err(error) = services::mcp_service::import_on_startup(&state.db) {
+                eprintln!("MCP 启动导入失败: {error}");
             }
 
             // 在后台异步检测新安装的 Agent 工具，延迟发送事件确保前端已就绪
@@ -172,42 +180,36 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::credits::credits_dashboard,
+            commands::credits::credits_import_local,
+            commands::credits::credits_set_account_enabled,
+            commands::credits::credits_delete_account,
+            commands::credits::credits_refresh,
+            commands::credits::credits_claim,
+            commands::credits::credits_save_settings,
+            commands::credits::credits_start_proxy,
+            commands::credits::credits_stop_proxy,
+            commands::credits::credits_proxy_key,
+            commands::credits::credits_probe_proxy,
+            commands::credits::credits_oauth_start,
+            commands::credits::credits_oauth_poll,
             // MCP 命令
             commands::mcp::get_mcp_servers,
             commands::mcp::upsert_mcp_server,
             commands::mcp::delete_mcp_server,
             commands::mcp::toggle_mcp_app,
             commands::mcp::import_mcp_from_apps,
+            commands::mcp::preview_trae_migration,
+            commands::mcp::apply_trae_migration,
+            commands::mcp::restore_trae_migration,
             commands::mcp::test_mcp_connection,
-            // 增强中心命令
-            commands::enhancements::create_config_snapshot,
-            commands::enhancements::list_config_snapshots,
-            commands::enhancements::get_config_snapshot,
-            commands::enhancements::restore_config_snapshot,
-            commands::enhancements::run_mcp_health_check,
-            commands::enhancements::export_toolkit_config,
-            commands::enhancements::export_toolkit_package,
-            commands::enhancements::preview_toolkit_import,
-            commands::enhancements::preview_toolkit_package,
-            commands::enhancements::import_toolkit_config,
-            commands::enhancements::import_toolkit_package,
-            commands::enhancements::scan_security_findings,
-            commands::enhancements::detect_config_conflicts,
-            commands::enhancements::list_task_logs,
-            commands::enhancements::record_task_log,
+            // 新手引导与 MCP 批量导入命令
             commands::enhancements::get_onboarding_checklist,
-            commands::enhancements::list_launch_presets,
-            commands::enhancements::save_launch_preset,
-            commands::enhancements::delete_launch_preset,
             commands::enhancements::bulk_import_mcp_servers,
-            commands::enhancements::preview_skill_updates,
-            commands::enhancements::build_share_package_summary,
             // 应用配置命令
             commands::app::get_app_configs,
-            commands::app::get_launch_preferences,
             commands::app::get_skills_install_preferences,
             commands::app::import_mcp_from_app,
-            commands::app::set_default_terminal,
             commands::app::set_skills_install_location_preference,
             // Agent 检测命令
             commands::agents::detect_agents,
@@ -218,8 +220,6 @@ pub fn run() {
             commands::skills::get_managed_skills,
             commands::skills::get_tool_status,
             commands::skills::open_skill_path,
-            commands::skills::preview_skill_delete,
-            commands::skills::run_skill_health_check,
             commands::skills::detect_skill_name_conflicts,
             commands::skills::get_onboarding_plan,
             commands::skills::install_git,
@@ -238,20 +238,15 @@ pub fn run() {
             // 更新命令
             commands::update::check_update,
             commands::update::install_update,
-            // 工具管理命令
-            commands::tool_manager::get_tool_infos,
-            commands::tool_manager::get_tool_info,
-            commands::tool_manager::install_tool,
-            commands::tool_manager::update_tool,
-            commands::tool_manager::uninstall_tool,
-            commands::tool_manager::get_tool_homepage,
-            commands::tool_manager::scan_all_tool_versions,
             // 统一工具检测命令
             commands::tool_detection::get_installed_tools,
             commands::tool_detection::refresh_installed_tools,
             // 应用信息命令
             commands::app::get_version,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            tray::handle_run_event(app, &event);
+        });
 }

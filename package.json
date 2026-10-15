@@ -1,6 +1,6 @@
 {
   "name": "ai-toolkit",
-  "version": "1.9.0",
+  "version": "2.0.0",
   "description": "Universal MCP Server & Skills Manager for AI CLI Tools",
   "author": "whyfail",
   "license": "MIT",
@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "vite",
     "lint": "oxlint src",
-    "check": "tsc --noEmit && oxlint src",
+    "check": "tsc --noEmit && oxlint src && node --test scripts/desktop-runtime.test.mjs scripts/qoder-rewards.test.mjs",
     "build": "tsc && vite build",
     "version:sync": "node scripts/sync-version.mjs",
     "preview": "vite preview",

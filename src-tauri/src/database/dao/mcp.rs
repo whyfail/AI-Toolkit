@@ -1,5 +1,6 @@
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 
 use crate::database::Database;
@@ -8,46 +9,49 @@ use crate::lock_conn;
 use crate::mcp::AppType;
 
 /// MCP 服务器应用启用状态
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Default)]
 pub struct McpApps {
-    #[serde(default)]
     pub qwen_code: bool,
-    #[serde(default)]
     pub claude: bool,
-    #[serde(default)]
     pub codex: bool,
-    #[serde(default)]
     pub gemini: bool,
-    #[serde(default)]
     pub opencode: bool,
-    #[serde(default)]
     pub trae: bool,
-    #[serde(default)]
     pub trae_cn: bool,
-    #[serde(default)]
     pub trae_work: bool,
-    #[serde(default)]
     pub trae_solo_cn: bool,
-    #[serde(default)]
     pub qoder: bool,
-    #[serde(default)]
     pub qodercli: bool,
-    #[serde(default)]
     pub codebuddy: bool,
-    #[serde(default)]
     pub hermes: bool,
-    #[serde(default)]
     pub mimo_code: bool,
-    #[serde(default)]
     pub workbuddy: bool,
-    #[serde(default)]
     pub workbuddy_cn: bool,
-    #[serde(default)]
     pub zcode: bool,
+    pub cursor: bool,
+    pub windsurf: bool,
+    pub cline: bool,
+    pub roo: bool,
+    pub kilo: bool,
+    pub continue_agent: bool,
+    pub goose: bool,
+    pub kiro: bool,
+    pub kimi_code: bool,
+    pub minimax_code: bool,
 }
 
 impl McpApps {
+    pub fn normalized(&self) -> Self {
+        let mut apps = self.clone();
+        apps.trae |= apps.trae_work;
+        apps.trae_cn |= apps.trae_solo_cn;
+        apps.trae_work = false;
+        apps.trae_solo_cn = false;
+        apps.workbuddy |= apps.workbuddy_cn;
+        apps.workbuddy_cn = false;
+        apps
+    }
+
     pub fn is_enabled_for(&self, app: &AppType) -> bool {
         match app {
             AppType::QwenCode => self.qwen_code,
@@ -55,10 +59,8 @@ impl McpApps {
             AppType::Codex => self.codex,
             AppType::Gemini => self.gemini,
             AppType::OpenCode => self.opencode,
-            AppType::Trae => self.trae,
-            AppType::TraeCn => self.trae_cn,
-            AppType::TraeWork => self.trae_work,
-            AppType::TraeSoloCn => self.trae_solo_cn,
+            AppType::Trae | AppType::TraeWork => self.trae || self.trae_work,
+            AppType::TraeCn | AppType::TraeSoloCn => self.trae_cn || self.trae_solo_cn,
             AppType::Qoder => self.qoder,
             AppType::Qodercli => self.qodercli,
             AppType::CodeBuddy => self.codebuddy,
@@ -66,6 +68,16 @@ impl McpApps {
             AppType::MimoCode => self.mimo_code,
             AppType::WorkBuddy | AppType::WorkBuddyCn => self.workbuddy || self.workbuddy_cn,
             AppType::Zcode => self.zcode,
+            AppType::Cursor => self.cursor,
+            AppType::Windsurf => self.windsurf,
+            AppType::Cline => self.cline,
+            AppType::Roo => self.roo,
+            AppType::Kilo => self.kilo,
+            AppType::Continue => self.continue_agent,
+            AppType::Goose => self.goose,
+            AppType::Kiro => self.kiro,
+            AppType::KimiCode => self.kimi_code,
+            AppType::MinimaxCode => self.minimax_code,
         }
     }
 
@@ -76,10 +88,14 @@ impl McpApps {
             AppType::Codex => self.codex = enabled,
             AppType::Gemini => self.gemini = enabled,
             AppType::OpenCode => self.opencode = enabled,
-            AppType::Trae => self.trae = enabled,
-            AppType::TraeCn => self.trae_cn = enabled,
-            AppType::TraeWork => self.trae_work = enabled,
-            AppType::TraeSoloCn => self.trae_solo_cn = enabled,
+            AppType::Trae | AppType::TraeWork => {
+                self.trae = enabled;
+                self.trae_work = false;
+            }
+            AppType::TraeCn | AppType::TraeSoloCn => {
+                self.trae_cn = enabled;
+                self.trae_solo_cn = false;
+            }
             AppType::Qoder => self.qoder = enabled,
             AppType::Qodercli => self.qodercli = enabled,
             AppType::CodeBuddy => self.codebuddy = enabled,
@@ -87,15 +103,103 @@ impl McpApps {
             AppType::MimoCode => self.mimo_code = enabled,
             AppType::WorkBuddy | AppType::WorkBuddyCn => {
                 self.workbuddy = enabled;
-                self.workbuddy_cn = enabled;
+                self.workbuddy_cn = false;
             }
             AppType::Zcode => self.zcode = enabled,
+            AppType::Cursor => self.cursor = enabled,
+            AppType::Windsurf => self.windsurf = enabled,
+            AppType::Cline => self.cline = enabled,
+            AppType::Roo => self.roo = enabled,
+            AppType::Kilo => self.kilo = enabled,
+            AppType::Continue => self.continue_agent = enabled,
+            AppType::Goose => self.goose = enabled,
+            AppType::Kiro => self.kiro = enabled,
+            AppType::KimiCode => self.kimi_code = enabled,
+            AppType::MinimaxCode => self.minimax_code = enabled,
         }
     }
 }
 
+impl<'de> Deserialize<'de> for McpApps {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let values = HashMap::<String, serde_json::Value>::deserialize(deserializer)?;
+        let mut apps = Self::default();
+        for (name, enabled) in [
+            ("qwen-code", &mut apps.qwen_code),
+            ("claude", &mut apps.claude),
+            ("codex", &mut apps.codex),
+            ("gemini", &mut apps.gemini),
+            ("opencode", &mut apps.opencode),
+            ("trae", &mut apps.trae),
+            ("trae-cn", &mut apps.trae_cn),
+            ("trae-work", &mut apps.trae_work),
+            ("trae-solo-cn", &mut apps.trae_solo_cn),
+            ("qoder", &mut apps.qoder),
+            ("qodercli", &mut apps.qodercli),
+            ("codebuddy", &mut apps.codebuddy),
+            ("hermes", &mut apps.hermes),
+            ("mimo-code", &mut apps.mimo_code),
+            ("workbuddy", &mut apps.workbuddy),
+            ("workbuddy-cn", &mut apps.workbuddy_cn),
+            ("zcode", &mut apps.zcode),
+            ("cursor", &mut apps.cursor),
+            ("windsurf", &mut apps.windsurf),
+            ("cline", &mut apps.cline),
+            ("roo", &mut apps.roo),
+            ("kilo", &mut apps.kilo),
+            ("continue", &mut apps.continue_agent),
+            ("goose", &mut apps.goose),
+            ("kiro", &mut apps.kiro),
+            ("kimi-code", &mut apps.kimi_code),
+            ("minimax-code", &mut apps.minimax_code),
+        ] {
+            if let Some(value) = values.get(name) {
+                *enabled =
+                    serde_json::from_value(value.clone()).map_err(serde::de::Error::custom)?;
+            }
+        }
+        Ok(apps.normalized())
+    }
+}
+
+impl Serialize for McpApps {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let apps = self.normalized();
+        let mut map = serializer.serialize_map(Some(24))?;
+        for (name, enabled) in [
+            ("qwen-code", apps.qwen_code),
+            ("claude", apps.claude),
+            ("codex", apps.codex),
+            ("gemini", apps.gemini),
+            ("opencode", apps.opencode),
+            ("trae", apps.trae),
+            ("trae-cn", apps.trae_cn),
+            ("qoder", apps.qoder),
+            ("qodercli", apps.qodercli),
+            ("codebuddy", apps.codebuddy),
+            ("hermes", apps.hermes),
+            ("mimo-code", apps.mimo_code),
+            ("workbuddy", apps.workbuddy),
+            ("zcode", apps.zcode),
+            ("cursor", apps.cursor),
+            ("windsurf", apps.windsurf),
+            ("cline", apps.cline),
+            ("roo", apps.roo),
+            ("kilo", apps.kilo),
+            ("continue", apps.continue_agent),
+            ("goose", apps.goose),
+            ("kiro", apps.kiro),
+            ("kimi-code", apps.kimi_code),
+            ("minimax-code", apps.minimax_code),
+        ] {
+            map.serialize_entry(name, &enabled)?;
+        }
+        map.end()
+    }
+}
+
 /// MCP 服务器配置（宽松结构）
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct McpServerSpec {
     #[serde(rename = "type", default)]
@@ -145,7 +249,7 @@ impl Database {
                         enabled_opencode, enabled_trae, enabled_trae_cn,
                         enabled_trae_work, enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
                         enabled_codebuddy, enabled_hermes, enabled_mimo_code, enabled_workbuddy,
-                        enabled_zcode
+                        enabled_zcode, enabled_cursor, enabled_windsurf, enabled_cline, enabled_roo, enabled_kilo, enabled_continue, enabled_goose, enabled_kiro, enabled_kimi_code, enabled_minimax_code
                  FROM mcp_servers
                  ORDER BY name ASC, id ASC",
             )
@@ -176,6 +280,16 @@ impl Database {
                 let enabled_mimo_code: bool = row.get(20)?;
                 let enabled_workbuddy: bool = row.get(21)?;
                 let enabled_zcode: bool = row.get(22)?;
+                let enabled_cursor: bool = row.get(23)?;
+                let enabled_windsurf: bool = row.get(24)?;
+                let enabled_cline: bool = row.get(25)?;
+                let enabled_roo: bool = row.get(26)?;
+                let enabled_kilo: bool = row.get(27)?;
+                let enabled_continue: bool = row.get(28)?;
+                let enabled_goose: bool = row.get(29)?;
+                let enabled_kiro: bool = row.get(30)?;
+                let enabled_kimi_code: bool = row.get(31)?;
+                let enabled_minimax_code: bool = row.get(32)?;
 
                 let server: McpServerSpec =
                     serde_json::from_str(&server_config_str).unwrap_or_default();
@@ -205,7 +319,18 @@ impl Database {
                             workbuddy: enabled_workbuddy,
                             workbuddy_cn: enabled_workbuddy,
                             zcode: enabled_zcode,
-                        },
+                            cursor: enabled_cursor,
+                            windsurf: enabled_windsurf,
+                            cline: enabled_cline,
+                            roo: enabled_roo,
+                            kilo: enabled_kilo,
+                            continue_agent: enabled_continue,
+                            goose: enabled_goose,
+                            kiro: enabled_kiro,
+                            kimi_code: enabled_kimi_code,
+                            minimax_code: enabled_minimax_code,
+                        }
+                        .normalized(),
                         description,
                         homepage,
                         docs,
@@ -225,48 +350,38 @@ impl Database {
 
     /// 保存 MCP 服务器
     pub fn save_mcp_server(&self, server: &McpServer) -> Result<(), AppError> {
-        let conn = lock_conn!(self.conn);
-        conn.execute(
-            "INSERT OR REPLACE INTO mcp_servers (
-                id, name, server_config, description, homepage, docs, tags,
-                enabled_qwen_code, enabled_claude, enabled_codex, enabled_gemini,
-                enabled_opencode, enabled_trae, enabled_trae_cn,
-                enabled_trae_work, enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
-                enabled_codebuddy, enabled_hermes, enabled_mimo_code, enabled_workbuddy,
-                enabled_zcode, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23,
-                      strftime('%s', 'now') * 1000)",
-            rusqlite::params![
-                server.id,
-                server.name,
-                serde_json::to_string(&server.server).map_err(|e| {
-                    AppError::Database(format!("Failed to serialize server config: {}", e))
-                })?,
-                server.description,
-                server.homepage,
-                server.docs,
-                serde_json::to_string(&server.tags)
-                    .map_err(|e| AppError::Database(format!("Failed to serialize tags: {}", e)))?,
-                server.apps.qwen_code,
-                server.apps.claude,
-                server.apps.codex,
-                server.apps.gemini,
-                server.apps.opencode,
-                server.apps.trae,
-                server.apps.trae_cn,
-                server.apps.trae_work,
-                server.apps.trae_solo_cn,
-                server.apps.qoder,
-                server.apps.qodercli,
-                server.apps.codebuddy,
-                server.apps.hermes,
-                server.apps.mimo_code,
-                server.apps.workbuddy || server.apps.workbuddy_cn,
-                server.apps.zcode,
-            ],
-        )
-        .map_err(|e| AppError::Database(e.to_string()))?;
-        Ok(())
+        self.save_mcp_servers(std::slice::from_ref(server))
+    }
+
+    /// 在一个事务中保存全部 MCP 服务器，失败时不留下部分导入结果。
+    pub fn save_mcp_servers(&self, servers: &[McpServer]) -> Result<(), AppError> {
+        let mut conn = lock_conn!(self.conn);
+        let transaction = conn
+            .transaction()
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        for server in servers {
+            save_mcp_server_on_connection(&transaction, server)?;
+        }
+        transaction
+            .commit()
+            .map_err(|e| AppError::Database(e.to_string()))
+    }
+
+    /// 原子恢复 MCP 快照，由调用方先确认期间没有新增编辑。
+    pub fn replace_mcp_servers(&self, servers: &[McpServer]) -> Result<(), AppError> {
+        let mut conn = lock_conn!(self.conn);
+        let transaction = conn
+            .transaction()
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        transaction
+            .execute("DELETE FROM mcp_servers", [])
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        for server in servers {
+            save_mcp_server_on_connection(&transaction, server)?;
+        }
+        transaction
+            .commit()
+            .map_err(|e| AppError::Database(e.to_string()))
     }
 
     /// 删除 MCP 服务器
@@ -279,4 +394,62 @@ impl Database {
         .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(())
     }
+}
+
+fn save_mcp_server_on_connection(
+    conn: &rusqlite::Connection,
+    server: &McpServer,
+) -> Result<(), AppError> {
+    let apps = server.apps.normalized();
+    conn.execute(
+            "INSERT OR REPLACE INTO mcp_servers (
+                id, name, server_config, description, homepage, docs, tags,
+                enabled_qwen_code, enabled_claude, enabled_codex, enabled_gemini,
+                enabled_opencode, enabled_trae, enabled_trae_cn,
+                enabled_trae_work, enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
+                enabled_codebuddy, enabled_hermes, enabled_mimo_code, enabled_workbuddy,
+                enabled_zcode, enabled_cursor, enabled_windsurf, enabled_cline, enabled_roo, enabled_kilo, enabled_continue, enabled_goose, enabled_kiro, enabled_kimi_code, enabled_minimax_code, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33,
+                      strftime('%s', 'now') * 1000)",
+            rusqlite::params![
+                server.id,
+                server.name,
+                serde_json::to_string(&server.server).map_err(|e| {
+                    AppError::Database(format!("Failed to serialize server config: {}", e))
+                })?,
+                server.description,
+                server.homepage,
+                server.docs,
+                serde_json::to_string(&server.tags)
+                    .map_err(|e| AppError::Database(format!("Failed to serialize tags: {}", e)))?,
+                apps.qwen_code,
+                apps.claude,
+                apps.codex,
+                apps.gemini,
+                apps.opencode,
+                apps.trae,
+                apps.trae_cn,
+                apps.trae_work,
+                apps.trae_solo_cn,
+                apps.qoder,
+                apps.qodercli,
+                apps.codebuddy,
+                apps.hermes,
+                apps.mimo_code,
+                apps.workbuddy || apps.workbuddy_cn,
+                apps.zcode,
+                apps.cursor,
+                apps.windsurf,
+                apps.cline,
+                apps.roo,
+                apps.kilo,
+                apps.continue_agent,
+                apps.goose,
+                apps.kiro,
+                apps.kimi_code,
+                apps.minimax_code,
+            ],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+    Ok(())
 }

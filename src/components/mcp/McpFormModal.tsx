@@ -4,6 +4,7 @@ import { X, Check, AlertCircle, ClipboardPaste, ChevronDown, ChevronUp, Play, Lo
 import { useUpsertMcpServer } from "@/hooks/useMcp";
 import { enhancementApi, mcpApi } from "@/lib/api";
 import type { McpServer, McpServerSpec } from "@/types";
+import { APP_COLORS, normalizeToolId } from "@/lib/tools";
 import { Pressable } from "@/components/ui/Pressable";
 import { Modal } from "@/components/ui/Modal";
 
@@ -20,22 +21,16 @@ interface McpFormModalProps {
   onClose: () => void;
 }
 
-const agentColors: Record<string, string> = {
-  "qwen-code": "bg-purple-500",
-  claude: "bg-orange-500",
-  codex: "bg-blue-500",
-  gemini: "bg-green-500",
-  opencode: "bg-cyan-500",
-  trae: "bg-indigo-500",
-  "trae-cn": "bg-violet-500",
-  "trae-work": "bg-sky-500",
-  "trae-solo-cn": "bg-fuchsia-500",
-  qoder: "bg-yellow-500",
-  qodercli: "bg-amber-500",
-  codebuddy: "bg-red-500",
-  hermes: "bg-teal-500",
-  zcode: "bg-emerald-500",
-};
+const agentColors: Record<string, string> = APP_COLORS;
+
+function normalizeApps(apps: Record<string, boolean>): Record<string, boolean> {
+  const normalized: Record<string, boolean> = {};
+  for (const [id, enabled] of Object.entries(apps)) {
+    const toolId = normalizeToolId(id);
+    normalized[toolId] = Boolean(normalized[toolId] || enabled);
+  }
+  return normalized;
+}
 
 const EXAMPLE_JSON = `{
   "mcpServers": {
@@ -58,7 +53,7 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
   // Build default apps state based on installed agents
   const defaultApps = useMemo(() => {
     const apps: Record<string, boolean> = {};
-    installedAgents.forEach((a) => (apps[a.id] = true));
+    installedAgents.forEach((a) => (apps[normalizeToolId(a.id)] = true));
     return apps;
   }, [installedAgents]);
 
@@ -135,7 +130,7 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
         },
       };
       setJsonInput(JSON.stringify(editJson, null, 2));
-      setSelectedApps(initialData.apps || defaultApps);
+      setSelectedApps(normalizeApps(initialData.apps || defaultApps));
       parseAndSetServer(editJson);
     }
   }, [defaultApps, editingId, initialData, parseAndSetServer]);
@@ -200,7 +195,8 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!parsedServer) return;
-    if (!Object.values(selectedApps).some(Boolean)) {
+    const apps = normalizeApps(selectedApps);
+    if (!Object.values(apps).some(Boolean)) {
       toast.error("请至少选择一个目标工具");
       return;
     }
@@ -216,7 +212,7 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
             name: server.name,
             server: server.server,
           })),
-          apps: selectedApps,
+          apps,
           overwrite: true,
         });
       } else {
@@ -225,7 +221,7 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
           id: activeServer.id,
           name: activeServer.name,
           server: activeServer.server,
-          apps: selectedApps as any,
+          apps,
           description: activeServer.server.description,
           homepage: activeServer.server.homepage,
           docs: activeServer.server.docs,
@@ -347,7 +343,7 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
                       testResult?.success
                         ? "bg-green-500/20 text-green-500"
                         : testResult?.success === false
-                        ? "bg-red-500/20 text-red-500"
+                        ? "bg-amber-500/20 text-amber-600"
                         : "glass-secondary-button min-h-8 px-3 py-1.5 text-xs text-blue-700 dark:text-sky-300"
                     } disabled:opacity-50`}
                   >
@@ -360,14 +356,15 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
                     ) : (
                       <Play size={12} />
                     )}
-                    {isTesting ? "测试中..." : testResult?.success ? "测试通过" : testResult?.success === false ? "测试失败" : "测试连接"}
+                    {isTesting ? "测试中..." : testResult?.success ? "测试通过" : testResult?.success === false ? "测试未通过" : "测试连接"}
                   </Pressable>
                 )}
               </div>
 
               {testResult && (
-                <div className={`text-xs p-2 rounded border break-all ${testResult.success ? "bg-green-500/10 border-green-500/20 text-green-600" : "bg-red-500/10 border-red-500/20 text-red-600"}`}>
+                <div className={`text-xs p-2 rounded border break-all ${testResult.success ? "bg-green-500/10 border-green-500/20 text-green-600" : "bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-300"}`}>
                   {testResult.message}
+                  {!testResult.success && <span className="mt-1 block">测试未通过也可以直接保存，部分服务首次启动较慢或需要网络条件。</span>}
                 </div>
               )}
 
@@ -499,11 +496,9 @@ const McpFormModal: React.FC<McpFormModalProps> = ({
               !parsedServer ||
               selectedServerIds.size === 0 ||
               isSubmitting ||
-              installedAgents.length === 0 ||
-              !!(parsedServers.length === 1 && parsedServer.server.command && !testResult?.success)
+              installedAgents.length === 0
             }
             className="glass-primary-button"
-            title={parsedServers.length === 1 && parsedServer?.server.command && !testResult?.success ? "请先测试连接成功后再保存" : ""}
           >
             {isSubmitting
               ? "保存中..."

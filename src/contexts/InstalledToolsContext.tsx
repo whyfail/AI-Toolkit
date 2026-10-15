@@ -32,6 +32,7 @@ export interface ToolStatus {
   tool: ToolAdapter;
   installed: boolean;
   skills: DetectedSkill[];
+  legacy_skills?: DetectedSkill[];
 }
 
 export interface InstalledToolsReport {
@@ -44,8 +45,6 @@ interface InstalledToolsContextValue {
   report: InstalledToolsReport | null;
   isLoading: boolean;
   refresh: () => Promise<void>;
-  markAgentUninstalled: (agentId: string) => void;
-  markAgentInstalled: (agentId: string) => void;
   // 便捷访问
   installedAgents: AgentInfo[];
   toolStatuses: ToolStatus[];
@@ -74,7 +73,7 @@ export function InstalledToolsProvider({ children }: { children: ReactNode }) {
     try {
       const data = await toolApi.refreshInstalledTools();
       setReport(data);
-      toast.success("工具检测已刷新");
+      toast.success("本地 Agent 扫描已完成");
     } catch (err) {
       console.error("Failed to refresh installed tools:", err);
       toast.error(`刷新失败: ${err}`);
@@ -83,41 +82,20 @@ export function InstalledToolsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const markAgentUninstalled = useCallback((agentId: string) => {
-    setReport(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        agents: prev.agents.map(a =>
-          a.id === agentId ? { ...a, exists: false } : a
-        ),
-      };
-    });
-  }, []);
-
-  const markAgentInstalled = useCallback((agentId: string) => {
-    setReport(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        agents: prev.agents.map(a =>
-          a.id === agentId ? { ...a, exists: true } : a
-        ),
-      };
-    });
-  }, []);
-
   useEffect(() => {
     loadReport();
   }, [loadReport]);
 
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
+    let cancelled = false;
     const setupListener = async () => {
-      unlisten = await listen<InstalledToolsReport>("installed-tools-updated", (event) => {
+      const unsubscribe = await listen<InstalledToolsReport>("installed-tools-updated", (event) => {
         setReport(event.payload);
         setIsLoading(false);
       });
+      if (cancelled) unsubscribe();
+      else unlisten = unsubscribe;
     };
 
     setupListener().catch((err) => {
@@ -125,6 +103,7 @@ export function InstalledToolsProvider({ children }: { children: ReactNode }) {
     });
 
     return () => {
+      cancelled = true;
       unlisten?.();
     };
   }, []);
@@ -134,14 +113,12 @@ export function InstalledToolsProvider({ children }: { children: ReactNode }) {
     () => report?.agents.filter((a) => a.exists) || [],
     [report]
   );
-  const toolStatuses = useMemo(() => report?.tool_statuses || [], [report]);
+  const toolStatuses = useMemo(() => report?.tool_statuses.filter(status => status.installed) || [], [report]);
   const contextValue = useMemo(
     () => ({
       report,
       isLoading,
       refresh,
-      markAgentUninstalled,
-      markAgentInstalled,
       installedAgents,
       toolStatuses,
     }),
@@ -149,8 +126,6 @@ export function InstalledToolsProvider({ children }: { children: ReactNode }) {
       report,
       isLoading,
       refresh,
-      markAgentUninstalled,
-      markAgentInstalled,
       installedAgents,
       toolStatuses,
     ]

@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import "./index.css";
 import { InstalledToolsProvider } from "./contexts/InstalledToolsContext";
+import { DesktopRuntimeGuard } from "./components/DesktopRuntimeGuard";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,10 +21,12 @@ const queryClient = new QueryClient({
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <InstalledToolsProvider>
-        <App />
-      </InstalledToolsProvider>
-    </QueryClientProvider>
+    <DesktopRuntimeGuard>
+      <QueryClientProvider client={queryClient}>
+        <InstalledToolsProvider>
+          <App />
+        </InstalledToolsProvider>
+      </QueryClientProvider>
+    </DesktopRuntimeGuard>
   </React.StrictMode>
 );

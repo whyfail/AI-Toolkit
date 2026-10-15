@@ -1,6 +1,6 @@
 /**
  * 统一工具定义
- * 所有模块共享这套工具定义，与 README 支持的 17 种工具保持一致
+ * 所有模块共享这套工具定义，覆盖 CLI、桌面应用和 IDE 扩展，共用配置的客户端使用统一 ID
  */
 
 // 工具 ID 类型（使用 kebab-case，与 AppType serde 名一致）
@@ -12,16 +12,23 @@ export type ToolId =
   | 'opencode'
   | 'trae'
   | 'trae-cn'
-  | 'trae-work'
-  | 'trae-solo-cn'
   | 'qoder'
   | 'qodercli'
   | 'codebuddy'
   | 'hermes'
   | 'mimo-code'
+  | 'kimi-code'
+  | 'minimax-code'
   | 'workbuddy'
-  | 'workbuddy-cn'
-  | 'zcode';
+  | 'zcode'
+  | 'cursor'
+  | 'windsurf'
+  | 'cline'
+  | 'roo'
+  | 'kilo'
+  | 'continue'
+  | 'goose'
+  | 'kiro';
 
 // 工具元数据
 export interface ToolMeta {
@@ -102,7 +109,7 @@ export const SUPPORTED_TOOLS: ToolMeta[] = [
   {
     id: 'trae',
     name: 'trae',
-    displayName: 'TRAE IDE',
+    displayName: 'TRAE',
     skillsDir: '.trae/skills',
     detectDir: '.trae',
     binaryName: 'trae',
@@ -111,29 +118,11 @@ export const SUPPORTED_TOOLS: ToolMeta[] = [
   {
     id: 'trae-cn',
     name: 'trae-cn',
-    displayName: 'TRAE IDE CN',
+    displayName: 'TRAE CN',
     skillsDir: '.trae-cn/skills',
     detectDir: '.trae-cn',
     binaryName: 'trae',
-    docsUrl: 'https://docs.trae.cn/ide',
-  },
-  {
-    id: 'trae-work',
-    name: 'trae-work',
-    displayName: 'TRAE Work',
-    skillsDir: '.trae/skills',
-    detectDir: '.trae',
-    binaryName: 'trae',
-    docsUrl: 'https://www.trae.ai/work',
-  },
-  {
-    id: 'trae-solo-cn',
-    name: 'trae-solo-cn',
-    displayName: 'TRAE Work CN',
-    skillsDir: '.trae-cn/skills',
-    detectDir: '.trae-cn',
-    binaryName: 'trae',
-    docsUrl: 'https://www.trae.cn/work',
+    docsUrl: 'https://docs.trae.cn/ide_add-mcp-servers',
   },
   {
     id: 'codebuddy',
@@ -163,6 +152,24 @@ export const SUPPORTED_TOOLS: ToolMeta[] = [
     docsUrl: 'https://mimo.xiaomi.com/mimocode/install',
   },
   {
+    id: 'kimi-code',
+    name: 'kimi-code',
+    displayName: 'Kimi Code',
+    skillsDir: '.kimi-code/skills',
+    detectDir: '.kimi-code',
+    binaryName: 'kimi',
+    docsUrl: 'https://github.com/MoonshotAI/kimi-code',
+  },
+  {
+    id: 'minimax-code',
+    name: 'minimax-code',
+    displayName: 'MiniMax Code',
+    skillsDir: '.minimax/skills',
+    detectDir: '.minimax',
+    binaryName: 'mcode',
+    docsUrl: 'https://github.com/MiniMax-AI/minimax-code',
+  },
+  {
     id: 'workbuddy',
     name: 'workbuddy',
     displayName: 'WorkBuddy',
@@ -172,15 +179,6 @@ export const SUPPORTED_TOOLS: ToolMeta[] = [
     docsUrl: 'https://www.workbuddy.ai/',
   },
   {
-    id: 'workbuddy-cn',
-    name: 'workbuddy-cn',
-    displayName: 'WorkBuddy CN',
-    skillsDir: '.workbuddy/skills',
-    detectDir: '.workbuddy',
-    binaryName: 'workbuddy',
-    docsUrl: 'https://www.workbuddy.cn/',
-  },
-  {
     id: 'zcode',
     name: 'zcode',
     displayName: 'ZCode',
@@ -188,6 +186,78 @@ export const SUPPORTED_TOOLS: ToolMeta[] = [
     detectDir: '.zcode',
     binaryName: 'zcode',
     docsUrl: 'https://docs.z.ai',
+  },
+  {
+    id: 'cursor',
+    name: 'cursor',
+    displayName: 'Cursor',
+    skillsDir: '.cursor/skills',
+    detectDir: '.cursor',
+    binaryName: 'cursor-agent',
+    docsUrl: 'https://cursor.com/docs/mcp',
+  },
+  {
+    id: 'windsurf',
+    name: 'windsurf',
+    displayName: 'Windsurf',
+    skillsDir: '.codeium/windsurf/skills',
+    detectDir: '.codeium/windsurf',
+    binaryName: 'windsurf',
+    docsUrl: 'https://docs.windsurf.com/windsurf/cascade/mcp',
+  },
+  {
+    id: 'cline',
+    name: 'cline',
+    displayName: 'Cline',
+    skillsDir: '.cline/skills',
+    detectDir: '.cline',
+    binaryName: 'cline',
+    docsUrl: 'https://docs.cline.bot/getting-started/config',
+  },
+  {
+    id: 'roo',
+    name: 'roo',
+    displayName: 'Roo Code',
+    skillsDir: '.roo/skills',
+    detectDir: '.roo',
+    binaryName: '',
+    docsUrl: 'https://docs.roocode.com/features/mcp/using-mcp-in-roo',
+  },
+  {
+    id: 'kilo',
+    name: 'kilo',
+    displayName: 'Kilo Code',
+    skillsDir: '.kilo/skills',
+    detectDir: '.config/kilo',
+    binaryName: 'kilo',
+    docsUrl: 'https://kilo.ai/docs/automate/mcp/using-in-cli',
+  },
+  {
+    id: 'continue',
+    name: 'continue',
+    displayName: 'Continue',
+    skillsDir: '.continue/skills',
+    detectDir: '.continue',
+    binaryName: 'cn',
+    docsUrl: 'https://docs.continue.dev/cli/configuration',
+  },
+  {
+    id: 'goose',
+    name: 'goose',
+    displayName: 'Goose',
+    skillsDir: '.config/goose/skills',
+    detectDir: '.config/goose',
+    binaryName: 'goose',
+    docsUrl: 'https://goose.vcorp.ai/docs/getting-started/using-extensions/',
+  },
+  {
+    id: 'kiro',
+    name: 'kiro',
+    displayName: 'Kiro',
+    skillsDir: '.kiro/skills',
+    detectDir: '.kiro',
+    binaryName: 'kiro-cli',
+    docsUrl: 'https://kiro.dev/docs/cli/chat/configuration/',
   },
 ];
 
@@ -200,37 +270,42 @@ export const APP_COLORS: Record<ToolId, string> = {
   'opencode': 'bg-cyan-500',
   'trae': 'bg-indigo-500',
   'trae-cn': 'bg-violet-500',
-  'trae-work': 'bg-sky-500',
-  'trae-solo-cn': 'bg-fuchsia-500',
   'qoder': 'bg-yellow-500',
   'qodercli': 'bg-amber-500',
   'codebuddy': 'bg-red-500',
   'hermes': 'bg-teal-500',
   'mimo-code': 'bg-rose-500',
+  'kimi-code': 'bg-slate-900',
+  'minimax-code': 'bg-orange-500',
   'workbuddy': 'bg-lime-600',
-  'workbuddy-cn': 'bg-pink-500',
   'zcode': 'bg-emerald-500',
+  'cursor': 'bg-slate-500',
+  'windsurf': 'bg-teal-500',
+  'cline': 'bg-amber-500',
+  'roo': 'bg-sky-500',
+  'kilo': 'bg-yellow-500',
+  'continue': 'bg-green-600',
+  'goose': 'bg-orange-600',
+  'kiro': 'bg-fuchsia-500',
 };
+
+// 旧版 Work ID 仅用于读取历史记录，新配置使用统一 TRAE ID。
+export function normalizeToolId(id: string): string {
+  if (id === 'trae-work') return 'trae';
+  if (id === 'trae-solo-cn') return 'trae-cn';
+  if (id === 'workbuddy-cn') return 'workbuddy';
+  if (id === 'codex-cli' || id === 'codex-desktop') return 'codex';
+  return id;
+}
 
 // 根据 ID 获取工具元数据
 export function getToolMeta(id: string): ToolMeta | undefined {
-  return SUPPORTED_TOOLS.find(t => t.id === id);
+  return SUPPORTED_TOOLS.find(t => t.id === normalizeToolId(id));
 }
 
 // 根据 binary 名获取工具元数据
 export function getToolMetaByBinary(binaryName: string): ToolMeta | undefined {
   return SUPPORTED_TOOLS.find(t => t.binaryName === binaryName);
-}
-
-// 获取所有可启动的工具（具有 CLI 命令）
-export const LAUNCHABLE_TOOLS: ToolId[] = [
-  'qwen-code', 'claude', 'codex', 'gemini', 'opencode', 'qodercli', 'codebuddy', 'hermes', 'mimo-code',
-  'workbuddy', 'workbuddy-cn', 'zcode'
-];
-
-// 判断工具是否可启动
-export function isLaunchable(toolId: string): boolean {
-  return LAUNCHABLE_TOOLS.includes(toolId as ToolId);
 }
 
 // 获取共享 skills 目录的工具组

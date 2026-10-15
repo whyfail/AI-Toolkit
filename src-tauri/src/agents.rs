@@ -1,3 +1,4 @@
+use crate::services::local_detection::is_agent_installed;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -69,8 +70,141 @@ pub fn normalized_path_key(path: &Path) -> String {
     }
 }
 
+pub(crate) fn xdg_config_root() -> PathBuf {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| resolve_path("~/.config"))
+}
+
+fn extension_config_paths(ids: &[&str], filename: &str) -> Vec<PathBuf> {
+    let base = if cfg!(target_os = "macos") {
+        resolve_path("~/Library/Application Support")
+    } else if cfg!(windows) {
+        std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| resolve_path("~/AppData/Roaming"))
+    } else {
+        xdg_config_root()
+    };
+    let mut editors = [
+        "Code",
+        "Code - Insiders",
+        "VSCodium",
+        "Cursor",
+        "Windsurf",
+        "Devin",
+        "Trae",
+        "Trae CN",
+        "Kiro",
+    ];
+    editors.sort_by_key(|editor| {
+        !crate::services::local_detection::extension_installed_in_editor(editor, ids)
+    });
+    editors
+        .iter()
+        .flat_map(|editor| {
+            ids.iter().map({
+                let base = base.clone();
+                move |id| {
+                    base.join(editor)
+                        .join("User/globalStorage")
+                        .join(id)
+                        .join("settings")
+                        .join(filename)
+                }
+            })
+        })
+        .collect()
+}
+
 /// 获取指定 Agent 工具的配置文件路径列表
 pub fn get_agent_config_paths(app: &AppType) -> Vec<PathBuf> {
+    match app.canonical() {
+        AppType::Cline => {
+            let root = std::env::var_os("CLINE_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| resolve_path("~/.cline"));
+            let data = std::env::var_os("CLINE_DATA_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| root.join("data"));
+            let mut paths = vec![data.join("settings/cline_mcp_settings.json")];
+            paths.extend(extension_config_paths(
+                &["saoudrizwan.claude-dev"],
+                "cline_mcp_settings.json",
+            ));
+            return paths;
+        }
+        AppType::Roo => {
+            return extension_config_paths(
+                &["rooveterinaryinc.roo-cline", "roo-cline.roo-cline"],
+                "mcp_settings.json",
+            )
+        }
+        AppType::Kilo => {
+            let root = xdg_config_root().join("kilo");
+            let mut paths = [
+                "kilo.json",
+                "kilo.jsonc",
+                "config.json",
+                "opencode.json",
+                "opencode.jsonc",
+            ]
+            .iter()
+            .map(|name| root.join(name))
+            .collect::<Vec<_>>();
+            paths.extend(extension_config_paths(
+                &["kilocode.kilo-code", "kilo-code.kilo-code"],
+                "mcp_settings.json",
+            ));
+            return paths;
+        }
+        AppType::Goose => {
+            if let Some(root) = std::env::var_os("GOOSE_PATH_ROOT")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+            {
+                return vec![root.join("config/config.yaml")];
+            }
+            let mut paths = vec![xdg_config_root().join("goose/config.yaml")];
+            if cfg!(target_os = "macos") {
+                paths.insert(
+                    0,
+                    resolve_path("~/Library/Application Support/Block/goose/config.yaml"),
+                );
+            } else if cfg!(windows) {
+                if let Some(base) = std::env::var_os("APPDATA") {
+                    paths.insert(
+                        0,
+                        PathBuf::from(base).join("Block/goose/config/config.yaml"),
+                    );
+                }
+            }
+            return paths;
+        }
+        AppType::Codex => {
+            let root = std::env::var_os("CODEX_HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| resolve_path("~/.codex"));
+            return vec![root.join("config.toml")];
+        }
+        AppType::KimiCode => {
+            let root = std::env::var_os("KIMI_CODE_HOME")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| resolve_path("~/.kimi-code"));
+            return vec![root.join("mcp.json")];
+        }
+        AppType::MinimaxCode => {
+            let root = ["MINIMAX_DATA_DIR", "MAVIS_DATA_DIR"]
+                .iter()
+                .filter_map(std::env::var_os)
+                .find(|value| !value.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| resolve_path("~/.minimax"));
+            return vec![root.join("mcp.json")];
+        }
+        _ => {}
+    }
     let paths: Vec<&str> = match app {
         AppType::QwenCode => vec!["~/.qwen/settings.json"],
         AppType::Claude => {
@@ -101,35 +235,29 @@ pub fn get_agent_config_paths(app: &AppType) -> Vec<PathBuf> {
                 vec!["~/.config/opencode/opencode.json"]
             }
         }
-        AppType::Trae => {
-            if cfg!(windows) {
-                vec!["%APPDATA%\\Trae\\User\\mcp.json"]
-            } else {
-                vec!["~/Library/Application Support/Trae/User/mcp.json"]
-            }
-        }
-        AppType::TraeCn => {
-            if cfg!(windows) {
-                vec!["%APPDATA%\\Trae CN\\User\\mcp.json"]
-            } else {
-                vec!["~/Library/Application Support/Trae CN/User/mcp.json"]
-            }
-        }
-        AppType::TraeWork => {
-            if cfg!(windows) {
-                vec!["%APPDATA%\\TRAE Work\\User\\mcp.json"]
-            } else {
-                vec!["~/Library/Application Support/TRAE Work/User/mcp.json"]
-            }
-        }
-        AppType::TraeSoloCn => {
+        AppType::Trae | AppType::TraeWork => {
             if cfg!(windows) {
                 vec![
+                    "%APPDATA%\\Trae\\User\\mcp.json",
+                    "%APPDATA%\\TRAE Work\\User\\mcp.json",
+                ]
+            } else {
+                vec![
+                    "~/Library/Application Support/Trae/User/mcp.json",
+                    "~/Library/Application Support/TRAE Work/User/mcp.json",
+                ]
+            }
+        }
+        AppType::TraeCn | AppType::TraeSoloCn => {
+            if cfg!(windows) {
+                vec![
+                    "%APPDATA%\\Trae CN\\User\\mcp.json",
                     "%APPDATA%\\TRAE Work CN\\User\\mcp.json",
                     "%APPDATA%\\TRAE SOLO CN\\User\\mcp.json",
                 ]
             } else {
                 vec![
+                    "~/Library/Application Support/Trae CN/User/mcp.json",
                     "~/Library/Application Support/TRAE Work CN/User/mcp.json",
                     "~/Library/Application Support/TRAE SOLO CN/User/mcp.json",
                 ]
@@ -185,6 +313,19 @@ pub fn get_agent_config_paths(app: &AppType) -> Vec<PathBuf> {
                 vec!["~/.workbuddy/.mcp.json"]
             }
         }
+        AppType::Cursor => vec!["~/.cursor/mcp.json"],
+        AppType::Windsurf => vec![
+            "~/.codeium/windsurf/mcp_config.json",
+            "~/.config/devin/mcp_config.json",
+        ],
+        AppType::Continue => vec!["~/.continue/config.yaml"],
+        AppType::Kiro => vec!["~/.kiro/settings/mcp.json"],
+        AppType::Cline
+        | AppType::Roo
+        | AppType::Kilo
+        | AppType::Goose
+        | AppType::KimiCode
+        | AppType::MinimaxCode => unreachable!(),
         AppType::Zcode => {
             if cfg!(windows) {
                 vec!["%USERPROFILE%\\.zcode\\cli\\config.json"]
@@ -196,6 +337,20 @@ pub fn get_agent_config_paths(app: &AppType) -> Vec<PathBuf> {
     paths.iter().map(|p| resolve_path(p)).collect()
 }
 
+/// TRAE keeps its migration target; other Agents reuse the existing local configuration.
+pub fn get_canonical_mcp_config_path(app: &AppType) -> PathBuf {
+    let paths = get_agent_config_paths(&app.canonical());
+    if !app.is_trae() {
+        if let Some(path) = paths.iter().find(|path| path.is_file()) {
+            return path.clone();
+        }
+    }
+    paths
+        .into_iter()
+        .next()
+        .expect("every supported application has an MCP configuration path")
+}
+
 /// 获取 Agent 工具的显示名称
 pub fn get_agent_name(app: &AppType) -> String {
     match app {
@@ -204,246 +359,27 @@ pub fn get_agent_name(app: &AppType) -> String {
         AppType::Codex => "Codex".to_string(),
         AppType::Gemini => "Gemini CLI".to_string(),
         AppType::OpenCode => "OpenCode".to_string(),
-        AppType::Trae => "TRAE IDE".to_string(),
-        AppType::TraeCn => "TRAE IDE CN".to_string(),
-        AppType::TraeWork => "TRAE Work".to_string(),
-        AppType::TraeSoloCn => "TRAE Work CN".to_string(),
+        AppType::Trae | AppType::TraeWork => "TRAE".to_string(),
+        AppType::TraeCn | AppType::TraeSoloCn => "TRAE CN".to_string(),
         AppType::Qoder => "Qoder".to_string(),
         AppType::Qodercli => "Qoder CLI".to_string(),
         AppType::CodeBuddy => "CodeBuddy CN CLI".to_string(),
         AppType::Hermes => "Hermes Agent".to_string(),
         AppType::MimoCode => "Mimo Code".to_string(),
+        AppType::KimiCode => "Kimi Code".to_string(),
+        AppType::MinimaxCode => "MiniMax Code".to_string(),
         AppType::WorkBuddy => "WorkBuddy".to_string(),
-        AppType::WorkBuddyCn => "WorkBuddy CN".to_string(),
+        AppType::WorkBuddyCn => "WorkBuddy".to_string(),
         AppType::Zcode => "ZCode".to_string(),
+        AppType::Cursor => "Cursor".to_string(),
+        AppType::Windsurf => "Windsurf".to_string(),
+        AppType::Cline => "Cline".to_string(),
+        AppType::Roo => "Roo Code".to_string(),
+        AppType::Kilo => "Kilo Code".to_string(),
+        AppType::Continue => "Continue".to_string(),
+        AppType::Goose => "Goose".to_string(),
+        AppType::Kiro => "Kiro".to_string(),
     }
-}
-
-/// 获取 Agent 工具的安装检测目录（用于判断工具是否已安装）
-pub fn get_agent_detect_dir(app: &AppType) -> Option<PathBuf> {
-    let path_str = match app {
-        AppType::QwenCode => "~/.qwen",
-        AppType::Claude => {
-            if cfg!(windows) {
-                "%USERPROFILE%\\.claude"
-            } else {
-                "~/.claude"
-            }
-        }
-        AppType::Codex => {
-            if cfg!(windows) {
-                "%USERPROFILE%\\.codex"
-            } else {
-                "~/.codex"
-            }
-        }
-        AppType::Gemini => {
-            if cfg!(windows) {
-                "%USERPROFILE%\\.gemini"
-            } else {
-                "~/.gemini"
-            }
-        }
-        AppType::OpenCode => {
-            if cfg!(windows) {
-                "%USERPROFILE%\\.config\\opencode"
-            } else {
-                "~/.config/opencode"
-            }
-        }
-        AppType::Trae => {
-            if cfg!(windows) {
-                "%APPDATA%\\Trae"
-            } else {
-                "~/Library/Application Support/Trae"
-            }
-        }
-        AppType::TraeCn => {
-            if cfg!(windows) {
-                "%APPDATA%\\Trae CN"
-            } else {
-                "~/Library/Application Support/Trae CN"
-            }
-        }
-        AppType::TraeWork => {
-            if cfg!(windows) {
-                "%APPDATA%\\TRAE Work"
-            } else {
-                "~/Library/Application Support/TRAE Work"
-            }
-        }
-        AppType::TraeSoloCn => {
-            if cfg!(windows) {
-                "%APPDATA%\\TRAE Work CN"
-            } else {
-                "~/Library/Application Support/TRAE Work CN"
-            }
-        }
-        AppType::Qoder => {
-            if cfg!(windows) {
-                "%APPDATA%\\Qoder"
-            } else {
-                "~/Library/Application Support/Qoder"
-            }
-        }
-        AppType::Qodercli => {
-            if cfg!(windows) {
-                "%USERPROFILE%\\.qodercli"
-            } else {
-                "~/.qodercli"
-            }
-        }
-        AppType::CodeBuddy => {
-            if cfg!(windows) {
-                "%USERPROFILE%\\.codebuddy"
-            } else {
-                "~/.codebuddy"
-            }
-        }
-        AppType::Hermes => {
-            if cfg!(windows) {
-                "%USERPROFILE%\\.hermes"
-            } else {
-                "~/.hermes"
-            }
-        }
-        AppType::MimoCode => {
-            if cfg!(windows) {
-                "%USERPROFILE%\\.config\\mimocode"
-            } else {
-                "~/.config/mimocode"
-            }
-        }
-        AppType::WorkBuddy | AppType::WorkBuddyCn => {
-            if cfg!(windows) {
-                "%USERPROFILE%\\.workbuddy"
-            } else {
-                "~/.workbuddy"
-            }
-        }
-        AppType::Zcode => {
-            if cfg!(windows) {
-                "%USERPROFILE%\\.zcode"
-            } else {
-                "~/.zcode"
-            }
-        }
-    };
-    Some(resolve_path(path_str))
-}
-
-/// 获取 Agent 工具的 CLI binary 名称
-fn get_agent_binary_name(app: &AppType) -> &'static str {
-    match app {
-        AppType::Trae => "trae",
-        AppType::TraeCn => "trae",
-        AppType::TraeWork => "trae",
-        AppType::TraeSoloCn => "trae",
-        AppType::QwenCode => "qwen",
-        AppType::Claude => "claude",
-        AppType::Codex => "codex",
-        AppType::Gemini => "gemini",
-        AppType::OpenCode => "opencode",
-        AppType::Qoder => "qoder",
-        AppType::Qodercli => "qodercli",
-        AppType::CodeBuddy => "codebuddy",
-        AppType::Hermes => "hermes",
-        AppType::MimoCode => "mimo",
-        AppType::WorkBuddy | AppType::WorkBuddyCn => "workbuddy",
-        AppType::Zcode => "zcode",
-    }
-}
-
-/// 使用 which_binary 检测 Agent 是否已安装（更可靠）
-fn is_agent_installed(app: &AppType) -> bool {
-    use crate::services::tool_manager::which_binary;
-    let binary_name = get_agent_binary_name(app);
-
-    // Primary: binary 检测（CLI 工具卸载后 binary 会被移除，最可靠的判断依据）
-    if !matches!(app, AppType::WorkBuddy | AppType::WorkBuddyCn)
-        && which_binary(binary_name).is_some()
-    {
-        return true;
-    }
-
-    // macOS GUI 应用检测（通过检查 /Applications/*.app）
-    #[cfg(target_os = "macos")]
-    {
-        if crate::services::tool_manager::is_app_installed_mac(app) {
-            return true;
-        }
-    }
-
-    // Windows GUI 应用检测（搜索 exe 文件）
-    #[cfg(target_os = "windows")]
-    {
-        if crate::services::tool_manager::is_app_installed_windows(app) {
-            return true;
-        }
-    }
-
-    // 数据目录/配置文件检测已移除
-    // 原因: CLI 工具卸载后数据目录（如 ~/.qodercli/）仍会残留，导致误判为已安装
-    // 对于纯 GUI 应用（Trae/TraeCn/Qoder），通过 /Applications/*.app 检测已足够
-
-    false
-}
-
-/// 统计配置文件中的 MCP 服务器数量
-fn count_mcp_in_config(path: &Path) -> usize {
-    let content = match fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(_) => return 0,
-    };
-
-    if path.extension().and_then(|s| s.to_str()) == Some("toml") {
-        // Codex TOML 格式
-        if let Ok(toml) = toml::from_str::<toml::Value>(&content) {
-            if let Some(servers) = toml.get("mcp_servers") {
-                return servers.as_table().map(|t| t.len()).unwrap_or(0);
-            }
-        }
-    } else if matches!(
-        path.extension().and_then(|s| s.to_str()),
-        Some("yaml" | "yml")
-    ) {
-        if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
-            if let Some(servers) = yaml.get("mcp_servers") {
-                return servers.as_mapping().map(|m| m.len()).unwrap_or(0);
-            }
-        }
-    } else {
-        // JSON 格式
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-            // 多种可能的键名
-            for key in ["mcpServers", "mcp"] {
-                if let Some(obj) = json.get(key) {
-                    if let Some(servers) = obj.as_object() {
-                        // ZCode 格式: { "mcp": { "servers": { ... } } }
-                        if key == "mcp" {
-                            if let Some(nested) = servers.get("servers").and_then(|v| v.as_object())
-                            {
-                                return nested.len();
-                            }
-                        }
-                        return servers.len();
-                    }
-                    if let Some(arr) = obj.as_array() {
-                        return arr.len();
-                    }
-                }
-            }
-            if let Some(models) = json.get("models") {
-                if let Some(providers) = models.get("providers") {
-                    if let Some(obj) = providers.as_object() {
-                        return obj.len();
-                    }
-                }
-            }
-        }
-    }
-
-    0
 }
 
 /// 检测系统中所有已安装的 Agent 工具
@@ -466,7 +402,9 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
             }
 
             let mcp_count = if let Some(config_path) = found_path {
-                count_mcp_in_config(config_path)
+                crate::import::import_from_path(app.clone(), config_path)
+                    .map(|result| result.servers.len())
+                    .unwrap_or(0)
             } else {
                 0
             };
@@ -476,12 +414,13 @@ pub fn detect_all_agents() -> Vec<DetectedAgent> {
                 name: get_agent_name(app),
                 config_path: found_path
                     .map(|p| p.to_string_lossy().to_string())
-                    .or_else(|| get_agent_detect_dir(app).map(|p| p.to_string_lossy().to_string()))
+                    .or_else(|| paths.first().map(|p| p.to_string_lossy().to_string()))
                     .unwrap_or_default(),
                 exists,
                 mcp_count,
             }
         })
+        .filter(|agent| agent.exists)
         .collect()
 }
 
@@ -490,7 +429,7 @@ pub fn get_last_detected_agents() -> Vec<String> {
     let state_path = resolve_path("~/.ai-toolkit/detected.json");
     if let Ok(content) = fs::read_to_string(&state_path) {
         if let Ok(agents) = serde_json::from_str::<Vec<String>>(&content) {
-            return agents;
+            return normalize_detected_agent_ids(&agents);
         }
     }
     vec![]
@@ -501,7 +440,58 @@ pub fn save_detected_agents(agents: &[String]) {
     let state_dir = resolve_path("~/.ai-toolkit");
     let _ = fs::create_dir_all(&state_dir);
     let state_path = state_dir.join("detected.json");
-    if let Ok(json) = serde_json::to_string_pretty(agents) {
+    if let Ok(json) = serde_json::to_string_pretty(&normalize_detected_agent_ids(agents)) {
         let _ = fs::write(&state_path, json);
+    }
+}
+
+fn normalize_detected_agent_ids(agents: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    agents
+        .iter()
+        .map(|id| {
+            id.parse::<AppType>()
+                .map(|app| app.canonical().name().to_string())
+                .unwrap_or_else(|_| id.clone())
+        })
+        .filter(|id| seen.insert(id.clone()))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trae_mcp_candidates_keep_regions_separate_and_current_path_first() {
+        let international = get_agent_config_paths(&AppType::Trae);
+        let china = get_agent_config_paths(&AppType::TraeCn);
+        assert_eq!(international.len(), 2);
+        assert_eq!(china.len(), 3);
+        assert!(international[0].to_string_lossy().contains("Trae"));
+        assert!(international[1].to_string_lossy().contains("TRAE Work"));
+        assert!(china[0].to_string_lossy().contains("Trae CN"));
+        assert!(china[1].to_string_lossy().contains("TRAE Work CN"));
+        assert!(china[2].to_string_lossy().contains("TRAE SOLO CN"));
+        assert!(!international.iter().any(|path| china.contains(path)));
+        assert_eq!(get_agent_config_paths(&AppType::TraeWork), international);
+        assert_eq!(get_agent_config_paths(&AppType::TraeSoloCn), china);
+        assert_eq!(
+            get_canonical_mcp_config_path(&AppType::TraeWork),
+            international[0]
+        );
+        assert_eq!(
+            get_canonical_mcp_config_path(&AppType::TraeSoloCn),
+            china[0]
+        );
+    }
+
+    #[test]
+    fn previous_detection_legacy_ids_do_not_trigger_duplicate_product_notifications() {
+        let ids = ["trae-work", "trae", "trae-solo-cn", "trae-cn", "codex"].map(str::to_string);
+        assert_eq!(
+            normalize_detected_agent_ids(&ids),
+            vec!["trae", "trae-cn", "codex"]
+        );
     }
 }

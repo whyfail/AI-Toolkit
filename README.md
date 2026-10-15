@@ -12,12 +12,12 @@
 
 ## 📖 简介
 
-AI Toolkit是一款**通用的 AI 编程工具管理工具**，支持统一管理 MCP 服务器配置和 Skills 技能同步。告别繁琐的手动编辑，一个应用即可管理所有 AI CLI 工具的插件服务。
+AI Toolkit是一款**通用的 AI 编程工具管理工具**，支持统一管理 MCP 服务器配置、Skills 技能同步，以及平台积分与本地模型代理。
 
 ## ✨ 核心特性
 
 ### 🎯 MCP 服务器管理
-- 支持 **17 种** 主流 AI 编程工具：Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, TRAE IDE, TRAE IDE CN, TRAE Work, TRAE Work CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent, Mimo Code, WorkBuddy, WorkBuddy CN, ZCode
+- 支持 **22 种** 主流 AI 编程工具：Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, TRAE, TRAE CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent, Mimo Code, WorkBuddy, ZCode, Cursor, Windsurf, Cline, Roo Code, Kilo Code, Continue, Goose, Kiro
 - 在单一界面中添加、编辑、删除 MCP 服务器
 - 自动检测系统中已安装的 AI 工具，新工具发现时弹窗提示
 - 切换开关**实时同步**到对应工具的配置文件
@@ -36,11 +36,21 @@ AI Toolkit是一款**通用的 AI 编程工具管理工具**，支持统一管�
 - **健康检查与删除预览**：检查 Skills 文档、路径、同步目标状态，删除前预览影响范围
 - **同步进度与冲突策略**：批量同步展示逐项进度，安装/重命名同名技能时支持重命名、跳过或覆盖
 
+### 🪙 积分与模型代理
+- **多平台账户**：连接 WorkBuddy、TRAE CN、Qoder 账户，支持官方授权入口与已有 Token/凭据 JSON 导入；凭据保存到系统凭据库
+- **积分展示与领取**：分别显示平台原生额度、更新时间、额度包与领取资格；一键检查并领取可用积分，优惠券单独展示
+- **可选自动领取**：默认关闭，开启后仅在应用运行期间按北京时间每天 10:30 检查并领取，当天 10:30 后启动可补做错过的检查
+- **本地模型代理**：手动启动兼容 OpenAI Chat Completions 和 Anthropic Messages 的服务，默认地址 `http://127.0.0.1:17860/v1`；支持复制独立代理 API Key，关闭窗口后继续运行，从托盘退出应用后停止
+- **真实模型目录**：带平台前缀的 ID 指定账户目录模型，上游返回不同型号时拒绝响应；跨平台别名仅在已验证模型间路由
+- **通用客户端配置**：在代理页复制 Base URL、API Key 与模型 ID，按客户端支持的协议添加自定义提供商
+
+平台接口及账户权限决定余额、领取与推理的实际可用性，未支持的能力会显示状态。当前实现需使用真实账户完成平台联调验证，不能把本地检查或测试结果视为三平台 GLM 已全部可用。
+
 ### 🛡️ 增强中心
 - **MCP 与工具配置文件快照**：备份 MCP Server 数据和各工具 MCP 配置文件，支持一键恢复
 - **健康检查**：检测 MCP 命令、环境变量、配置文件和同步状态
 - **配置压缩包导入导出**：以 `.zip` 导出 MCP、Skills 文件和设置，避免大文件内容塞入页面
-- **任务日志**：记录工具安装、更新、扫描、Skills 同步和导入等操作结果
+- **任务日志**：记录本地扫描、Skills 同步和导入等操作结果
 - **Agent 启动预设**：保存工具、工作目录和 MCP 组合，一键按预设启动
 
 ### 🔧 开发者友好
@@ -52,19 +62,24 @@ AI Toolkit是一款**通用的 AI 编程工具管理工具**，支持统一管�
 
 ### 🚀 Agent 快速启动
 - **一键启动**：直接从终端启动 AI 工具
-- **终端偏好**：支持在设置中选择默认启动终端（macOS: Terminal / iTerm / Warp / Ghostty；Windows: Windows Terminal / PowerShell / Command Prompt）
 
-### 📦 工具管理
-- **安装向导**：显示各工具的多种安装方式 (Homebrew, npm, curl 脚本)
-- **CLI / 桌面端识别**：同时检测 CLI 和桌面端，支持 OpenCode、Claude Code、Codex 等工具分别启动
-- **版本检测**：自动检测 CLI 版本和桌面端版本
-- **一键更新**：CLI 更新走包管理器，桌面端更新打开官方更新页面
-- **使用文档**：每个工具卡片提供官方文档入口，便于快速查看用法
-- **并发更新**：支持多个工具同时更新，并独立显示更新进度
+### 🔎 本地 Agent 扫描
+- 只扫描并展示本地已安装的 CLI、桌面应用和 IDE 扩展，不提供 Agent 下载、安装、更新或卸载功能
+- 启动时自动扫描，也可从侧栏、Skills 或 MCP 页面手动刷新；所有模块共用同一份安装状态
+- 安装证据来自可执行文件、应用包或 IDE 扩展安装清单，残留的配置与 Skills 目录不会被误判为已安装
+- Codex CLI、桌面版和 IDE 扩展共用一个 Codex 入口；WorkBuddy 国内版与国际版共用一个 WorkBuddy 入口
+- 新增 Cline、Roo Code、Kilo Code、Continue、Goose、Cursor、Windsurf 和 Kiro 的 MCP 与 Skills 适配
+- 支持 Kimi Code、MiniMax Code 的桌面应用与 CLI 识别、官方图标、MCP 和 Skills 同步
+- 路径与官方来源见 [Agent 适配说明](docs/agent-adapters.md)
 
 ### 🔄 应用更新与分享
 - **启动检查更新**：首次打开自动检测新版本，有更新时弹窗提示，由用户决定是否安装
 - **一键分享**：设置页可复制官方站点地址，方便分享给其他用户
+
+### 📌 托盘常驻
+- 关闭主窗口后应用留在系统托盘，已开启的代理和后台任务继续运行
+- 点击托盘菜单的“打开主窗口”可恢复界面；再次启动应用会打开已有窗口
+- 点击“退出应用（停止代理）”会真正退出并停止代理；macOS 的 `Cmd+Q` 同样会退出
 
 ## 📸 界面预览
 
@@ -77,7 +92,7 @@ AI Toolkit是一款**通用的 AI 编程工具管理工具**，支持统一管�
 |------|------|------|
 | **macOS 12+** | ✅ 已支持 | 完整功能支持 |
 | **Linux** | 🚧 开发中 | 基础功能可用 |
-| **Windows 10+** | ✅ 已支持 | MCP、Skills、工具启动与终端偏好已支持 |
+| **Windows 10+** | ✅ 已支持 | 支持 MCP、Skills 和工具启动 |
 
 ## 🚀 快速开始
 
@@ -128,18 +143,27 @@ cp -R /Volumes/AI\ Toolkit/AI\ Toolkit.app /Applications/
 | OpenCode | `~/.config/opencode/opencode.json` |
 | Qoder | `~/Library/Application Support/Qoder/SharedClientCache/mcp.json` |
 | Qoder CLI | `~/.qodercli/settings.json` |
-| TRAE IDE | `~/Library/Application Support/Trae/User/mcp.json` |
-| TRAE IDE CN | `~/Library/Application Support/Trae CN/User/mcp.json` |
-| TRAE Work | `~/Library/Application Support/TRAE Work/User/mcp.json` |
-| TRAE Work CN | `~/Library/Application Support/TRAE Work CN/User/mcp.json`（兼容旧 `TRAE SOLO CN` 路径） |
+| TRAE（国际版） | `~/Library/Application Support/Trae/User/mcp.json` |
+| TRAE CN（国内版） | `~/Library/Application Support/Trae CN/User/mcp.json` |
 | CodeBuddy | `~/.codebuddy/mcp.json` |
 | Hermes Agent | `~/.hermes/config.yaml` |
 | Mimo Code | `~/.config/mimocode/mimocode.json` |
-| WorkBuddy（国际版） | `~/.workbuddy/.mcp.json` |
-| WorkBuddy CN（国内版） | `~/.workbuddy/.mcp.json` |
+| WorkBuddy | `~/.workbuddy/.mcp.json` |
 | ZCode | `~/.zcode/cli/config.json` |
+| Cursor | `~/.cursor/mcp.json` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` / `~/.config/devin/mcp_config.json` |
+| Cline | `~/.cline/data/settings/cline_mcp_settings.json` |
+| Roo Code | `<IDE User>/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json` |
+| Kilo Code | `~/.config/kilo/kilo.json` / `kilo.jsonc` |
+| Continue | `~/.continue/config.yaml` |
+| Goose | `~/.config/goose/config.yaml` / `~/Library/Application Support/Block/goose/config.yaml` |
+| Kiro | `~/.kiro/settings/mcp.json` |
 
 WorkBuddy 国际版与国内版共享应用名及 `~/.workbuddy` 配置、MCP 和 Skills 目录，不能同时安装；安装另一版本会替换当前应用，但不会删除共享数据。Windows 对应路径为 `%USERPROFILE%\.workbuddy\.mcp.json` 和 `%USERPROFILE%\.workbuddy\skills\`。
+
+TRAE 按国际版与国内版展示两个管理入口。新版同地区的 Agent 与 IDE 共享本地 MCP 配置和 Skills 目录（国际版 `~/.trae/skills`，国内版 `~/.trae-cn/skills`），不再分别同步到 Work。旧 `TRAE Work`、`TRAE Work CN` 与 `TRAE SOLO CN` 安装和配置保留检测兼容，可预览并迁移到新版；旧配置 ID 与已同步 Skills 记录兼容读取。本次适配管理本地配置，不管理云端 Agent。
+
+在 MCP 页点击“迁移旧 TRAE”可选择旧配置；同名异配置需改名导入，未选择的配置保留。迁移前自动备份，完成后可撤销；若之后有新修改，自动撤销会停止以保护新工作。Windows 旧 `%APPDATA%\Trae\skills`、`%APPDATA%\Trae CN\skills` 中的技能会在 Skills 页作为旧来源展示，可手动导入后同步到新版，旧文件不会自动搬迁或删除。
 
 ## 🛠️ 技术栈
 

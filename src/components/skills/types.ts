@@ -58,42 +58,8 @@ export type LocalSkillCandidate = {
   reason?: string | null
 }
 
-// 支持的工具 ID（与 README 和 AppType 保持一致）
-export type ToolId =
-  | 'qwen_code'
-  | 'claude_code'
-  | 'codex'
-  | 'gemini_cli'
-  | 'opencode'
-  | 'qoder'
-  | 'kilo_code'   // Qoder CLI (使用 kilo_code 作为 skills 目录标识)
-  | 'trae'
-  | 'trae_cn'
-  | 'neovate'      // TRAE Work CN
-  | 'codebuddy'
-  | 'hermes'
-  | 'zcode'
-
-export type ToolAdapter = {
-  id: ToolId
-  display_name: string
-  relative_skills_dir: string
-  relative_detect_dir: string
-}
-
-export type DetectedSkill = {
-  tool: ToolId
-  name: string
-  path: string
-  is_link: boolean
-  link_target?: string | null
-}
-
-export type ToolStatus = {
-  tool: ToolAdapter
-  installed: boolean
-  skills: DetectedSkill[]
-}
+export type { ToolId } from '@/lib/tools'
+export type { ToolAdapter, DetectedSkill, ToolStatus } from '@/contexts/InstalledToolsContext'
 
 export type UpdateResultDto = {
   skill_id: string

@@ -1,7 +1,7 @@
 use crate::agents::detect_all_agents;
 use crate::app_state::InstalledToolsReport;
 use crate::commands::agents::AgentInfo;
-use crate::skill_core::tool_adapters::get_all_tool_status;
+use crate::skill_core::tool_adapters::get_tool_status_for_agents;
 use std::time::SystemTime;
 
 /// 执行统一的工具检测
@@ -12,13 +12,9 @@ pub fn detect_all_tools() -> Result<InstalledToolsReport, String> {
         .unwrap_or(0);
 
     // 检测 Agent 工具
-    let agents: Vec<AgentInfo> = detect_all_agents()
-        .into_iter()
-        .map(AgentInfo::from)
-        .collect();
-
-    // 检测所有工具状态（Skills 管理用）
-    let tool_statuses = get_all_tool_status().map_err(|e| e.to_string())?;
+    let detected = detect_all_agents();
+    let tool_statuses = get_tool_status_for_agents(&detected).map_err(|e| e.to_string())?;
+    let agents: Vec<AgentInfo> = detected.into_iter().map(AgentInfo::from).collect();
 
     Ok(InstalledToolsReport {
         agents,

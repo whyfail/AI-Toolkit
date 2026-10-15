@@ -2,17 +2,16 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import * as dialog from '@tauri-apps/plugin-dialog';
-import { GitBranch, Folder, Trash2, Sparkles, X, FileText, Github, RefreshCw, Pencil, AlertTriangle, ExternalLink, CheckCircle } from 'lucide-react';
+import { GitBranch, Folder, Trash2, Sparkles, X, FileText, Github, RefreshCw, Pencil, ExternalLink, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ManagedSkill, ToolOption } from './types';
-import type { SkillDeletePreview, SkillHealthItem } from '@/lib/api';
-import { APP_COLORS } from '@/lib/tools';
 import { skillsApi } from '@/lib/api';
 import { Pressable } from '@/components/ui/Pressable';
+import { AgentIcon } from '@/components/ui/AgentIcon';
 import { Modal } from '@/components/ui/Modal';
 import { MotionList, MotionListItem } from '@/components/ui/MotionList';
 
-type SkillFilter = 'all' | 'git' | 'local' | 'synced' | 'unsynced' | 'needsAttention';
+type SkillFilter = 'all' | 'git' | 'local' | 'synced' | 'unsynced';
 
 interface SkillsListProps {
   skills: ManagedSkill[];
@@ -22,12 +21,9 @@ interface SkillsListProps {
   onEditSkill: (skill: ManagedSkill) => void;
   filter: SkillFilter;
   toolFilter: string;
-  attentionSkillIds: Set<string>;
-  healthItems: SkillHealthItem[];
   onDeleteId: string | null;
   onConfirmDelete: () => void;
   onCancelDelete: () => void;
-  deletePreview: SkillDeletePreview | null;
   onSkillSync?: () => void;
   isDeleting?: boolean;
 }
@@ -182,12 +178,9 @@ function SkillsList({
   onEditSkill,
   filter,
   toolFilter,
-  attentionSkillIds,
-  healthItems,
   onDeleteId,
   onConfirmDelete,
   onCancelDelete,
-  deletePreview,
   onSkillSync,
   isDeleting,
 }: SkillsListProps) {
@@ -212,16 +205,12 @@ function SkillsList({
       if (filter === 'local') return skill.source_type === 'local' || skill.source_type === 'link';
       if (filter === 'synced') return skill.targets.length > 0;
       if (filter === 'unsynced') return skill.targets.length === 0;
-      if (filter === 'needsAttention') return attentionSkillIds.has(skill.id);
       return true;
     })
     .filter(skill => !toolFilter || skill.targets.some(target => target.tool === toolFilter))
     .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
 
   const deleteSkill = onDeleteId ? skills.find(s => s.id === onDeleteId) : null;
-  const detailHealthItems = detailSkill
-    ? healthItems.filter(item => item.skill_id === detailSkill.id && item.status !== 'ok')
-    : [];
 
   const handleOpenDetail = async (skill: ManagedSkill) => {
     setDetailSkill(skill);
@@ -345,12 +334,6 @@ function SkillsList({
                 </div>
 
                 <div className="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
-                  {attentionSkillIds.has(skill.id) && (
-                    <span className="glass-pill pill-warning" title="健康检查发现需处理项">
-                      <AlertTriangle size={12} />
-                      需处理
-                    </span>
-                  )}
                   {isGitHubUrl(skill.source_ref) && (
                     <Pressable
                       onClick={() => handleRefreshGitSkill(skill)}
@@ -393,21 +376,17 @@ function SkillsList({
                         onClick={() => !isSyncing && handleToggleSync(skill, tool.id, !synced)}
                         disabled={isSyncing}
                         aria-pressed={synced}
-                        className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-semibold transition-colors duration-200 ease-out sm:px-2.5 sm:py-1.5 ${
+                        aria-label={tool.label}
+                        aria-busy={isSyncing}
+                        title={tool.label}
+                        className={`relative inline-flex h-9 min-w-9 items-center justify-center rounded-xl border p-2 transition-colors duration-200 ease-out ${
                           synced
                             ? "border-blue-200/70 bg-blue-500/10 text-blue-700 dark:border-sky-300/20 dark:text-sky-300"
                             : "border-white/55 bg-white/50 text-slate-500 hover:text-slate-950 dark:border-white/10 dark:bg-white/8 dark:text-slate-400 dark:hover:text-white"
                         } ${isSyncing ? 'opacity-50' : ''}`}
                       >
-                        <div
-                          className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                            synced
-                              ? APP_COLORS[tool.id as keyof typeof APP_COLORS] || "bg-[hsl(var(--foreground))]"
-                              : "bg-current opacity-40"
-                          }`}
-                        />
-                        <span>{tool.label}</span>
-                        {isSyncing && <span className="ml-1">...</span>}
+                        <AgentIcon id={tool.id} name={tool.label} />
+                        {isSyncing ? <RefreshCw size={10} aria-hidden="true" className="absolute right-0.5 top-0.5 animate-spin rounded-full bg-white text-blue-600 dark:bg-slate-900 dark:text-sky-300" /> : synced ? <span aria-hidden="true" className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-blue-500 ring-1 ring-white dark:bg-sky-300 dark:ring-slate-900" /> : null}
                       </Pressable>
                     );
                   })}
@@ -470,12 +449,6 @@ function SkillsList({
                       未同步
                     </span>
                   )}
-                  {detailHealthItems.length > 0 && (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200/70 bg-amber-500/12 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:border-amber-300/25 dark:text-amber-300">
-                      <AlertTriangle size={11} />
-                      {detailHealthItems.length} 项需处理
-                    </span>
-                  )}
                 </div>
               </div>
               <Pressable
@@ -531,33 +504,6 @@ function SkillsList({
                 }
               />
             </div>
-
-            {/* 健康检查 */}
-            {detailHealthItems.length > 0 && (
-              <div className="mb-5 overflow-hidden rounded-2xl border border-amber-200/70 bg-amber-500/8 backdrop-blur-md dark:border-amber-300/20 dark:bg-amber-500/8">
-                <div className="flex items-center gap-2 border-b border-amber-200/60 bg-amber-500/8 px-4 py-2.5 text-amber-800 dark:border-amber-300/15 dark:text-amber-200">
-                  <AlertTriangle size={14} />
-                  <span className="text-sm font-semibold">健康检查</span>
-                  <span className="ml-auto text-[11px] font-medium text-amber-700/80 dark:text-amber-300/70">
-                    {detailHealthItems.length} 项
-                  </span>
-                </div>
-                <ul className="divide-y divide-amber-200/40 px-4 py-2 text-xs text-amber-900 dark:divide-amber-300/10 dark:text-amber-100">
-                  {detailHealthItems.map((item) => (
-                    <li key={item.message} className="flex items-start gap-3 py-2">
-                      <span className="mt-0.5 inline-flex h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
-                      <span className="min-w-0 flex-1">
-                        <span className="font-mono text-[11px] text-amber-700/80 dark:text-amber-300/70">
-                          {item.scope}
-                        </span>
-                        <span className="mx-1.5 text-amber-400/60">·</span>
-                        <span>{item.message}</span>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
 
             {/* README 区 */}
             <div className="overflow-hidden rounded-2xl border border-white/55 bg-white/40 backdrop-blur-md dark:border-white/10 dark:bg-white/5">
@@ -683,32 +629,10 @@ function SkillsList({
               技能: {deleteSkill?.name}
             </p>
           </div>
-          <div className="max-h-72 overflow-y-auto px-6 py-4 text-sm">
-            {!deletePreview ? (
-              <div className="glass-pill">正在加载影响范围...</div>
-            ) : (
-              <div className="space-y-3">
-                <div className="rounded-xl border border-white/60 bg-white/45 p-3 dark:border-white/10 dark:bg-white/8">
-                  <p className="text-xs text-slate-400">中央仓库</p>
-                  <p className="mt-1 break-all text-xs">{deletePreview.central_path}</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {deletePreview.central_exists ? '将删除' : '路径不存在'}
-                  </p>
-                </div>
-                {deletePreview.affected_paths.map(path => (
-                  <div key={path.path} className="rounded-xl border border-white/60 bg-white/45 p-3 dark:border-white/10 dark:bg-white/8">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold">{path.tool}</span>
-                      <span className="glass-pill">{path.is_link ? '链接' : '目录'}</span>
-                    </div>
-                    <p className="mt-1 break-all text-xs text-slate-500">{path.path}</p>
-                  </div>
-                ))}
-                {deletePreview.warnings.map(warning => (
-                  <p key={warning} className="text-xs text-amber-700">{warning}</p>
-                ))}
-              </div>
-            )}
+          <div className="px-6 py-4 text-sm">
+            <p className="leading-relaxed text-slate-500 dark:text-slate-400">
+              将从中央仓库和所有已同步的工具中移除该技能，此操作无法撤销。
+            </p>
           </div>
           <div className="px-6 py-4 flex justify-end gap-3 border-t border-white/50 dark:border-white/10">
             <Pressable

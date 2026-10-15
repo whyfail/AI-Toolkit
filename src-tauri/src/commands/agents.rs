@@ -6,11 +6,10 @@ use crate::agents::{
     detect_all_agents, get_agent_config_paths, get_agent_name, resolve_path, DetectedAgent,
 };
 use crate::app_state::AppState;
-use crate::database::McpApps;
 use crate::import::import_from_path;
 use crate::mcp::AppType;
+use crate::services::local_detection::which_binary;
 use crate::services::sync;
-use crate::services::tool_manager::which_binary;
 use crate::utils::SuppressConsole;
 use std::process::Command;
 #[cfg(target_os = "macos")]
@@ -24,83 +23,6 @@ fn powershell_escape_single_quoted(input: &str) -> String {
 #[cfg(target_os = "macos")]
 fn shell_escape_single_quoted(input: &str) -> String {
     input.replace('\'', "'\\''")
-}
-
-#[cfg(target_os = "macos")]
-fn yaml_escape_single_quoted(input: &str) -> String {
-    input.replace('\'', "''")
-}
-
-#[cfg(target_os = "macos")]
-fn resolve_preferred_macos_terminal(state: &AppState) -> String {
-    let preferred = state
-        .db
-        .get_setting("default_terminal")
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| "terminal".to_string());
-
-    let available = [
-        (
-            "terminal",
-            [
-                "/System/Applications/Utilities/Terminal.app",
-                "/Applications/Terminal.app",
-            ]
-            .iter()
-            .any(|path| std::path::Path::new(path).exists()),
-        ),
-        (
-            "iterm",
-            ["/Applications/iTerm.app", "/Applications/iTerm2.app"]
-                .iter()
-                .any(|path| std::path::Path::new(path).exists()),
-        ),
-        (
-            "warp",
-            ["/Applications/Warp.app", "/Applications/Warp Preview.app"]
-                .iter()
-                .any(|path| std::path::Path::new(path).exists()),
-        ),
-        (
-            "ghostty",
-            ["/Applications/Ghostty.app"]
-                .iter()
-                .any(|path| std::path::Path::new(path).exists()),
-        ),
-    ];
-
-    if available
-        .iter()
-        .any(|(id, is_available)| *id == preferred && *is_available)
-    {
-        preferred
-    } else {
-        "terminal".to_string()
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn resolve_preferred_windows_terminal(state: &AppState) -> String {
-    let preferred = state
-        .db
-        .get_setting("default_terminal")
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| "windows-terminal".to_string());
-
-    let has_wt = which_binary("wt").is_some();
-    let has_powershell = which_binary("powershell").is_some();
-    let has_cmd = which_binary("cmd").is_some();
-
-    match preferred.as_str() {
-        "windows-terminal" if has_wt => preferred,
-        "powershell" if has_powershell => preferred,
-        "command-prompt" if has_cmd => preferred,
-        _ if has_wt => "windows-terminal".to_string(),
-        _ if has_powershell => "powershell".to_string(),
-        _ => "command-prompt".to_string(),
-    }
 }
 
 /// 检测 Node.js 环境并返回需要添加到 PATH 的路径
@@ -329,10 +251,15 @@ pub async fn sync_agent_mcp(
     agent_id: String,
     enabled_apps: Vec<String>,
 ) -> Result<usize, String> {
+    let _guard = state.mcp_gate.lock();
     let app_type = AppType::from_str(&agent_id).map_err(|e| e.to_string())?;
 
     // Get OS-specific paths and try to import from the first existing one
-    let paths = get_agent_config_paths(&app_type);
+    let paths = if app_type.is_trae() {
+        vec![crate::agents::get_canonical_mcp_config_path(&app_type)]
+    } else {
+        get_agent_config_paths(&app_type)
+    };
     let mut imported = None;
 
     for path in &paths {
@@ -344,27 +271,28 @@ pub async fn sync_agent_mcp(
 
     let imported = imported.ok_or_else(|| format!("Failed to import from {}", agent_id))?;
 
-    let mut count = 0;
+    let count = imported.servers.len();
     let enabled_apps_set: Vec<AppType> = enabled_apps
         .iter()
         .filter_map(|id| AppType::from_str(id).ok())
         .collect();
 
-    for (_id, mut server) in imported.servers {
-        // 设置启用的应用
-        let mut apps = McpApps::default();
-        for app in &enabled_apps_set {
-            apps.set_enabled_for(app, true);
-        }
-        server.apps = apps;
-
-        // 保存到数据库（如果已存在则更新）
-        let _ = state.db.save_mcp_server(&server);
-        count += 1;
-    }
-
-    // 同步到各工具的配置文件
-    let servers = state.db.get_all_mcp_servers().map_err(|e| e.to_string())?;
+    let current = state.db.get_all_mcp_servers().map_err(|e| e.to_string())?;
+    let entries = imported
+        .servers
+        .values()
+        .flat_map(|server| {
+            enabled_apps_set
+                .iter()
+                .map(move |app| (app.clone(), server.clone()))
+        })
+        .collect();
+    let servers = crate::services::mcp_service::merge_imported_servers(current, entries)
+        .map_err(|e| e.to_string())?;
+    state
+        .db
+        .save_mcp_servers(&servers.values().cloned().collect::<Vec<_>>())
+        .map_err(|e| e.to_string())?;
     sync::sync_all_live_configs(&servers).map_err(|e| e.to_string())?;
 
     Ok(count)
@@ -374,11 +302,7 @@ pub async fn sync_agent_mcp(
 #[tauri::command]
 pub async fn open_config_file(agent_id: String) -> Result<(), String> {
     let app_type = AppType::from_str(&agent_id).map_err(|e| e.to_string())?;
-    let paths = get_agent_config_paths(&app_type);
-
-    let full_path = paths
-        .first()
-        .ok_or_else(|| format!("No config path found for {}", agent_id))?;
+    let full_path = crate::agents::get_canonical_mcp_config_path(&app_type);
 
     #[cfg(target_os = "macos")]
     {
@@ -427,14 +351,22 @@ fn get_agent_launch_command(app: &AppType) -> Option<String> {
         AppType::CodeBuddy => Some("codebuddy".to_string()),
         AppType::Hermes => Some("hermes".to_string()),
         AppType::MimoCode => Some("mimo".to_string()),
+        AppType::KimiCode => Some("kimi".to_string()),
+        AppType::MinimaxCode => Some("mcode".to_string()),
         AppType::WorkBuddy | AppType::WorkBuddyCn => None,
         AppType::Zcode => Some("zcode".to_string()),
+        AppType::Cline => Some("cline".into()),
+        AppType::Kilo => Some("kilo".into()),
+        AppType::Continue => Some("cn".into()),
+        AppType::Goose => Some("goose".into()),
+        AppType::Kiro => Some("kiro-cli".into()),
+        AppType::Cursor | AppType::Windsurf | AppType::Roo => None,
     }
 }
 
 fn get_agent_launch_args(app: &AppType) -> Vec<String> {
     match app {
-        AppType::Hermes => vec!["chat".to_string()],
+        AppType::Hermes | AppType::Kiro => vec!["chat".to_string()],
         _ => vec![],
     }
 }
@@ -442,11 +374,11 @@ fn get_agent_launch_args(app: &AppType) -> Vec<String> {
 fn launch_desktop_agent(app_type: &AppType) -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
-        for app_name in crate::services::tool_manager::mac_app_names(app_type) {
+        for app_name in crate::services::local_detection::mac_app_names(app_type) {
             let app_path = format!("/Applications/{}", app_name);
             if std::path::Path::new(&app_path).exists()
                 && (!matches!(app_type, AppType::WorkBuddy | AppType::WorkBuddyCn)
-                    || crate::services::tool_manager::is_app_installed_mac(app_type))
+                    || crate::services::local_detection::is_app_installed_mac(app_type))
             {
                 Command::new("open")
                     .suppress_console()
@@ -460,7 +392,8 @@ fn launch_desktop_agent(app_type: &AppType) -> Result<bool, String> {
 
     #[cfg(target_os = "windows")]
     {
-        if let Some(exe_path) = crate::services::tool_manager::find_app_executable_windows(app_type)
+        if let Some(exe_path) =
+            crate::services::local_detection::find_app_executable_windows(app_type)
         {
             let exe_path = exe_path.to_string_lossy().to_string();
             let escaped_exe_path = powershell_escape_single_quoted(&exe_path);
@@ -497,10 +430,9 @@ mod workbuddy_launch_tests {
     }
 }
 
-/// 启动 Agent 工具（打开默认终端并运行命令）
+/// 启动 Agent 工具（在系统终端中运行 CLI）
 #[tauri::command]
 pub async fn launch_agent(
-    state: State<'_, AppState>,
     agent_id: String,
     working_dir: Option<String>,
     launch_kind: Option<String>,
@@ -548,7 +480,6 @@ pub async fn launch_agent(
 
     #[cfg(target_os = "macos")]
     {
-        let terminal_app = resolve_preferred_macos_terminal(&state);
         let work_dir = working_dir
             .as_deref()
             .filter(|dir| !dir.trim().is_empty())
@@ -600,69 +531,13 @@ pub async fn launch_agent(
         fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755))
             .map_err(|e| format!("设置脚本权限失败: {}", e))?;
 
-        let script = if terminal_app == "iterm" {
-            format!(
-                "tell application \"iTerm2\"\n\
-                 activate\n\
-                 create window with default profile command \"source {0}\"\n\
-                 end tell",
-                script_path
-            )
-        } else if terminal_app == "ghostty" {
-            format!(
-                "tell application \"Ghostty\"\n\
-                 activate\n\
-                 set ghosttyWindow to new window\n\
-                 set ghosttyTerminal to focused terminal of selected tab of ghosttyWindow\n\
-                 input text \"source {0}\" to ghosttyTerminal\n\
-                 send key \"enter\" to ghosttyTerminal\n\
-                 end tell",
-                script_path
-            )
-        } else if terminal_app == "warp" {
-            let (warp_app, warp_scheme) = if std::path::Path::new("/Applications/Warp.app").exists()
-            {
-                ("Warp", "warp")
-            } else {
-                ("Warp Preview", "warppreview")
-            };
-            let home = dirs::home_dir().ok_or("无法获取 Home 目录")?;
-            let launch_dir = home.join(".warp").join("launch_configurations");
-            fs::create_dir_all(&launch_dir)
-                .map_err(|e| format!("创建 Warp 配置目录失败: {}", e))?;
-            let launch_file_name = format!("ai-toolkit-{}.yaml", agent_id);
-            let launch_file_path = launch_dir.join(&launch_file_name);
-            let yaml_work_dir = yaml_escape_single_quoted(&work_dir);
-            let yaml_command = yaml_escape_single_quoted(&shell_command);
-            let launch_yaml = format!(
-                "---\nname: AI Toolkit {0}\nwindows:\n  - tabs:\n      - title: {0}\n        layout:\n          cwd: '{1}'\n          commands:\n            - exec: '{2}'\n",
-                get_agent_name(&app_type),
-                yaml_work_dir,
-                yaml_command
-            );
-            fs::write(&launch_file_path, launch_yaml)
-                .map_err(|e| format!("写入 Warp 启动配置失败: {}", e))?;
-
-            let warp_uri = format!("{warp_scheme}://launch/{launch_file_name}");
-            let output = Command::new("open")
-                .suppress_console()
-                .args(["-a", warp_app, &warp_uri])
-                .output()
-                .map_err(|e| format!("启动 {} 失败: {}", agent_id, e))?;
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(format!("启动 {} 失败: {}", agent_id, stderr));
-            }
-            return Ok(());
-        } else {
-            format!(
-                "tell application \"Terminal\"\n\
-                 activate\n\
-                 do script \"source {0}\"\n\
-                 end tell",
-                script_path
-            )
-        };
+        let script = format!(
+            "tell application \"Terminal\"\n\
+             activate\n\
+             do script \"source {0}\"\n\
+             end tell",
+            script_path
+        );
         let output = Command::new("osascript")
             .suppress_console()
             .args(["-e", &script])
@@ -676,7 +551,6 @@ pub async fn launch_agent(
 
     #[cfg(target_os = "windows")]
     {
-        let preferred_terminal = resolve_preferred_windows_terminal(&state);
         let desktop_path = working_dir
             .as_deref()
             .filter(|dir| !dir.trim().is_empty())
@@ -732,33 +606,29 @@ pub async fn launch_agent(
             )
         };
 
-        if preferred_terminal == "windows-terminal" {
-            let try_windows_terminal = Command::new("wt")
-                .args([
-                    "new-tab",
-                    "powershell",
-                    "-NoExit",
-                    "-Command",
-                    &powershell_full_cmd,
-                ])
-                .spawn();
-            if try_windows_terminal.is_ok() {
-                return Ok(());
-            }
+        let try_windows_terminal = Command::new("wt")
+            .args([
+                "new-tab",
+                "powershell",
+                "-NoExit",
+                "-Command",
+                &powershell_full_cmd,
+            ])
+            .spawn();
+        if try_windows_terminal.is_ok() {
+            return Ok(());
         }
 
-        if preferred_terminal == "powershell" || preferred_terminal == "windows-terminal" {
-            let ps_start = format!(
-                "Start-Process powershell -ArgumentList '-NoExit','-Command','{}'",
-                powershell_full_cmd.replace('\'', "''")
-            );
-            let try_powershell = Command::new("powershell")
-                .suppress_console()
-                .args(["-NoProfile", "-Command", &ps_start])
-                .spawn();
-            if try_powershell.is_ok() {
-                return Ok(());
-            }
+        let ps_start = format!(
+            "Start-Process powershell -ArgumentList '-NoExit','-Command','{}'",
+            powershell_full_cmd.replace('\'', "''")
+        );
+        let try_powershell = Command::new("powershell")
+            .suppress_console()
+            .args(["-NoProfile", "-Command", &ps_start])
+            .spawn();
+        if try_powershell.is_ok() {
+            return Ok(());
         }
 
         Command::new("cmd")

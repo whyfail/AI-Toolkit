@@ -1,12 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Toaster, toast } from "sonner";
 import UnifiedMcpPanel from "@/components/mcp/UnifiedMcpPanel";
 import UpdateModal from "@/components/mcp/UpdateModal";
 import SkillsPanel from "@/components/skills/SkillsPanel";
-import ToolManagerPanel from "@/components/tool-manager/ToolManagerPanel";
-import EnhancementsPanel from "@/components/enhancements/EnhancementsPanel";
 import { Pressable } from "@/components/ui/Pressable";
+import { AgentIcon } from "@/components/ui/AgentIcon";
 import {
   Database,
   Settings,
@@ -17,21 +16,22 @@ import {
   Loader2,
   Github,
   ExternalLink,
-  Package,
   Sparkles,
   Share2,
-  Wrench,
+  Coins,
+  RefreshCw,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-shell";
 import { useAppVersion } from "@/hooks/useAppVersion";
 import { useTheme, type ThemeMode } from "@/hooks/useTheme";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
+import { useInstalledTools } from "@/contexts/InstalledToolsContext";
 import { appApi, updateApi } from "@/lib/api";
 import type { SkillsInstallPreferences } from "@/lib/api";
-import type { AppConfigInfo, LaunchPreferences } from "@/types";
 import appLogo from "../src-tauri/icons/128x128.png";
 
-type Tab = "mcp" | "skills" | "tools" | "enhancements" | "settings" | "about";
+type Tab = "mcp" | "skills" | "credits" | "settings" | "about";
+const CreditsPanel = lazy(() => import("@/components/credits/CreditsPanel"));
 const GITHUB_REPO_URL = "https://github.com/whyfail/ai-toolkit";
 const OFFICIAL_WEBSITE_URL = "https://whyfail.github.io/ai-toolkit-website/";
 let startupUpdateCheckStarted = false;
@@ -56,7 +56,7 @@ const copyText = async (text: string) => {
 };
 
 function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("tools");
+  const [activeTab, setActiveTab] = useState<Tab>("skills");
   const [startupUpdateInfo, setStartupUpdateInfo] = useState<{
     version: string;
     body: string;
@@ -66,6 +66,7 @@ function App() {
   const appVersion = useAppVersion();
   const theme = useTheme();
   const reduced = useReducedMotion();
+  const { installedAgents, isLoading: scanningAgents, refresh: scanAgents } = useInstalledTools();
 
   // 首次打开应用时自动检查新版本，有更新时交给用户决定是否安装。
   useEffect(() => {
@@ -111,10 +112,9 @@ function App() {
   };
 
   const navItems = [
-    { id: "tools" as Tab, label: "工具管理", icon: Package },
     { id: "skills" as Tab, label: "Skills 管理", icon: Sparkles },
     { id: "mcp" as Tab, label: "MCP 服务器", icon: Database },
-    { id: "enhancements" as Tab, label: "增强中心", icon: Wrench },
+    { id: "credits" as Tab, label: "积分与代理", icon: Coins },
     { id: "settings" as Tab, label: "设置", icon: Settings },
     { id: "about" as Tab, label: "关于", icon: Info },
   ];
@@ -136,7 +136,7 @@ function App() {
                 AI Toolkit
               </h1>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                AI 编程工具管理
+                Agent 技能与 MCP
               </p>
             </div>
           </div>
@@ -171,6 +171,25 @@ function App() {
           })}
         </nav>
 
+        <div className="mx-3 mb-3 rounded-xl border border-white/40 bg-white/30 px-3 py-3 dark:border-white/10 dark:bg-white/5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-slate-500 dark:text-slate-400" role="status">
+              {scanningAgents ? "正在扫描本地 Agent…" : `已安装 ${installedAgents.length} 个 Agent`}
+            </span>
+            <Pressable
+              variant="icon"
+              className="glass-icon-button"
+              aria-label="扫描本地 Agent"
+              title="扫描本地 Agent"
+              disabled={scanningAgents}
+              onClick={scanAgents}
+            >
+              <RefreshCw size={14} className={scanningAgents ? "animate-spin" : ""} />
+            </Pressable>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">仅展示本地已安装的 Agent</p>
+        </div>
+
         {/* 版本 */}
         <div className="border-t border-white/40 px-6 py-4 text-center dark:border-white/10">
           <p className="text-[11px] font-medium tracking-wide text-slate-400 dark:text-slate-500">
@@ -190,10 +209,13 @@ function App() {
             transition={{ type: "spring", bounce: 0, duration: reduced ? 0.18 : 0.25 }}
             className="h-full"
           >
-            {activeTab === "tools" && <ToolManagerPanel />}
             {activeTab === "skills" && <SkillsPanel />}
             {activeTab === "mcp" && <UnifiedMcpPanel />}
-            {activeTab === "enhancements" && <EnhancementsPanel />}
+            {activeTab === "credits" && (
+              <Suspense fallback={<div className="flex h-full items-center justify-center gap-3 text-sm text-slate-500"><Loader2 size={20} className="animate-spin" />正在加载积分与代理…</div>}>
+                <CreditsPanel />
+              </Suspense>
+            )}
             {activeTab === "settings" && <SettingsTab theme={theme} />}
             {activeTab === "about" && <AboutTab />}
           </motion.div>
@@ -235,14 +257,17 @@ const SettingsTab: React.FC<{ theme: ReturnType<typeof useTheme> }> = ({ theme }
   const [isLatest, setIsLatest] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const [apps, setApps] = useState<AppConfigInfo[]>([]);
-  const [launchPreferences, setLaunchPreferences] = useState<LaunchPreferences | null>(null);
-  const [savingTerminal, setSavingTerminal] = useState(false);
+  const { installedAgents } = useInstalledTools();
+  const apps = installedAgents.map(agent => ({
+    id: agent.id,
+    name: agent.name,
+    configPath: agent.config_path,
+    mcpCount: agent.mcp_count,
+  }));
   const [skillsInstallPreferences, setSkillsInstallPreferences] = useState<SkillsInstallPreferences | null>(null);
   const [savingSkillsLocation, setSavingSkillsLocation] = useState(false);
   const appVersion = useAppVersion();
   const isWindows = navigator.userAgent.includes("Windows");
-  const isMac = navigator.userAgent.includes("Mac");
   const dbPath = isWindows ? "%USERPROFILE%\\.ai-toolkit\\ai-toolkit.db" : "~/.ai-toolkit/ai-toolkit.db";
   const selectedSkillsPath = skillsInstallPreferences?.options.find(
     (option) => option.id === skillsInstallPreferences.selected
@@ -267,12 +292,8 @@ const SettingsTab: React.FC<{ theme: ReturnType<typeof useTheme> }> = ({ theme }
 
     const loadSettings = async () => {
       try {
-        const [configs, skillsPreferences] = await Promise.all([
-          appApi.getAppConfigs(),
-          appApi.getSkillsInstallPreferences(),
-        ]);
+        const skillsPreferences = await appApi.getSkillsInstallPreferences();
         if (!cancelled) {
-          setApps(configs);
           setSkillsInstallPreferences(skillsPreferences);
         }
       } catch (err) {
@@ -289,55 +310,6 @@ const SettingsTab: React.FC<{ theme: ReturnType<typeof useTheme> }> = ({ theme }
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    if (!isMac && !isWindows) return;
-
-    let cancelled = false;
-    const loadLaunchPreferences = async () => {
-      try {
-        const preferences = await appApi.getLaunchPreferences();
-        if (!cancelled) {
-          setLaunchPreferences(preferences);
-        }
-      } catch (err) {
-        console.error("获取启动偏好失败:", err);
-        if (!cancelled) {
-          toast.error(`获取启动偏好失败: ${err}`);
-        }
-      }
-    };
-
-    loadLaunchPreferences();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isMac, isWindows]);
-
-  const handleTerminalChange = async (terminalId: string) => {
-    if (!launchPreferences) return;
-
-    const previous = launchPreferences.defaultTerminal;
-    setLaunchPreferences({
-      ...launchPreferences,
-      defaultTerminal: terminalId,
-    });
-    setSavingTerminal(true);
-    try {
-      await appApi.setDefaultTerminal(terminalId);
-      toast.success("默认启动终端已更新");
-    } catch (err) {
-      console.error("保存默认终端失败:", err);
-      setLaunchPreferences({
-        ...launchPreferences,
-        defaultTerminal: previous,
-      });
-      toast.error(`保存默认终端失败: ${err}`);
-    } finally {
-      setSavingTerminal(false);
-    }
-  };
 
   const handleSkillsLocationChange = async (locationId: string) => {
     if (!skillsInstallPreferences) return;
@@ -587,45 +559,18 @@ const SettingsTab: React.FC<{ theme: ReturnType<typeof useTheme> }> = ({ theme }
             </div>
           </section>
 
-          {(isMac || isWindows) && launchPreferences && launchPreferences.availableTerminals.length > 0 && (
-            <section className={settingSections}>
-              <h3 className="text-base font-medium mb-4">默认启动终端</h3>
-              <div className="space-y-3">
-                <select
-                  value={launchPreferences.defaultTerminal}
-                  onChange={(e) => handleTerminalChange(e.target.value)}
-                  disabled={savingTerminal}
-                  className="glass-select w-full px-3 py-2.5 text-sm disabled:opacity-60"
-                >
-                  {launchPreferences.availableTerminals.map((terminal) => (
-                    <option
-                      key={terminal.id}
-                      value={terminal.id}
-                      disabled={!terminal.available}
-                    >
-                      {terminal.label}{terminal.available ? "" : "（未安装）"}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {isMac
-                    ? "启动 CLI 工具时优先使用这个终端。目前支持 Terminal、iTerm、Warp 和 Ghostty。"
-                    : "启动 CLI 工具时优先使用这个终端。目前支持 Windows Terminal、PowerShell 和 Command Prompt。"}
-                </p>
-              </div>
-            </section>
-          )}
-
-          {/* 支持的应用 */}
+          {/* 已安装的 Agent */}
           <section className={settingSections}>
-            <h3 className="text-base font-medium mb-4">支持的应用</h3>
-            <div className="space-y-2">
+            <h3 className="text-base font-medium mb-4">本地已安装的 Agent</h3>
+            <div className="flex flex-wrap gap-3">
+              {apps.length === 0 && <p className="text-sm text-slate-500 dark:text-slate-400">未检测到已安装的 Agent</p>}
               {apps.map((app) => (
                 <div
                   key={app.id}
-                  className="flex items-center rounded-xl px-3 py-2.5 transition-colors hover:bg-white/60 dark:hover:bg-white/10"
+                  title={app.name}
+                  className="flex h-12 min-w-12 items-center justify-center rounded-xl border border-white/55 bg-white/40 p-2.5 transition-colors hover:bg-white/60 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
                 >
-                  <span className="text-sm font-medium">{app.name}</span>
+                  <AgentIcon id={app.id} name={app.name} className="h-7 w-7" />
                 </div>
               ))}
             </div>
@@ -653,6 +598,7 @@ const AboutTab: React.FC = () => {
   const features = [
     "MCP 服务器统一管理，支持一键启用/禁用",
     "Skills 技能同步到多个 AI 编程工具",
+    "平台积分领取与本地模型代理，提供通用客户端配置",
     "自动扫描并导入现有工具配置",
     "跨平台支持（macOS、Windows、Linux）",
     "本地 SQLite 数据库存储，开箱即用",
@@ -696,7 +642,7 @@ const AboutTab: React.FC = () => {
               </Pressable>
             </div>
             <p className="text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-              一款基于 Tauri 2 构建的跨平台桌面应用，专注于管理 AI 编程工具的 MCP 服务器配置和 Skills 技能同步。兼容 Qwen Code、Claude Code、Codex、Gemini CLI、OpenCode、TRAE IDE、TRAE IDE CN、TRAE Work、TRAE Work CN、Qoder、CodeBuddy、Hermes Agent、Mimo Code、ZCode 等主流工具。
+              一款基于 Tauri 2 构建的跨平台桌面应用，专注于管理 AI 编程工具的 MCP 服务器配置和 Skills 技能同步。兼容 Qwen Code、Claude Code、Codex、Gemini CLI、OpenCode、TRAE、TRAE CN、Qoder、CodeBuddy、Hermes Agent、Mimo Code、ZCode 等主流工具。
             </p>
           </section>
 

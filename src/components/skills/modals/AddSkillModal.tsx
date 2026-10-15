@@ -27,6 +27,7 @@ interface AddSkillModalProps {
   syncTargets: Record<string, boolean>;
   onSyncTargetChange: (toolId: string, checked: boolean) => void;
   onSkillAdded: () => void;
+  initialLocalPath?: string | null;
 }
 
 type Tab = 'git' | 'local' | 'online';
@@ -48,7 +49,7 @@ const basenameFromPath = (path: string) => {
   return '';
 };
 
-function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, onSkillAdded }: AddSkillModalProps) {
+function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, onSkillAdded, initialLocalPath }: AddSkillModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>('git');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +62,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
   const [existingSkillNames, setExistingSkillNames] = useState<Set<string>>(new Set());
 
   // 验证本地文件夹是否为合规的技能目录
-  const validateLocalPath = useCallback(async (path: string) => {
+  const validateLocalPath = useCallback(async (path: string, isCurrent: () => boolean = () => true) => {
     if (!path.trim()) {
       setLocalValid(false);
       setLocalValidationError(null);
@@ -69,13 +70,31 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
     }
     try {
       const result = await skillsApi.validateLocalSkill(path.trim());
+      if (!isCurrent()) return;
       setLocalValid(result.valid);
       setLocalValidationError(result.valid ? null : result.reason);
     } catch (err) {
+      if (!isCurrent()) return;
       setLocalValid(false);
       setLocalValidationError(err instanceof Error ? err.message : String(err));
     }
   }, []);
+  useEffect(() => {
+    if (!open || !initialLocalPath) return;
+    let cancelled = false;
+    setActiveTab('local');
+    setLocalPath(initialLocalPath);
+    setLocalName(basenameFromPath(initialLocalPath));
+    void validateLocalPath(initialLocalPath, () => !cancelled);
+    return () => {
+      cancelled = true;
+      setActiveTab('git');
+      setLocalPath('');
+      setLocalName('');
+      setLocalValid(false);
+      setLocalValidationError(null);
+    };
+  }, [open, initialLocalPath, validateLocalPath]);
   const [onlineQuery, setOnlineQuery] = useState('');
   const [searchResults, setSearchResults] = useState<OnlineSkillDto[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);

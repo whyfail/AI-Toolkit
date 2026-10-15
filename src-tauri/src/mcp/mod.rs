@@ -31,74 +31,49 @@ pub enum AppType {
     Hermes,
     #[serde(rename = "mimo-code")]
     MimoCode,
+    #[serde(rename = "kimi-code")]
+    KimiCode,
+    #[serde(rename = "minimax-code")]
+    MinimaxCode,
     #[serde(rename = "workbuddy")]
     WorkBuddy,
     #[serde(rename = "workbuddy-cn")]
     WorkBuddyCn,
     #[serde(rename = "zcode")]
     Zcode,
-}
-
-/// 安装方式
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum InstallMethod {
-    /// Homebrew 安装: brew install <package>
-    Brew { package: String },
-    /// NPM 安装: npm install -g <package>
-    Npm { package: String },
-    /// Curl 脚本安装: curl -fsSL <url> | bash
-    Curl { url: String },
-    /// 自定义命令
-    Custom { command: String },
-    /// 仅下载 (无安装命令，如 IDE)
-    Download { url: String },
-}
-
-impl InstallMethod {
-    /// 获取显示名称
-    pub fn display_name(&self) -> &str {
-        match self {
-            InstallMethod::Brew { .. } => "Homebrew",
-            InstallMethod::Npm { .. } => "npm",
-            InstallMethod::Curl { .. } => "curl 脚本",
-            InstallMethod::Custom { .. } => "自定义",
-            InstallMethod::Download { .. } => "下载安装",
-        }
-    }
-
-    /// 获取显示命令
-    pub fn display_command(&self) -> String {
-        match self {
-            InstallMethod::Brew { package } => format!("brew install {}", package),
-            InstallMethod::Npm { package } => format!("npm install -g {}", package),
-            InstallMethod::Curl { url } => format!("curl -fsSL {} | bash", url),
-            InstallMethod::Custom { command } => command.clone(),
-            InstallMethod::Download { url } => format!("下载自 {}", url),
-        }
-    }
-
-    /// 是否需要确认 (curl 脚本需要用户确认)
-    pub fn needs_confirm(&self) -> bool {
-        matches!(self, InstallMethod::Curl { .. })
-    }
-}
-
-/// 工具安装信息
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InstallInfo {
-    /// 显示名称
-    pub name: String,
-    /// 安装方式列表
-    pub methods: Vec<InstallMethod>,
-    /// 更新命令 (为空表示不支持)
-    pub update_cmd: String,
-    /// 版本检测命令 (为空表示不支持)
-    pub version_cmd: String,
-    /// 官方主页
-    pub homepage: String,
+    #[serde(rename = "cursor")]
+    Cursor,
+    #[serde(rename = "windsurf")]
+    Windsurf,
+    #[serde(rename = "cline")]
+    Cline,
+    #[serde(rename = "roo")]
+    Roo,
+    #[serde(rename = "kilo")]
+    Kilo,
+    #[serde(rename = "continue")]
+    Continue,
+    #[serde(rename = "goose")]
+    Goose,
+    #[serde(rename = "kiro")]
+    Kiro,
 }
 
 impl AppType {
+    /// Legacy product IDs remain readable, while all new operations use the merged product.
+    pub fn canonical(&self) -> Self {
+        match self {
+            Self::TraeWork => Self::Trae,
+            Self::TraeSoloCn => Self::TraeCn,
+            Self::WorkBuddyCn => Self::WorkBuddy,
+            _ => self.clone(),
+        }
+    }
+
+    pub fn is_trae(&self) -> bool {
+        matches!(self.canonical(), Self::Trae | Self::TraeCn)
+    }
+
     pub fn all() -> Vec<Self> {
         vec![
             Self::QwenCode,
@@ -108,16 +83,23 @@ impl AppType {
             Self::OpenCode,
             Self::Trae,
             Self::TraeCn,
-            Self::TraeWork,
-            Self::TraeSoloCn,
             Self::Qoder,
             Self::Qodercli,
             Self::CodeBuddy,
             Self::Hermes,
             Self::MimoCode,
+            Self::KimiCode,
+            Self::MinimaxCode,
             Self::WorkBuddy,
-            Self::WorkBuddyCn,
             Self::Zcode,
+            Self::Cursor,
+            Self::Windsurf,
+            Self::Cline,
+            Self::Roo,
+            Self::Kilo,
+            Self::Continue,
+            Self::Goose,
+            Self::Kiro,
         ]
     }
 
@@ -128,213 +110,25 @@ impl AppType {
             Self::Codex => "codex",
             Self::Gemini => "gemini",
             Self::OpenCode => "opencode",
-            Self::Trae => "trae",
-            Self::TraeCn => "trae-cn",
-            Self::TraeWork => "trae-work",
-            Self::TraeSoloCn => "trae-solo-cn",
+            Self::Trae | Self::TraeWork => "trae",
+            Self::TraeCn | Self::TraeSoloCn => "trae-cn",
             Self::Qoder => "qoder",
             Self::Qodercli => "qodercli",
             Self::CodeBuddy => "codebuddy",
             Self::Hermes => "hermes",
             Self::MimoCode => "mimo-code",
-            Self::WorkBuddy => "workbuddy",
-            Self::WorkBuddyCn => "workbuddy-cn",
+            Self::KimiCode => "kimi-code",
+            Self::MinimaxCode => "minimax-code",
+            Self::WorkBuddy | Self::WorkBuddyCn => "workbuddy",
             Self::Zcode => "zcode",
-        }
-    }
-
-    pub fn get_install_info(&self) -> Option<InstallInfo> {
-        match self {
-            Self::QwenCode => Some(InstallInfo {
-                name: "Qwen Code".into(),
-                methods: vec![
-                    InstallMethod::Brew { package: "qwen-code".into() },
-                    InstallMethod::Npm { package: "@qwen-code/qwen-code".into() },
-                    InstallMethod::Curl {
-                        url: "https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen.sh".into(),
-                    },
-                ],
-                update_cmd: "npm install -g @qwen-code/qwen-code@latest".into(),
-                version_cmd: "qwen --version".into(),
-                homepage: "https://qwencode.ai".into(),
-            }),
-            Self::Claude => Some(InstallInfo {
-                name: "Claude Code".into(),
-                methods: vec![
-                    InstallMethod::Curl {
-                        url: "https://claude.ai/install.sh".into(),
-                    },
-                    InstallMethod::Brew { package: "claude-code".into() },
-                    InstallMethod::Npm { package: "@anthropic-ai/claude-code".into() },
-                ],
-                update_cmd: "npm install -g @anthropic-ai/claude-code@latest".into(),
-                version_cmd: "claude --version".into(),
-                homepage: "https://claude.ai/code".into(),
-            }),
-            Self::Codex => Some(InstallInfo {
-                name: "Codex".into(),
-                methods: vec![InstallMethod::Npm {
-                    package: "@openai/codex".into(),
-                }],
-                update_cmd: "npm install -g @openai/codex@latest".into(),
-                version_cmd: "codex --version".into(),
-                homepage: "https://openai.com/codex".into(),
-            }),
-            Self::Gemini => Some(InstallInfo {
-                name: "Gemini CLI".into(),
-                methods: vec![
-                    InstallMethod::Npm {
-                        package: "@google/gemini-cli".into(),
-                    },
-                    InstallMethod::Brew { package: "gemini-cli".into() },
-                ],
-                update_cmd: "npm install -g @google/gemini-cli@latest".into(),
-                version_cmd: "gemini --version".into(),
-                homepage: "https://github.com/google-gemini/gemini-cli".into(),
-            }),
-            Self::OpenCode => Some(InstallInfo {
-                name: "OpenCode".into(),
-                methods: vec![
-                    InstallMethod::Curl {
-                        url: "https://opencode.ai/install".into(),
-                    },
-                    InstallMethod::Npm {
-                        package: "opencode-ai".into(),
-                    },
-                    InstallMethod::Brew {
-                        package: "anomalyco/tap/opencode".into(),
-                    },
-                ],
-                update_cmd: "opencode upgrade".into(),
-                version_cmd: "opencode --version".into(),
-                homepage: "https://opencode.ai".into(),
-            }),
-            Self::Trae => Some(InstallInfo {
-                name: "TRAE IDE".into(),
-                methods: vec![InstallMethod::Download {
-                    url: "https://www.trae.ai/download".into(),
-                }],
-                update_cmd: String::new(),
-                version_cmd: String::new(),
-                homepage: "https://docs.trae.ai/ide".into(),
-            }),
-            Self::TraeCn => Some(InstallInfo {
-                name: "TRAE IDE CN".into(),
-                methods: vec![InstallMethod::Download {
-                    url: "https://www.trae.cn".into(),
-                }],
-                update_cmd: String::new(),
-                version_cmd: String::new(),
-                homepage: "https://www.trae.cn".into(),
-            }),
-            Self::TraeWork => Some(InstallInfo {
-                name: "TRAE Work".into(),
-                methods: vec![InstallMethod::Download {
-                    url: "https://www.trae.ai/work".into(),
-                }],
-                update_cmd: String::new(),
-                version_cmd: String::new(),
-                homepage: "https://www.trae.ai/work".into(),
-            }),
-            Self::TraeSoloCn => Some(InstallInfo {
-                name: "TRAE Work CN".into(),
-                methods: vec![InstallMethod::Download {
-                    url: "https://www.trae.cn/work".into(),
-                }],
-                update_cmd: String::new(),
-                version_cmd: String::new(),
-                homepage: "https://www.trae.cn/work".into(),
-            }),
-            Self::Qoder => Some(InstallInfo {
-                name: "Qoder".into(),
-                methods: vec![InstallMethod::Download {
-                    url: "https://qoder.com".into(),
-                }],
-                update_cmd: String::new(),
-                version_cmd: String::new(),
-                homepage: "https://qoder.com".into(),
-            }),
-            Self::Qodercli => Some(InstallInfo {
-                name: "Qoder CLI".into(),
-                methods: vec![
-                    InstallMethod::Curl {
-                        url: "https://qoder.com/install".into(),
-                    },
-                    InstallMethod::Brew {
-                        package: "qoderai/qoder/qodercli".into(),
-                    },
-                    InstallMethod::Npm {
-                        package: "@qoder-ai/qodercli".into(),
-                    },
-                ],
-                update_cmd: "qodercli update".into(),
-                version_cmd: "qodercli --version".into(),
-                homepage: "https://qoder.com".into(),
-            }),
-            Self::CodeBuddy => Some(InstallInfo {
-                name: "CodeBuddy CN CLI".into(),
-                methods: vec![
-                    InstallMethod::Curl {
-                        url: "https://copilot.tencent.com/cli/install.sh".into(),
-                    },
-                    InstallMethod::Npm {
-                        package: "@tencent-ai/codebuddy-code".into(),
-                    },
-                ],
-                update_cmd: "codebuddy update".into(),
-                version_cmd: "codebuddy --version".into(),
-                homepage: "https://codebuddy.ai".into(),
-            }),
-            Self::Hermes => Some(InstallInfo {
-                name: "Hermes Agent".into(),
-                methods: vec![InstallMethod::Curl {
-                    url: "https://hermes-agent.nousresearch.com/install.sh".into(),
-                }],
-                update_cmd: String::new(),
-                version_cmd: "hermes --version".into(),
-                homepage: "https://hermes-agent.nousresearch.com".into(),
-            }),
-            Self::MimoCode => Some(InstallInfo {
-                name: "Mimo Code".into(),
-                methods: vec![
-                    InstallMethod::Curl {
-                        url: "https://mimo.xiaomi.com/install".into(),
-                    },
-                    InstallMethod::Npm {
-                        package: "@mimo-ai/cli".into(),
-                    },
-                ],
-                update_cmd: "curl -fsSL https://mimo.xiaomi.com/install | bash".into(),
-                version_cmd: "mimo --version".into(),
-                homepage: "https://mimo.xiaomi.com/zh/mimocode/start".into(),
-            }),
-            Self::WorkBuddy => Some(InstallInfo {
-                name: "WorkBuddy".into(),
-                methods: vec![InstallMethod::Download {
-                    url: "https://www.workbuddy.ai/".into(),
-                }],
-                update_cmd: String::new(),
-                version_cmd: String::new(),
-                homepage: "https://www.workbuddy.ai/".into(),
-            }),
-            Self::WorkBuddyCn => Some(InstallInfo {
-                name: "WorkBuddy CN".into(),
-                methods: vec![InstallMethod::Download {
-                    url: "https://www.workbuddy.cn/".into(),
-                }],
-                update_cmd: String::new(),
-                version_cmd: String::new(),
-                homepage: "https://www.workbuddy.cn/".into(),
-            }),
-            Self::Zcode => Some(InstallInfo {
-                name: "ZCode".into(),
-                methods: vec![InstallMethod::Download {
-                    url: "https://docs.z.ai".into(),
-                }],
-                update_cmd: String::new(),
-                version_cmd: "zcode --version".into(),
-                homepage: "https://docs.z.ai".into(),
-            }),
+            Self::Cursor => "cursor",
+            Self::Windsurf => "windsurf",
+            Self::Cline => "cline",
+            Self::Roo => "roo",
+            Self::Kilo => "kilo",
+            Self::Continue => "continue",
+            Self::Goose => "goose",
+            Self::Kiro => "kiro",
         }
     }
 }
@@ -351,17 +145,47 @@ impl std::str::FromStr for AppType {
             "opencode" => Ok(Self::OpenCode),
             "trae" => Ok(Self::Trae),
             "trae-cn" => Ok(Self::TraeCn),
-            "trae-work" => Ok(Self::TraeWork),
-            "trae-solo-cn" => Ok(Self::TraeSoloCn),
+            "trae-work" => Ok(Self::Trae),
+            "trae-solo-cn" => Ok(Self::TraeCn),
             "qoder" => Ok(Self::Qoder),
             "qodercli" => Ok(Self::Qodercli),
             "codebuddy" => Ok(Self::CodeBuddy),
             "hermes" => Ok(Self::Hermes),
             "mimo-code" => Ok(Self::MimoCode),
+            "kimi-code" => Ok(Self::KimiCode),
+            "minimax-code" => Ok(Self::MinimaxCode),
             "workbuddy" => Ok(Self::WorkBuddy),
-            "workbuddy-cn" => Ok(Self::WorkBuddyCn),
+            "workbuddy-cn" => Ok(Self::WorkBuddy),
             "zcode" => Ok(Self::Zcode),
+            "cursor" => Ok(Self::Cursor),
+            "windsurf" => Ok(Self::Windsurf),
+            "cline" => Ok(Self::Cline),
+            "roo" => Ok(Self::Roo),
+            "kilo" => Ok(Self::Kilo),
+            "continue" => Ok(Self::Continue),
+            "goose" => Ok(Self::Goose),
+            "kiro" => Ok(Self::Kiro),
             _ => Err(format!("Unknown app type: {}", s)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_trae_ids_deserialize_and_normalize_without_duplicating_products() {
+        let legacy: AppType = serde_json::from_str("\"trae-work\"").unwrap();
+        let legacy_cn: AppType = serde_json::from_str("\"trae-solo-cn\"").unwrap();
+        assert_eq!(legacy.canonical(), AppType::Trae);
+        assert_eq!(legacy_cn.canonical(), AppType::TraeCn);
+        assert_eq!("trae-work".parse::<AppType>().unwrap(), AppType::Trae);
+        assert_eq!("trae-solo-cn".parse::<AppType>().unwrap(), AppType::TraeCn);
+        assert_eq!(AppType::all().len(), 24);
+        assert!(!AppType::all().contains(&AppType::TraeWork));
+        assert!(!AppType::all().contains(&AppType::TraeSoloCn));
+        assert_eq!(AppType::WorkBuddyCn.canonical(), AppType::WorkBuddy);
+        assert!(!AppType::all().contains(&AppType::WorkBuddyCn));
     }
 }

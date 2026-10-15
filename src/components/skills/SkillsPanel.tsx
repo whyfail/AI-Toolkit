@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Plus, RefreshCw, Search, Upload, Sparkles, Activity } from 'lucide-react';
+import { Plus, RefreshCw, Search, Upload, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import SkillsList from './SkillsList';
 import AddSkillModal from './modals/AddSkillModal';
@@ -11,15 +11,15 @@ import type {
   ManagedSkill,
   ToolOption
 } from './types';
-import type { SkillDeletePreview, SkillHealthItem } from '@/lib/api';
 import { Pressable } from '@/components/ui/Pressable';
 import { motion } from 'motion/react';
 
-type SkillFilter = 'all' | 'git' | 'local' | 'synced' | 'unsynced' | 'needsAttention';
+type SkillFilter = 'all' | 'git' | 'local' | 'synced' | 'unsynced';
 
 function SkillsPanel() {
   const [managedSkills, setManagedSkills] = useState<ManagedSkill[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [legacyImportPath, setLegacyImportPath] = useState<string | null>(null);
   const [showBatchSyncModal, setShowBatchSyncModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [syncTargets, setSyncTargets] = useState<Record<string, boolean>>({});
@@ -29,9 +29,6 @@ function SkillsPanel() {
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<SkillFilter>('all');
   const [toolFilter, setToolFilter] = useState('');
-  const [deletePreview, setDeletePreview] = useState<SkillDeletePreview | null>(null);
-  const [healthItems, setHealthItems] = useState<SkillHealthItem[]>([]);
-  const [checkingHealth, setCheckingHealth] = useState(false);
 
   // 使用共享的工具检测上下文
   const { toolStatuses, isLoading: toolsLoading, refresh: refreshInstalledTools } = useInstalledTools();
@@ -50,20 +47,17 @@ function SkillsPanel() {
 
   // 当工具状态加载完成后，设置 syncTargets
   useEffect(() => {
-    if (toolStatuses && toolStatuses.length > 0) {
-      const targets: Record<string, boolean> = {};
-      for (const t of toolStatuses) {
-        // tool.id is already a string (kebab-case) from backend serialization
-        const toolId = t.tool.id;
-        targets[toolId] = t.installed;
-      }
-      setSyncTargets(targets);
+    const targets: Record<string, boolean> = {};
+    for (const status of toolStatuses) {
+      targets[status.tool.id] = status.installed;
     }
+    setSyncTargets(targets);
+    setToolFilter(current => current && !toolStatuses.some(status => status.tool.id === current) ? '' : current);
   }, [toolStatuses]);
 
   useEffect(() => {
     loadManagedSkills();
-  }, [loadManagedSkills]);
+  }, [loadManagedSkills, toolStatuses]);
 
   const tools: ToolOption[] = toolStatuses
     ?.filter(status => status.installed)
@@ -71,6 +65,10 @@ function SkillsPanel() {
       id: status.tool.id,
       label: status.tool.display_name
     })) || [];
+
+  const legacySkills = Array.from(new Map(toolStatuses.flatMap(status =>
+    (status.legacy_skills ?? []).map(skill => [skill.path, skill] as const)
+  )).values());
 
   const handleSyncTargetChange = useCallback((toolId: string, checked: boolean) => {
     setSyncTargets((prev) => ({
@@ -98,14 +96,8 @@ function SkillsPanel() {
     await loadManagedSkills();
   }, [refreshInstalledTools, loadManagedSkills]);
 
-  const handleDeleteSkill = useCallback(async (skill: ManagedSkill) => {
+  const handleDeleteSkill = useCallback((skill: ManagedSkill) => {
     setDeleteSkillId(skill.id);
-    setDeletePreview(null);
-    try {
-      setDeletePreview(await skillsApi.previewDelete(skill.id, skill.name));
-    } catch (err) {
-      toast.error(`加载删除预览失败: ${err}`);
-    }
   }, []);
 
   const handleEditSkill = useCallback((skill: ManagedSkill) => {
@@ -121,7 +113,6 @@ function SkillsPanel() {
       await skillsApi.deleteManagedSkill(deleteSkillId, skill?.name || '');
       toast.success(`技能 "${skill?.name}" 已删除`);
       setDeleteSkillId(null);
-      setDeletePreview(null);
       loadManagedSkills();
     } catch (err) {
       toast.error(`删除技能失败: ${err}`);
@@ -130,30 +121,12 @@ function SkillsPanel() {
     }
   }, [deleteSkillId, managedSkills, loadManagedSkills]);
 
-  const handleHealthCheck = useCallback(async () => {
-    setCheckingHealth(true);
-    try {
-      setHealthItems(await skillsApi.runHealthCheck());
-      toast.success('Skill 健康检查完成');
-    } catch (err) {
-      toast.error(`健康检查失败: ${err}`);
-    } finally {
-      setCheckingHealth(false);
-    }
-  }, []);
-
-  const attentionSkillIds = new Set(
-    healthItems
-      .filter((item) => item.status !== 'ok')
-      .map((item) => item.skill_id)
-  );
   const filterOptions: Array<{ id: SkillFilter; label: string }> = [
     { id: 'all', label: '全部' },
     { id: 'git', label: 'Git' },
     { id: 'local', label: '本地' },
     { id: 'synced', label: '已同步' },
     { id: 'unsynced', label: '未同步' },
-    { id: 'needsAttention', label: '需处理' },
   ];
 
   return (
@@ -170,7 +143,7 @@ function SkillsPanel() {
               Skills 管理
             </h2>
             <p className="mt-2 text-caption text-slate-500 dark:text-slate-400 sm:text-body">
-              统一管理和同步技能到多个 AI 编程工具
+              管理技能，同步到本地已安装的 Agent
             </p>
           </div>
           <div className="flex gap-2 flex-shrink-0">
@@ -181,14 +154,6 @@ function SkillsPanel() {
             >
               <RefreshCw size={16} className={(isLoading || toolsLoading) ? "animate-spin" : ""} />
               <span className="hidden sm:inline">刷新</span>
-            </Pressable>
-            <Pressable
-              onClick={handleHealthCheck}
-              disabled={checkingHealth}
-              className="glass-secondary-button"
-            >
-              <Activity size={16} className={checkingHealth ? "animate-spin" : ""} />
-              <span className="hidden sm:inline">健康检查</span>
             </Pressable>
             <Pressable
               onClick={() => setShowAddModal(true)}
@@ -269,12 +234,7 @@ function SkillsPanel() {
           </Pressable>
           {tools.filter(t => syncTargets[t.id]).length > 0 && (
             <span className="glass-pill">
-              可同步工具: {tools.filter(t => syncTargets[t.id]).length} 个
-            </span>
-          )}
-          {attentionSkillIds.size > 0 && (
-            <span className="glass-pill text-amber-700">
-              需处理: {attentionSkillIds.size} 个
+              已安装 Agent: {tools.filter(t => syncTargets[t.id]).length} 个
             </span>
           )}
         </div>
@@ -282,6 +242,20 @@ function SkillsPanel() {
 
       {/* 技能列表 */}
       <div className="glass-content px-3 sm:px-8">
+        {legacySkills.length > 0 && (
+          <details className="glass-card mb-4 p-4">
+            <summary className="cursor-pointer text-sm font-medium">旧 TRAE 目录中还有 {legacySkills.length} 个技能</summary>
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">可按需导入中央仓库，再同步到新版 TRAE。旧目录中的文件保留。</p>
+            <div className="mt-3 space-y-3">
+              {legacySkills.map(skill => (
+                <div key={skill.path} className="flex items-start justify-between gap-3">
+                  <div className="min-w-0"><p className="break-all text-sm">{skill.name}</p><p className="mt-1 break-all text-xs text-slate-500 dark:text-slate-400">{skill.path}</p></div>
+                  <Pressable type="button" className="glass-secondary-button shrink-0 text-xs" aria-label={`导入旧技能 ${skill.name}`} onClick={() => { setLegacyImportPath(skill.path); setShowAddModal(true); }}>导入</Pressable>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
         {isLoading || toolsLoading ? (
           <div className="flex items-center justify-center h-64">
             <div className="glass-pill">加载中...</div>
@@ -295,15 +269,9 @@ function SkillsPanel() {
             onEditSkill={handleEditSkill}
             filter={filter}
             toolFilter={toolFilter}
-            attentionSkillIds={attentionSkillIds}
-            healthItems={healthItems}
             onDeleteId={deleteSkillId}
             onConfirmDelete={confirmDelete}
-            onCancelDelete={() => {
-              setDeleteSkillId(null);
-              setDeletePreview(null);
-            }}
-            deletePreview={deletePreview}
+            onCancelDelete={() => setDeleteSkillId(null)}
             isDeleting={isDeleting}
             onSkillSync={loadManagedSkills}
           />
@@ -313,7 +281,8 @@ function SkillsPanel() {
       {/* 模态框 */}
       <AddSkillModal
         open={showAddModal}
-        onClose={() => setShowAddModal(false)}
+        onClose={() => { setShowAddModal(false); setLegacyImportPath(null); }}
+        initialLocalPath={legacyImportPath}
         tools={tools}
         syncTargets={syncTargets}
         onSyncTargetChange={handleSyncTargetChange}

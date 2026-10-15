@@ -1,3 +1,5 @@
+import { SUPPORTED_TOOLS } from "@/lib/tools";
+
 // MCP 服务器连接参数
 export interface McpServerSpec {
   type?: "stdio" | "http" | "sse";
@@ -39,72 +41,9 @@ export interface AppConfigInfo {
   mcpCount: number;
 }
 
-export interface TerminalOption {
-  id: string;
-  label: string;
-  available: boolean;
-}
-
-export interface LaunchPreferences {
-  defaultTerminal: string;
-  availableTerminals: TerminalOption[];
-}
-
-// 支持的应用列表
-export const SUPPORTED_APPS: Array<{ id: string; name: string; icon: string }> = [
-  { id: "qwen-code", name: "Qwen Code", icon: "code" },
-  { id: "claude", name: "Claude Code", icon: "claude" },
-  { id: "codex", name: "Codex", icon: "codex" },
-  { id: "gemini", name: "Gemini CLI", icon: "gemini" },
-  { id: "opencode", name: "OpenCode", icon: "opencode" },
-  { id: "qoder", name: "Qoder", icon: "qoder" },
-  { id: "qodercli", name: "Qoder CLI", icon: "qodercli" },
-  { id: "trae", name: "TRAE IDE", icon: "trae" },
-  { id: "trae-cn", name: "TRAE IDE CN", icon: "trae-cn" },
-  { id: "trae-work", name: "TRAE Work", icon: "trae-work" },
-  { id: "trae-solo-cn", name: "TRAE Work CN", icon: "trae-solo-cn" },
-  { id: "codebuddy", name: "CodeBuddy CN CLI", icon: "codebuddy" },
-  { id: "hermes", name: "Hermes Agent", icon: "hermes" },
-  { id: "mimo-code", name: "Mimo Code", icon: "mimo-code" },
-  { id: "workbuddy", name: "WorkBuddy", icon: "workbuddy" },
-  { id: "workbuddy-cn", name: "WorkBuddy CN", icon: "workbuddy-cn" },
-  { id: "zcode", name: "ZCode", icon: "zcode" },
-];
-
-// 工具安装方式
-export type InstallMethodType = "brew" | "npm" | "curl" | "custom" | "download";
-
-export interface ToolMethodInfo {
-  index: number;
-  method_type: InstallMethodType;
-  name: string;
-  package?: string;
-  url?: string;
-  command: string;
-  needs_confirm: boolean;
-}
-
-// 工具信息
-export interface ToolInfo {
-  app_type: string;
-  name: string;
-  installed: boolean;
-  has_cli: boolean;
-  has_desktop_app: boolean;
-  version: string | null;
-  desktop_version: string | null;
-  latest_version: string | null;
-  detected_method: string | null;
-  methods: ToolMethodInfo[];
-  homepage: string;
-  edition_unknown: boolean;
-}
-
-// 安装进度
-export interface InstallProgress {
-  tool: string;
-  status: "installing" | "updating" | "downloading" | "finished" | "error";
-  message: string;
-  progress?: number;
-  total?: number;
-}
+// 产品列表与 Skills 使用相同的 Agent 定义。
+export const SUPPORTED_APPS = SUPPORTED_TOOLS.map(tool => ({
+  id: tool.id,
+  name: tool.displayName,
+  icon: tool.id,
+}));
