@@ -400,9 +400,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.get_version_release.outputs.VERSION }}
-          name: AI Toolkit v${{ steps.get_version_release.outputs.VERSION }}
+          name: AiToolkit v${{ steps.get_version_release.outputs.VERSION }}
           body: |
-            ## AI Toolkit v${{ steps.get_version_release.outputs.VERSION }}
+            ## AiToolkit v${{ steps.get_version_release.outputs.VERSION }}
 
             Universal MCP Server & Skills Manager for AI CLI tools.
 

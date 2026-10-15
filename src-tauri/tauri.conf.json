@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/json/tauri.conf.json",
-  "productName": "AI Toolkit",
+  "productName": "AiToolkit",
   "version": "2.0.0",
   "identifier": "com.ai-toolkit.app",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "AI Toolkit",
+        "title": "AiToolkit",
         "width": 1200,
         "height": 800,
         "resizable": true,
