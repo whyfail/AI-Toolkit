@@ -396,6 +396,40 @@ impl Drop for RequestGuard {
     }
 }
 
+fn validate_image_url(image: &Value) -> Result<(), &'static str> {
+    use base64::Engine;
+    let image = image.as_object().ok_or("image_url 必须是对象")?;
+    let url = image
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or("图片缺少有效 URL")?;
+    if let Some(data) = url.strip_prefix("data:") {
+        let (media, data) = data.split_once(',').ok_or("图片 data URL 格式无效")?;
+        if !matches!(
+            media,
+            "image/jpeg;base64" | "image/png;base64" | "image/gif;base64" | "image/webp;base64"
+        ) || data.is_empty()
+            || base64::engine::general_purpose::STANDARD
+                .decode(data)
+                .is_err()
+        {
+            return Err("图片必须是 JPEG、PNG、GIF 或 WebP 的有效 base64 数据");
+        }
+    } else if reqwest::Url::parse(url)
+        .ok()
+        .is_none_or(|url| !matches!(url.scheme(), "http" | "https") || url.host_str().is_none())
+    {
+        return Err("图片 URL 必须使用 http 或 https");
+    }
+    if image
+        .get("detail")
+        .is_some_and(|detail| !matches!(detail.as_str(), Some("auto" | "low" | "high")))
+    {
+        return Err("图片 detail 仅支持 auto、low 或 high");
+    }
+    Ok(())
+}
+
 fn validate_request(data: &Value) -> Result<(&str, bool, bool), &'static str> {
     let object = data.as_object().ok_or("请求必须是 JSON 对象")?;
     const FIELDS: &[&str] = &[
@@ -490,12 +524,15 @@ fn validate_request(data: &Value) -> Result<(&str, bool, bool), &'static str> {
         }
         if let Some(content) = message.get("content") {
             if !content.is_string() && !content.is_null() {
-                let parts = content.as_array().ok_or("目前仅支持文本消息")?;
-                if parts.iter().any(|v| {
-                    v.get("type").and_then(Value::as_str) != Some("text")
-                        || v.get("text").and_then(Value::as_str).is_none()
-                }) {
-                    return Err("目前仅支持文本消息");
+                let parts = content.as_array().ok_or("content 必须是文本或内容块数组")?;
+                for part in parts {
+                    match part.get("type").and_then(Value::as_str) {
+                        Some("text") if part.get("text").and_then(Value::as_str).is_some() => {}
+                        Some("image_url") if matches!(role, "user" | "tool") => {
+                            validate_image_url(&part["image_url"])?
+                        }
+                        _ => return Err("内容块仅支持文本，以及 user 或 tool 消息中的图片"),
+                    }
                 }
             }
         } else if message.get("tool_calls").is_none() {
@@ -1128,7 +1165,7 @@ mod tests {
     }
 
     #[test]
-    fn validation_rejects_endpoint_injection_and_image_inputs() {
+    fn validation_rejects_endpoint_injection_and_validates_image_inputs() {
         let valid = json!({"model": "glm-5.3", "messages": [{"role": "user", "content": "hello"}], "stream": true});
         assert_eq!(validate_request(&valid).unwrap(), ("glm-5.3", true, false));
         let mut injected = valid.clone();
@@ -1137,6 +1174,11 @@ mod tests {
         let mut image = valid;
         image["messages"][0]["content"] =
             json!([{"type": "image_url", "image_url": {"url": "https://example.invalid/image"}}]);
+        assert!(validate_request(&image).is_ok());
+        image["messages"][0]["content"][0]["image_url"]["url"] = json!("file:///tmp/image.png");
+        assert!(validate_request(&image).is_err());
+        image["messages"][0]["content"][0]["image_url"]["url"] =
+            json!("data:image/png;base64,invalid base64");
         assert!(validate_request(&image).is_err());
     }
 
@@ -1496,6 +1538,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn messages_images_reach_the_provider_in_user_messages_and_tool_results() {
+        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder] {
+            let manager = routed_test_manager();
+            for mut account in manager.accounts().unwrap() {
+                account.platform = platform;
+                manager.store.save_account(&account).unwrap();
+            }
+            let requested = format!("{}/glm-5.3", platform.key());
+            for _ in 0..2 {
+                manager.provider.queue_test_chat(
+                    "first",
+                    fixture_chunks(vec![
+                        json!({"choices":[{"delta":{"content":"image reply"},"finish_reason":"stop"}]}),
+                    ]),
+                );
+            }
+            let gateway = GatewayManager::new();
+            let status = gateway.start(manager.clone(), 0).await.unwrap();
+            let http = local_http();
+            let key = manager.gateway_key().unwrap();
+            let image = json!({"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"aW1hZ2U="}});
+            for (stream, messages) in [false, true].into_iter().zip([
+                json!([{"role":"user","content":[{"type":"text","text":"check this image"},image.clone()]}]),
+                json!([
+                    {"role":"user","content":"read the file"},
+                    {"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"Read","input":{"path":"image.jpg"}}]},
+                    {"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":[image]}]},
+                ]),
+            ]) {
+                let response = http
+                    .post(format!("{}/messages", status.base_url))
+                    .header("x-api-key", &key)
+                    .json(&json!({"model":requested,"max_tokens":128000,"messages":messages,"thinking":{"type":"enabled"},"output_config":{"effort":"max"},"stream":stream}))
+                    .send()
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                if stream {
+                    let events = sse_events(&response.text().await.unwrap());
+                    assert_eq!(events.last().unwrap()["type"], "message_stop");
+                    assert!(events.iter().any(|event| event["delta"]["text"] == "image reply"));
+                } else {
+                    let message = response.json::<Value>().await.unwrap();
+                    assert_eq!(message["content"][0]["text"], "image reply");
+                }
+            }
+            assert_eq!(manager.provider.test_chat_calls(), vec!["first", "first"]);
+            let bodies = manager.provider.test_chat_bodies();
+            let expected =
+                json!({"type":"image_url","image_url":{"url":"data:image/jpeg;base64,aW1hZ2U="}});
+            assert_eq!(bodies[0]["messages"][0]["content"][1], expected);
+            assert_eq!(bodies[1]["messages"][2]["content"][0], expected);
+            assert_eq!(bodies[1]["messages"][2]["tool_call_id"], "call_1");
+            gateway.stop().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
     async fn messages_http_auth_validation_and_sdk_base_url_alias() {
         let manager = routed_test_manager();
         manager.provider.queue_test_chat("first", fixture_chunks(vec![json!({"choices":[{"delta":{"content":"Messages reply","reasoning_content":"provider-only reasoning"},"finish_reason":"length"}],"usage":{"prompt_tokens":12,"completion_tokens":7}})]));
@@ -1555,7 +1655,7 @@ mod tests {
             invalid.as_object_mut().unwrap().remove(field);
         }
         invalid["messages"][0]["content"] =
-            json!([{"type":"image","source":{"type":"url","url":"https://invalid.test/a.png"}}]);
+            json!([{"type":"image","source":{"type":"url","url":"file:///tmp/a.png"}}]);
         let response = http
             .post(&url)
             .header("x-api-key", &key)

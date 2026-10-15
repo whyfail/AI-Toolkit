@@ -390,6 +390,34 @@ mod tests {
         assert_eq!(body["messages"][0]["content"], messages[0]["content"]);
         assert_eq!(body["messages"][1], messages[1]);
     }
+
+    #[test]
+    fn image_attachments_and_tool_results_preserve_their_content_and_ids() {
+        let image = json!({"type":"image_url","image_url":{"url":"data:image/png;base64,aW1hZ2U=","detail":"high"}});
+        let remote =
+            json!({"type":"image_url","image_url":{"url":"https://example.test/screenshot.png"}});
+        let messages = json!([
+            {"role":"user","content":[image.clone()]},
+            {"role":"assistant","content":"","tool_calls":[{"id":"call_image","type":"function","function":{"name":"Read","arguments":"{}"}}]},
+            {"role":"tool","tool_call_id":"call_image","content":[{"type":"text","text":"[tool_result is_error=true]\n"},remote.clone(),image.clone()]},
+            {"role":"user","content":[{"type":"text","text":"compare both images"},image,remote]},
+        ]);
+        let m = model("glm-5.3-flash".into(), "GLM-5.3-Flash".into(), None);
+        let body = prepare_chat_body(
+            &m,
+            json!({"model":"workbuddy/glm-5.3-flash","messages":messages,"max_completion_tokens":128}),
+        );
+        assert_eq!(body["messages"], messages);
+        assert_eq!(body["messages"][2]["tool_call_id"], "call_image");
+        assert_eq!(
+            body["messages"][2]["content"][0]["text"],
+            "[tool_result is_error=true]\n"
+        );
+        assert_eq!(body["model"], "glm-5.3-flash");
+        assert_eq!(body["max_tokens"], 128);
+        assert_eq!(body["stream"], true);
+    }
+
     #[test]
     fn chat_body_translates_tool_selection_and_preserves_definitions() {
         let m = model("glm-5.3-flash".into(), "GLM-5.3-Flash".into(), None);

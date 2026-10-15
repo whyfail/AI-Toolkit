@@ -551,13 +551,11 @@ fn body(mut b: Value, id: &str) -> Result<Value, ProviderError> {
     let messages = b["messages"]
         .as_array()
         .ok_or_else(|| ProviderError::new(400, "messages 必须是数组"))?;
-    if messages.iter().any(|m| {
+    let has_images = messages.iter().any(|m| {
         m["content"]
             .as_array()
-            .is_some_and(|ps| ps.iter().any(|p| p["type"] != "text"))
-    }) {
-        return Err(ProviderError::new(400, "Qoder 当前代理通道仅支持文本输入"));
-    }
+            .is_some_and(|ps| ps.iter().any(|p| p["type"] == "image_url"))
+    });
     let prompt = messages
         .iter()
         .rev()
@@ -575,7 +573,7 @@ fn body(mut b: Value, id: &str) -> Result<Value, ProviderError> {
                     .unwrap_or_default()
             })
         })
-        .filter(|s| !s.is_empty())
+        .filter(|s| !s.is_empty() || has_images)
         .ok_or_else(|| ProviderError::new(400, "缺少 user 消息"))?;
     let mut system = vec![];
     if let Some(ms) = b["messages"].as_array() {
@@ -585,7 +583,21 @@ fn body(mut b: Value, id: &str) -> Result<Value, ProviderError> {
             }
         }
     }
-    let id_config = json!({"key":id,"source":"system","is_reasoning":true,"format":"openai"});
+    let mut id_config = json!({"key":id,"source":"system","is_reasoning":true,"format":"openai"});
+    if has_images {
+        // Qoder CN's official RequestConverter sends multimodal parts in both
+        // content and contents, and model_config.is_vl selects its vision route.
+        id_config["is_vl"] = json!(true);
+        for message in b["messages"].as_array_mut().unwrap() {
+            if let Some(parts) = message
+                .get("content")
+                .filter(|content| content.is_array())
+                .cloned()
+            {
+                message["contents"] = parts;
+            }
+        }
+    }
     let mut out = json!({"request_id":uuid::Uuid::new_v4().to_string(),"request_set_id":uuid::Uuid::new_v4().to_string(),"chat_record_id":uuid::Uuid::new_v4().to_string(),"session_id":uuid::Uuid::new_v4().to_string(),"stream":true,"chat_task":"FREE_INPUT","chat_context":{"chatPrompt":"","extra":{"context":[],"modelConfig":id_config,"originalContent":{"type":"text","text":prompt}},"features":[],"text":{"type":"text","text":prompt}},"is_reply":true,"is_retry":false,"source":1,"version":"3","session_type":"qodercli","agent_id":"agent_common","task_id":"common","model_config":id_config,"messages":b["messages"],"system":system,"parameters":{"max_tokens":b["max_tokens"].as_u64().unwrap_or(8192)}});
     for key in ["tools", "tool_choice"] {
         if let Some(v) = b.as_object_mut().and_then(|o| o.remove(key)) {
@@ -619,6 +631,38 @@ pub(super) async fn chat(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn image_requests_keep_multimodal_contents_and_enable_the_vision_route() {
+        let parts = json!([{"type":"text","text":"describe this"},{"type":"image_url","image_url":{"url":"data:image/png;base64,aW1hZ2U="}}]);
+        let input = json!({"messages":[{"role":"system","content":"instructions"},{"role":"user","content":parts}],"max_tokens":128});
+        let converted = body(input.clone(), "gfmodel").unwrap();
+        assert_eq!(converted["model_config"]["is_vl"], true);
+        assert_eq!(
+            converted["chat_context"]["extra"]["modelConfig"]["is_vl"],
+            true
+        );
+        assert_eq!(converted["messages"][1]["content"], parts);
+        assert_eq!(converted["messages"][1]["contents"], parts);
+
+        let mut image_only = input;
+        image_only["messages"][1]["content"] = json!([parts[1].clone()]);
+        let converted = body(image_only, "gfmodel").unwrap();
+        assert_eq!(converted["messages"][1]["contents"][0], parts[1]);
+        assert_eq!(converted["chat_context"]["text"]["text"], "");
+
+        let converted = body(json!({"messages":[{"role":"user","content":"read image"},{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"Read","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call_1","content":parts}]}), "gfmodel").unwrap();
+        assert_eq!(converted["messages"][2]["contents"], parts);
+        assert_eq!(converted["messages"][2]["tool_call_id"], "call_1");
+        assert_eq!(converted["model_config"]["is_vl"], true);
+        let text = body(
+            json!({"messages":[{"role":"user","content":"hello"}]}),
+            "gfmodel",
+        )
+        .unwrap();
+        assert_ne!(text["model_config"]["is_vl"], true);
+        assert!(text["messages"][0].get("contents").is_none());
+    }
+
     #[test]
     fn qoder_encoding_matches_reference_vectors() {
         assert_eq!(encode(b"{}"), "$kwm");

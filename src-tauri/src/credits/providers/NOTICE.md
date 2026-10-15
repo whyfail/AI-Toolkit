@@ -8,6 +8,17 @@ Qoder COSY signing and request-body encoding are adapted from
 OAuth, billing, rewards, model discovery, and SSE/tool message shapes reference
 the corresponding `plugins/{workbuddy,trae,qoder}` files.
 
+Qoder multimodal message conversion also follows the installed official Qoder CN
+0.4.4 agent SDK's `RequestConverter` and request builder: image-bearing user/tool
+messages preserve both `content` and `contents`, and the model configuration sets
+`is_vl`. Base64 data URLs remain intact, matching the client's inline image path.
+
+WorkBuddy's image arrays follow the installed official CLI request processor's
+`normalizeMessageImages`: user and tool content preserve OpenAI `image_url`
+parts. TRAE preserves multimodal content arrays while converting tool calls to
+`function_call`, following the pinned reference's `plugins/trae/upstream/payload.go`.
+These request-shape checks do not establish either account's live vision access.
+
 No source from Buddy Switch (PolyForm Noncommercial) is included. Requests use
 official CN platform origins. The reference's community Trae reverse proxy,
 content-filter transformations, guessed campaign IDs, and automatic device

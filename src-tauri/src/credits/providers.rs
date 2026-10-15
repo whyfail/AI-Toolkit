@@ -63,6 +63,7 @@ struct TestChats {
         std::collections::VecDeque<Vec<Result<ChatChunk, ProviderError>>>,
     >,
     calls: Vec<String>,
+    bodies: Vec<Value>,
 }
 impl ProviderClient {
     pub fn new() -> Self {
@@ -90,6 +91,10 @@ impl ProviderClient {
     #[cfg(test)]
     pub fn test_chat_calls(&self) -> Vec<String> {
         self.test_chats.lock().unwrap().calls.clone()
+    }
+    #[cfg(test)]
+    pub fn test_chat_bodies(&self) -> Vec<Value> {
+        self.test_chats.lock().unwrap().bodies.clone()
     }
     pub async fn authenticate(
         &self,
@@ -150,6 +155,7 @@ impl ProviderClient {
             let mut test = self.test_chats.lock().unwrap();
             if let Some(chunks) = test.queues.get_mut(&a.id).and_then(|q| q.pop_front()) {
                 test.calls.push(a.id.clone());
+                test.bodies.push(body);
                 return Ok(ProviderChat {
                     stream: Box::pin(futures::stream::iter(chunks)),
                 });

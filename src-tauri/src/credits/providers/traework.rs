@@ -828,4 +828,37 @@ mod tests {
         assert!(b["tools"][0]["function"]["parameters"].is_string());
         assert!(b.get("reasoning_effort").is_none());
     }
+
+    #[test]
+    fn image_attachments_and_tool_results_survive_native_tool_conversion() {
+        let image = json!({"type":"image_url","image_url":{"url":"data:image/png;base64,aW1hZ2U=","detail":"high"}});
+        let remote =
+            json!({"type":"image_url","image_url":{"url":"https://example.test/screenshot.png"}});
+        let messages = json!([
+            {"role":"user","content":[image.clone()]},
+            {"role":"assistant","content":null,"tool_calls":[{"id":"call_image","type":"function","function":{"name":"Read","arguments":"{}"}}]},
+            {"role":"tool","tool_call_id":"call_image","content":[{"type":"text","text":"[tool_result is_error=true]\n"},remote.clone(),image.clone()]},
+            {"role":"user","content":[{"type":"text","text":"compare both images"},image,remote]},
+        ]);
+        let body = chat_body(json!({"messages":messages,"max_tokens":128,"tools":[{"type":"function","function":{"name":"Read","parameters":{"type":"object"}}}]}), "glm-5.3-flash").unwrap();
+        for index in [0, 2, 3] {
+            assert_eq!(body["messages"][index], messages[index]);
+        }
+        assert_eq!(body["messages"][1]["tool_calls"][0]["id"], "call_image");
+        assert_eq!(
+            body["messages"][1]["tool_calls"][0]["function_call"]["name"],
+            "Read"
+        );
+        assert_eq!(body["messages"][2]["tool_call_id"], "call_image");
+        assert_eq!(
+            body["messages"][2]["content"][0]["text"],
+            "[tool_result is_error=true]\n"
+        );
+        assert!(body["tools"][0]["function"]["parameters"].is_string());
+        assert_eq!(body["function"], "solo_work_lite");
+        assert_eq!(body["config_name"], "glm-5.3-flash");
+        assert_eq!(body["model"], "glm-5.3-flash");
+        assert_eq!(body["max_tokens"], 128);
+        assert_eq!(body["stream"], true);
+    }
 }

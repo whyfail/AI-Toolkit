@@ -11,7 +11,7 @@ use serde_json::{json, Map, Value};
 
 fn fields(object: &Map<String, Value>, allowed: &[&str]) -> Result<(), &'static str> {
     if object.keys().any(|key| !allowed.contains(&key.as_str())) {
-        return Err("Messages 请求包含不支持的字段；目前支持文本与客户端工具");
+        return Err("Messages 请求包含不支持的字段");
     }
     Ok(())
 }
@@ -35,11 +35,12 @@ fn cache_hint(object: &Map<String, Value>) -> Result<(), &'static str> {
 
 fn text_block(block: &Value) -> Result<String, &'static str> {
     let block = block.as_object().ok_or("内容块必须是对象")?;
+    match block.get("type").and_then(Value::as_str) {
+        Some("text") => {}
+        _ => return Err("此处仅支持 text 内容块"),
+    }
     fields(block, &["type", "text", "cache_control"])?;
     cache_hint(block)?;
-    if block.get("type").and_then(Value::as_str) != Some("text") {
-        return Err("目前仅支持 text、tool_use、tool_result；不支持视觉、文档或推理签名内容");
-    }
     block
         .get("text")
         .and_then(Value::as_str)
@@ -59,6 +60,73 @@ fn text_content(content: &Value) -> Result<String, &'static str> {
         text.push_str(&text_block(block)?);
     }
     Ok(text)
+}
+
+fn image_block(block: &Value) -> Result<Value, &'static str> {
+    let block = block.as_object().ok_or("图片内容块必须是对象")?;
+    fields(block, &["type", "source", "cache_control"])?;
+    cache_hint(block)?;
+    let source = block
+        .get("source")
+        .and_then(Value::as_object)
+        .ok_or("图片缺少 source 对象")?;
+    let url = match source.get("type").and_then(Value::as_str) {
+        Some("url") => {
+            fields(source, &["type", "url"])?;
+            source
+                .get("url")
+                .and_then(Value::as_str)
+                .ok_or("图片 URL 必须是字符串")?
+                .to_owned()
+        }
+        Some("base64") => {
+            fields(source, &["type", "media_type", "data"])?;
+            let media = source
+                .get("media_type")
+                .and_then(Value::as_str)
+                .ok_or("图片缺少 media_type")?;
+            let data = source
+                .get("data")
+                .and_then(Value::as_str)
+                .ok_or("图片缺少 base64 data")?;
+            format!("data:{media};base64,{data}")
+        }
+        _ => return Err("图片 source type 仅支持 base64 或 url"),
+    };
+    let image = json!({"type":"image_url","image_url":{"url":url}});
+    super::validate_image_url(&image["image_url"])?;
+    Ok(image)
+}
+
+fn content_value(parts: Vec<Value>) -> Value {
+    if parts.iter().all(|part| part["type"] == "text") {
+        Value::String(
+            parts
+                .iter()
+                .filter_map(|part| part["text"].as_str())
+                .collect(),
+        )
+    } else {
+        Value::Array(parts)
+    }
+}
+
+fn tool_content(content: &Value) -> Result<Value, &'static str> {
+    if content.is_string() {
+        return Ok(content.clone());
+    }
+    let blocks = content
+        .as_array()
+        .ok_or("工具结果必须是字符串或内容块数组")?;
+    let mut parts = Vec::new();
+    for block in blocks {
+        match block.get("type").and_then(Value::as_str) {
+            Some("text") => parts.push(json!({"type":"text","text":text_block(block)?})),
+            Some("image") => parts.push(image_block(block)?),
+            _ => return Err("工具结果仅支持文本和图片内容"),
+        }
+    }
+    Ok(content_value(parts))
 }
 
 fn nonempty<'a>(object: &'a Map<String, Value>, field: &str) -> Result<&'a str, &'static str> {
@@ -189,18 +257,22 @@ pub(super) fn request(data: Value) -> Result<Value, &'static str> {
             Value::Array(blocks) if !blocks.is_empty() => blocks.clone(),
             _ => return Err("content 必须是字符串或非空内容块数组"),
         };
-        let mut text = String::new();
+        let mut parts = Vec::new();
         let mut calls = Vec::new();
-        let mut saw_text = false;
+        let mut saw_content = false;
         for block in blocks {
             let block_object = block.as_object().ok_or("内容块必须是对象")?;
             match block_object.get("type").and_then(Value::as_str) {
+                Some("image") if role == "user" => {
+                    saw_content = true;
+                    parts.push(image_block(&block)?);
+                }
                 Some("text") => {
                     if !calls.is_empty() {
                         return Err("不支持 tool_use 后交错的文本块；请将说明文本放在工具调用前");
                     }
-                    saw_text = true;
-                    text.push_str(&text_block(&block)?);
+                    saw_content = true;
+                    parts.push(json!({"type":"text","text":text_block(&block)?}));
                 }
                 Some("tool_use") if role == "assistant" => {
                     fields(
@@ -220,8 +292,8 @@ pub(super) fn request(data: Value) -> Result<Value, &'static str> {
                     calls.push(json!({"id":id, "type":"function", "function":{"name":name,"arguments":input.to_string()}}));
                 }
                 Some("tool_result") if role == "user" => {
-                    if saw_text {
-                        return Err("tool_result 必须在 user 消息的文本块之前");
+                    if saw_content {
+                        return Err("tool_result 必须在 user 消息的文本和图片块之前");
                     }
                     fields(
                         block_object,
@@ -240,9 +312,9 @@ pub(super) fn request(data: Value) -> Result<Value, &'static str> {
                     }
                     let mut result = block_object
                         .get("content")
-                        .map(text_content)
+                        .map(tool_content)
                         .transpose()?
-                        .unwrap_or_default();
+                        .unwrap_or_else(|| json!(""));
                     if let Some(is_error) = block_object.get("is_error") {
                         let is_error = is_error
                             .as_bool()
@@ -250,20 +322,25 @@ pub(super) fn request(data: Value) -> Result<Value, &'static str> {
                         if is_error {
                             // OpenAI has no tool-result error flag; preserve it explicitly in
                             // the text passed to the model instead of dropping the distinction.
-                            result = format!("[tool_result is_error=true]\n{result}");
+                            if let Some(text) = result.as_str() {
+                                result = json!(format!("[tool_result is_error=true]\n{text}"));
+                            } else {
+                                result.as_array_mut().unwrap().insert(
+                                    0,
+                                    json!({"type":"text","text":"[tool_result is_error=true]\n"}),
+                                );
+                            }
                         }
                     }
                     converted.push(json!({"role":"tool","tool_call_id":id,"content":result}));
                 }
-                _ => {
-                    return Err(
-                        "不支持的内容块或角色；仅支持文本与客户端工具，不支持视觉、文档或推理签名",
-                    )
-                }
+                _ => return Err(
+                    "不支持的内容块或角色；支持用户图片、文本与客户端工具，不支持文档或推理签名",
+                ),
             }
         }
-        if saw_text || !calls.is_empty() {
-            let mut message = json!({"role":role,"content":text});
+        if saw_content || !calls.is_empty() {
+            let mut message = json!({"role":role,"content":content_value(parts)});
             if !calls.is_empty() {
                 message["tool_calls"] = json!(calls);
             }
@@ -583,6 +660,68 @@ mod tests {
         assert_eq!(converted["tool_choice"]["function"]["name"], "read");
         assert_eq!(converted["user"], "test-user");
         assert!(converted.get("stop").is_none());
+    }
+
+    #[test]
+    fn zcode_images_are_preserved_in_user_messages_and_tool_results() {
+        let image = json!({"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"aW1hZ2U="}});
+        let expected =
+            json!({"type":"image_url","image_url":{"url":"data:image/jpeg;base64,aW1hZ2U="}});
+        let mut data = json!({"model":"qoder/glm-5.3-flash","max_tokens":128000,"messages":[{"role":"user","content":[{"type":"text","text":"check this image"},image.clone()]}],"thinking":{"type":"enabled"},"output_config":{"effort":"max"},"stream":true});
+        let converted = request(data.clone()).unwrap();
+        assert_eq!(
+            converted["messages"][0]["content"][0]["text"],
+            "check this image"
+        );
+        assert_eq!(converted["messages"][0]["content"][1], expected);
+
+        data["messages"] = json!([
+            {"role":"user","content":"read the file"},
+            {"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"Read","input":{"path":"image.jpg"}}]},
+            {"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":[image,{"type":"text","text":"image result"}],"is_error":true}]},
+        ]);
+        let converted = request(data.clone()).unwrap();
+        assert_eq!(converted["messages"][2]["role"], "tool");
+        assert_eq!(converted["messages"][2]["tool_call_id"], "call_1");
+        assert_eq!(
+            converted["messages"][2]["content"][0]["text"],
+            "[tool_result is_error=true]\n"
+        );
+        assert_eq!(converted["messages"][2]["content"][1], expected);
+        assert_eq!(
+            converted["messages"][2]["content"][2]["text"],
+            "image result"
+        );
+
+        data["messages"][2]["content"][0]["is_error"] = json!(false);
+        data["messages"][2]["content"][0]["content"] =
+            json!([{"type":"text","text":"plain text result"}]);
+        let converted = request(data).unwrap();
+        assert_eq!(converted["messages"][2]["content"], "plain text result");
+    }
+
+    #[test]
+    fn validates_image_sources_and_keeps_images_out_of_system_and_assistant_messages() {
+        let mut data = json!({"model":"test","max_tokens":32,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://example.test/image.png"},"cache_control":{"type":"ephemeral"}}]}]});
+        assert_eq!(
+            request(data.clone()).unwrap()["messages"][0]["content"][0]["image_url"]["url"],
+            "https://example.test/image.png"
+        );
+        for source in [
+            json!({"type":"url","url":"file:///tmp/image.png"}),
+            json!({"type":"base64","media_type":"image/png","data":"invalid base64"}),
+            json!({"type":"base64","media_type":"text/plain","data":"aW1hZ2U="}),
+            json!({"type":"base64","media_type":"image/png","data":""}),
+        ] {
+            let mut invalid = data.clone();
+            invalid["messages"][0]["content"][0]["source"] = source;
+            assert!(request(invalid).is_err());
+        }
+        data["messages"][0]["role"] = json!("assistant");
+        assert!(request(data.clone()).is_err());
+        data["messages"][0]["role"] = json!("user");
+        data["system"] = data["messages"][0]["content"].clone();
+        assert!(request(data).is_err());
     }
 
     #[test]

@@ -43,7 +43,19 @@ Qoder 账户卡片与 TRAE 一样仅显示积分任务、金额及领取状态�
 3. 在客户端的模型设置中添加自定义提供商，选择 OpenAI Chat Completions 或 Anthropic Messages，填写上述参数，再添加模型并启用。
 4. 先测试普通对话，再测试读取文件、修改文件及返回结果的工具调用任务。
 
-两种协议均使用上述带 `/v1` 的 Base URL；客户端分别请求 `/chat/completions` 或 `/messages`。代理支持文本和工具调用；不支持的内容或参数会返回明确错误。代理地址是模型服务地址，应填写到提供商的 Base URL 字段。
+两种协议均使用上述带 `/v1` 的 Base URL；客户端分别请求 `/chat/completions` 或 `/messages`。代理支持文本、图片和工具调用；图片能否被模型理解取决于所选来源模型。不支持的内容或参数会返回明确错误。代理地址是模型服务地址，应填写到提供商的 Base URL 字段。
+
+### ZCode 图片与工具截图
+
+GLM-5.3-Flash 支持图像理解，见 [Qoder 官方模型目录](https://docs.qoder.cn/qoder/model-selector)。使用该模型时可以保留 ZCode 的图片输入能力。之前的 HTTP 400 来自代理未转换图片内容，不能据此判断模型没有视觉能力。
+
+Messages 接口接受用户附件和 `tool_result.content` 中的图片，将标准 `base64` 或 HTTP(S) URL 图片源转为 `image_url` 内容块，保留文本顺序、工具调用 ID 和错误标记。这套转换同时适用于 WorkBuddy、TRAE 和 Qoder。支持 JPEG、PNG、GIF 和 WebP，请求正文总大小上限为 4 MiB，视频与 PDF 输入不在本次图片兼容范围内。在 ZCode 中为所选视觉模型开启图片输入能力，例如 `workbuddy/glm-5.3-flash`、`traework/glm-5.3-flash` 和 `qoder/glm-5.3-flash`。
+
+| 来源 | 图片与工具结果的上游格式 |
+| --- | --- |
+| WorkBuddy | 保留 OpenAI `image_url` 内容数组，用户附件与工具截图均保留图片和调用 ID。 |
+| TRAE | 文本字符串转为文本块，图片数组完整保留；工具调用转换为原生 `function_call`，同时保留工具结果的图片与调用 ID。 |
+| Qoder | 保留多模态 `content`/`contents`，并设置 `model_config.is_vl`。 |
 
 ## 实现依据与验证边界
 
@@ -56,6 +68,10 @@ TRAE CN 3.4.2 的 macOS 桌面凭据读取、真实账号身份和积分余额�
 Qoder 每日活动的请求与返回契约已核对官方活动页脚本及本机 Qoder CN 0.4.4 的活动日志。本机官方设备校验助手的无界面读取已通过实测；领取接口通过本地 HTTP 回归测试验证。当前 AI Toolkit 保存的 Qoder 账号存在钥匙串读取错误，尚未完成真实账号领取到账验证。
 
 本次修复已用本机 WorkBuddy 账号的 `workbuddy/glm-5.3-flash` 完成一次短文本 Messages 请求实测，返回 HTTP 200 和正常文本。网关状态、代理测试密钥和请求记录使用独立内存存储，未修改本机账号数据库；这不代表其他模型或三平台工具能力均已实测。
+
+Qoder 的 `qoder/glm-5.3-flash` 已通过当前运行代理的原生 `contents` 图片实测：用户附件和工具结果两种消息均返回 HTTP 200，准确识别了仅出现在图片中的随机五位数字。新的标准 Messages 图片转换、工具结果和 SSE 经过离线回归；仍需重新构建应用后验收 ZCode 完整会话，不能将这两次原生协议测试等同于新安装包的端到端验证。
+
+三平台的网关回归均检查实际交给适配器的图片内容、工具调用 ID、JSON 回复和 SSE 结束事件；WorkBuddy/TRAE 的适配器回归还覆盖纯图片、图文混排、远程图片和带错误标记的工具截图。WorkBuddy 本轮真实账号检查在读取系统钥匙串时被拒绝，未发出推理请求；WorkBuddy 与 TRAE 的实际图片理解仍需在重新构建应用并授权后验收。
 
 macOS 使用 Keychain，Windows 使用 Credential Manager，Linux 使用 Secret Service；凭据库不可用时返回明确错误，不退回明文文件。构建与测试命令：`pnpm check`、`cargo test --manifest-path src-tauri/Cargo.toml`、`pnpm tauri build`。Windows 安装包由现有 Windows CI 构建验证，本机 macOS 无法完成 Windows 运行验收。
 
