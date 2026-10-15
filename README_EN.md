@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.0.1-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.0.2-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -45,6 +45,7 @@ AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and
 - **Qoder Daily Event**: Claims credits directly through the official daily credit event API; if the official device-verification helper is installed, no need to open the Qoder app
 - **Optional Auto-Claim**: Off by default; when enabled, checks and claims daily at 10:30 Beijing time while the app is running, and makes up a missed check if the app starts after 10:30
 - **Local Model Proxy**: Manually start a service compatible with both OpenAI Chat Completions and Anthropic Messages, defaulting to `http://127.0.0.1:17860/v1`; copy a dedicated proxy API Key, keep it running after closing the window, and stop it by quitting from the tray
+- **Images & Tool Screenshots**: Both protocols accept base64 or HTTP(S) images and preserve screenshots returned by tools; image understanding depends on the selected upstream model
 - **Real Model Catalog**: Prefixed model IDs pin the account catalog model and are rejected when the upstream returns a different variant; cross-platform aliases route only between verified models, preferring credits that expire soonest
 - **Credential Security**: Uses Keychain on macOS, Credential Manager on Windows, and Secret Service on Linux; startup and background requests never trigger authorization prompts—authorization needs return explicit errors
 - **Universal Client Setup**: Copy the Base URL, API Key, and model ID from the proxy page and add a custom provider with the protocol your client supports

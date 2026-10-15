@@ -1,6 +1,6 @@
 [package]
 name = "AiToolkit"
-version = "2.0.1"
+version = "2.0.2"
 description = "Universal MCP Server & Skills Manager for AI CLI Tools"
 authors = ["you"]
 edition = "2021"

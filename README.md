@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.0.1-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.0.2-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -45,6 +45,7 @@ AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MC
 - **Qoder 每日活动**：直接调用官方每日积分活动接口完成领取，本机装有官方设备校验助手时无需打开 Qoder 界面
 - **可选自动领取**：默认关闭，开启后仅在应用运行期间按北京时间每天 10:30 检查并领取，当天 10:30 后启动可补做错过的检查
 - **本地模型代理**：手动启动兼容 OpenAI Chat Completions 和 Anthropic Messages 的服务，默认地址 `http://127.0.0.1:17860/v1`；支持复制独立代理 API Key，关闭窗口后继续运行，从托盘退出应用后停止
+- **图片与工具截图**：两个协议均支持 base64 或 HTTP(S) 图片输入，保留工具返回的截图；实际图片理解能力取决于所选来源模型
 - **真实模型目录**：带平台前缀的 ID 指定账户目录模型，上游返回不同型号时拒绝响应；跨平台别名仅在已验证模型间路由，优先使用即将到期的积分
 - **凭据安全**：macOS 使用 Keychain、Windows 使用 Credential Manager、Linux 使用 Secret Service；启动与后台请求不触发授权弹窗，需要授权时返回明确错误
 - **通用客户端配置**：在代理页复制 Base URL、API Key 与模型 ID，按客户端支持的协议添加自定义提供商
