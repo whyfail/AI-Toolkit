@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release Version (e.g., 2.1.0)'
+        description: 'Release Version (e.g., 2.1.1)'
         required: true
-        default: '2.1.0'
+        default: '2.1.1'
       publish:
         description: 'Publish the release after building both platforms'
         type: boolean
@@ -433,12 +433,13 @@ jobs:
             - Skills management panel with batch sync
             - Git repository installation for Skills
             - Online Skills search from skills.sh
-            - Featured Skills recommendations
+            - Top 20 skills.sh recommendations by cumulative installs, with error details and retry
             - JSON paste mode with smart parsing
             - Built-in connection testing
             - Real-time sync to configuration files
             - OpenAI and Anthropic proxy protocols with 32 MiB request bodies
             - Image, tool, and unsigned reasoning history compatibility
+            - Preserve TRAE tool-call IDs across empty continuation chunks
             - Skill path validation, private caches, and desktop/OAuth hardening
 
             Full changelog: https://github.com/whyfail/AI-Toolkit/blob/main/CHANGELOG.md
