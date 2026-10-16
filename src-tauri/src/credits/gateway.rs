@@ -1005,6 +1005,11 @@ impl Completion {
                 let target = self.tools.entry(index).or_insert_with(|| json!({"id": "", "type": "function", "function": {"name": "", "arguments": ""}}));
                 for field in ["id", "type"] {
                     if let Some(value) = call.get(field) {
+                        // TRAE continuation chunks can explicitly carry an empty ID.
+                        // It omits metadata for this fragment, not the existing call ID.
+                        if field == "id" && (value.is_null() || value.as_str() == Some("")) {
+                            continue;
+                        }
                         target[field] = value.clone();
                     }
                 }
@@ -1248,16 +1253,40 @@ mod tests {
     fn aggregates_fragmented_tool_calls_and_usage() {
         let mut completion = Completion::default();
         completion.push(&json!({"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\":"}}]}, "finish_reason": null}]}));
-        completion.push(&json!({"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "\"test.txt\"}"}}]}, "finish_reason": "tool_calls"}], "usage": {"prompt_tokens": 10, "completion_tokens": 3}}));
+        completion.push(&json!({"choices": [{"delta": {"tool_calls": [{"index": 0, "id":"", "function": {"arguments": "\"test.txt\"}"}}]}, "finish_reason": "tool_calls"}], "usage": {"prompt_tokens": 10, "completion_tokens": 3}}));
         let mut guard = RequestGuard::new(account("first", "glm-5.3", now_ms()));
         guard.model = "glm-5.3".into();
         let response = completion.response(&guard);
+        assert_eq!(
+            response["choices"][0]["message"]["tool_calls"][0]["id"],
+            "call_1"
+        );
         assert_eq!(
             response["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"],
             "{\"path\":\"test.txt\"}"
         );
         assert_eq!(response["choices"][0]["finish_reason"], "tool_calls");
         assert_eq!(response["usage"]["prompt_tokens"], 10);
+    }
+
+    #[test]
+    fn empty_tool_ids_do_not_erase_parallel_or_late_ids() {
+        let mut completion = Completion::default();
+        completion.push(&json!({"choices":[{"delta":{"tool_calls":[
+            {"index":0,"id":"call_a","function":{"name":"read","arguments":"{}"}},
+            {"index":1,"function":{"name":"read","arguments":"{}"}}
+        ]}}]}));
+        completion.push(&json!({"choices":[{"delta":{"tool_calls":[
+            {"index":0,"id":null}, {"index":1,"id":"call_b"}
+        ]}}]}));
+        completion.push(&json!({"choices":[{"delta":{"tool_calls":[
+            {"index":0,"id":""}, {"index":1,"id":null}
+        ]},"finish_reason":"tool_calls"}]}));
+        assert_eq!(completion.tools.len(), 2);
+        assert_eq!(completion.tools[&0]["id"], "call_a");
+        assert_eq!(completion.tools[&1]["id"], "call_b");
+        assert_eq!(completion.tools[&0]["function"]["arguments"], "{}");
+        assert_eq!(completion.tools[&1]["function"]["arguments"], "{}");
     }
 
     fn test_context() -> Arc<GatewayContext> {
@@ -1933,7 +1962,7 @@ mod tests {
         let chunks = vec![
             json!({"choices":[{"delta":{"content":"I will check. "}}]}),
             json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_","arguments":"{\"path\":"}}]}}]}),
-            json!({"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"file","arguments":"\"a.txt\"}"}}]},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":6}}),
+            json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"","function":{"name":"file","arguments":"\"a.txt\"}"}}]},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":6}}),
         ];
         manager
             .provider

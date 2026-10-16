@@ -262,6 +262,11 @@ fn normalize_tools(v: Value) -> Value {
             if let Some(f) = o.remove("function_call") {
                 o.insert("function".into(), f);
             }
+            if o.get("id")
+                .is_some_and(|id| id.is_null() || id.as_str() == Some(""))
+            {
+                o.remove("id");
+            }
             o.entry("index").or_insert(json!(i));
             if let Some(f) = o.get_mut("function").and_then(Value::as_object_mut) {
                 f.remove("namespace");
@@ -304,7 +309,21 @@ data: {"tool_calls":[{"index":0,"id":"c","function_call":{"name":"read","argumen
             c.data["choices"][0]["delta"]["tool_calls"][0]["function"]["name"],
             "read"
         );
+        assert_eq!(c.data["choices"][0]["delta"]["tool_calls"][0]["id"], "c");
+        for id in [json!(""), Value::Null] {
+            let frame = format!(
+                "event: output\ndata: {}",
+                json!({"tool_calls":[{"index":0,"id":id,"function_call":{"name":"","arguments":"partial"}}]})
+            );
+            s.parse(frame.as_bytes());
+            let c = s.queue.pop_back().unwrap().unwrap();
+            let call = &c.data["choices"][0]["delta"]["tool_calls"][0];
+            assert!(call.get("id").is_none());
+            assert_eq!(call["index"], 0);
+            assert_eq!(call["function"]["arguments"], "partial");
+        }
     }
+
     #[test]
     fn qoder_envelope_rejection_is_not_a_success() {
         let mut s = state(Platform::Qoder);

@@ -63,6 +63,8 @@ ZCode 历史中的无签名或空签名 `assistant.thinking` 块转换为独立�
 | TRAE | 文本字符串转为文本块，图片数组完整保留；工具调用转换为原生 `function_call`，同时保留工具结果的图片与调用 ID。 |
 | Qoder | 保留多模态 `content`/`contents`，并设置 `model_config.is_vl`。 |
 
+TRAE 工具流的后续分片带有空字符串或 `null` 的 `id` 时，代理将其视为该分片未提供 ID，保留先前的真实 ID；不会生成替代 ID。工具调用全程缺少 ID 或参数无效时仍返回明确错误。
+
 ## 实现依据与验证边界
 
 协议参考固定为 [cpa-multi-plugins 208a4194](https://github.com/mmqz/cpa-multi-plugins/tree/208a4194e41cf4e6a3a92529fda8f3517df5ae44)。平台适配器直接请求官方来源，许可声明见 `src-tauri/src/credits/providers/NOTICE.md`。
@@ -80,6 +82,8 @@ Qoder 的 `qoder/glm-5.3-flash` 已通过当前运行代理的原生 `contents` 
 三平台的网关回归均检查实际交给适配器的图片内容、工具调用 ID、JSON 回复和 SSE 结束事件；WorkBuddy/TRAE 的适配器回归还覆盖纯图片、图文混排、远程图片和带错误标记的工具截图。WorkBuddy 本轮真实账号检查在读取系统钥匙串时被拒绝，未发出推理请求；WorkBuddy 与 TRAE 的实际图片理解仍需在重新构建应用并授权后验收。
 
 长会话回归覆盖三平台、两种协议中大于 4 MiB 的 35 张历史图片及无签名思考块；超过 32 MiB 的固定长度和分块请求均返回协议对应的 HTTP 413 错误。2026-10-16 的 ZCode 失败请求保留原消息结构、以等长有效 base64 替换日志中脱敏图片后，共 5,190,794 字节、35 张图片、14 段无签名思考块，本地模拟上游重放返回 HTTP 200 并完成 SSE；这验证了入口和协议转换，不代表真实上游模型已经接受该完整历史。
+
+2026-10-16 已用真实 `traework/glm-5.3-flash` 的短工具生成请求复现：首片带完整 ID，后续参数片带空 ID。该真实响应经修复后的 JSON 与 Messages SSE 转换，均保留原 ID 和完整参数，SSE 正常结束；未执行工具或修改用户项目。这不等同于 ZCode 原完整任务已经运行通过。
 
 macOS 使用 Keychain，Windows 使用 Credential Manager，Linux 使用 Secret Service；凭据库不可用时返回明确错误，不退回明文文件。构建与测试命令：`pnpm check`、`cargo test --manifest-path src-tauri/Cargo.toml`、`pnpm tauri build`。Windows 安装包由现有 Windows CI 构建验证，本机 macOS 无法完成 Windows 运行验收。
 

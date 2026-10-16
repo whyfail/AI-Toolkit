@@ -844,6 +844,24 @@ mod tests {
     }
 
     #[test]
+    fn missing_tool_ids_still_fail_in_json_and_sse_conversion() {
+        for id in [None, Some(Value::Null), Some(json!(""))] {
+            let mut call =
+                json!({"index":0,"type":"function","function":{"name":"read","arguments":"{}"}});
+            if let Some(id) = id {
+                call["id"] = id;
+            }
+            let chunk = json!({"choices":[{"delta":{"tool_calls":[call]},"finish_reason":"stop"}]});
+            let mut completion = Completion::default();
+            completion.push(&chunk);
+            assert_eq!(tools(&completion).unwrap_err(), "上游工具调用缺少 id");
+            let mut stream = MessageStream::default();
+            stream.push(&chunk).unwrap();
+            assert_eq!(stream.finish().unwrap_err(), "上游工具调用缺少 id");
+        }
+    }
+
+    #[test]
     fn tool_stop_correction_keeps_length_and_unknown_finish_semantics() {
         for (finish, expected) in [
             ("stop", Ok("tool_use")),
