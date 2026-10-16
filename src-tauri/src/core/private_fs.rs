@@ -250,25 +250,27 @@ mod windows_tests {
         Foundation::LocalFree,
         Security::{
             Authorization::{
-                ConvertSecurityDescriptorToStringSecurityDescriptorW,
                 ConvertStringSecurityDescriptorToSecurityDescriptorW, GetNamedSecurityInfoW,
                 SDDL_REVISION_1, SE_FILE_OBJECT,
             },
-            SetFileSecurityW, TokenUser, DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
-            TOKEN_USER,
+            CreateWellKnownSid, EqualSid, GetAce, GetSecurityDescriptorControl, SetFileSecurityW,
+            TokenUser, WinLocalSystemSid, ACCESS_ALLOWED_ACE, ACE_HEADER, CONTAINER_INHERIT_ACE,
+            DACL_SECURITY_INFORMATION, OBJECT_INHERIT_ACE, OWNER_SECURITY_INFORMATION,
+            SECURITY_MAX_SID_SIZE, SE_DACL_PROTECTED, TOKEN_USER,
         },
     };
 
-    fn security_string(path: &Path, information: u32) -> String {
+    fn owner_sid(path: &Path) -> String {
         let name: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
         unsafe {
+            let mut owner = ptr::null_mut();
             let mut descriptor = ptr::null_mut();
             assert_eq!(
                 GetNamedSecurityInfoW(
                     name.as_ptr(),
                     SE_FILE_OBJECT,
-                    information,
-                    ptr::null_mut(),
+                    OWNER_SECURITY_INFORMATION,
+                    &mut owner,
                     ptr::null_mut(),
                     ptr::null_mut(),
                     ptr::null_mut(),
@@ -276,21 +278,78 @@ mod windows_tests {
                 ),
                 0
             );
-            let mut value = ptr::null_mut();
-            let mut length = 0;
-            let ok = ConvertSecurityDescriptorToStringSecurityDescriptorW(
-                descriptor,
-                SDDL_REVISION_1,
-                information,
-                &mut value,
-                &mut length,
-            );
+            let result = windows_sid_string(owner);
             LocalFree(descriptor);
-            assert_ne!(ok, 0);
-            let result =
-                String::from_utf16_lossy(std::slice::from_raw_parts(value, length as usize - 1));
-            LocalFree(value.cast());
-            result
+            result.unwrap()
+        }
+    }
+
+    fn assert_private_acl(path: &Path) {
+        let name: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let user_buffer = windows_token_information(TokenUser).unwrap();
+        unsafe {
+            let user = &*user_buffer.as_ptr().cast::<TOKEN_USER>();
+            let mut system = vec![
+                0usize;
+                (SECURITY_MAX_SID_SIZE as usize)
+                    .div_ceil(std::mem::size_of::<usize>())
+            ];
+            let mut size = (system.len() * std::mem::size_of::<usize>()) as u32;
+            assert_ne!(
+                CreateWellKnownSid(
+                    WinLocalSystemSid,
+                    ptr::null_mut(),
+                    system.as_mut_ptr().cast(),
+                    &mut size,
+                ),
+                0
+            );
+            let mut dacl = ptr::null_mut();
+            let mut descriptor = ptr::null_mut();
+            assert_eq!(
+                GetNamedSecurityInfoW(
+                    name.as_ptr(),
+                    SE_FILE_OBJECT,
+                    DACL_SECURITY_INFORMATION,
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    &mut dacl,
+                    ptr::null_mut(),
+                    &mut descriptor,
+                ),
+                0
+            );
+            let mut control = 0;
+            let mut revision = 0;
+            assert_ne!(
+                GetSecurityDescriptorControl(descriptor, &mut control, &mut revision),
+                0
+            );
+            assert_ne!(control & SE_DACL_PROTECTED, 0);
+            assert!(!dacl.is_null());
+            assert_eq!((*dacl).AceCount, 2);
+            let mut has_user = false;
+            let mut has_system = false;
+            for index in 0..2 {
+                let mut entry = ptr::null_mut();
+                assert_ne!(GetAce(dacl, index, &mut entry), 0);
+                // ACCESS_ALLOWED_ACE_TYPE, with FILE_ALL_ACCESS.
+                assert_eq!((*entry.cast::<ACE_HEADER>()).AceType, 0);
+                let entry = &*entry.cast::<ACCESS_ALLOWED_ACE>();
+                assert_eq!(entry.Mask, 0x001f01ff);
+                if path.is_dir() {
+                    let inheritance = (CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE) as u8;
+                    assert_eq!(entry.Header.AceFlags & inheritance, inheritance);
+                }
+                let sid = ptr::addr_of!(entry.SidStart).cast_mut().cast();
+                let is_user = EqualSid(sid, user.User.Sid) != 0;
+                let is_system = EqualSid(sid, system.as_ptr().cast_mut().cast()) != 0;
+                assert!(is_user || is_system);
+                has_user |= is_user;
+                has_system |= is_system;
+            }
+            LocalFree(descriptor);
+            assert!(has_user && has_system);
         }
     }
 
@@ -305,18 +364,11 @@ mod windows_tests {
         let sandbox = tempfile::tempdir().unwrap();
         let directory = sandbox.path().join("private");
         fs::create_dir(&directory).unwrap();
-        let original_owner = security_string(&directory, OWNER_SECURITY_INFORMATION);
+        let original_owner = owner_sid(&directory);
         ensure_private_dir(&directory).unwrap();
         ensure_private_dir(&directory).unwrap();
-        assert_eq!(
-            security_string(&directory, OWNER_SECURITY_INFORMATION),
-            original_owner
-        );
-        let expected = format!("D:P(A;OICI;FA;;;{})(A;OICI;FA;;;SY)", current_user_sid());
-        assert_eq!(
-            security_string(&directory, DACL_SECURITY_INFORMATION),
-            expected
-        );
+        assert_eq!(owner_sid(&directory), original_owner);
+        assert_private_acl(&directory);
 
         let nested = directory.join("nested");
         ensure_private_dir(&nested).unwrap();
@@ -325,7 +377,7 @@ mod windows_tests {
         fs::write(&file, "private data").unwrap();
         secure_file(&file).unwrap();
         assert_eq!(fs::read_to_string(&file).unwrap(), "private data");
-        assert_eq!(security_string(&file, DACL_SECURITY_INFORMATION), expected);
+        assert_private_acl(&file);
     }
 
     #[test]
@@ -354,6 +406,7 @@ mod windows_tests {
             assert_ne!(ok, 0);
         }
         secure_file(&file).unwrap();
+        assert_private_acl(&file);
         fs::write(&file, "updated").unwrap();
         assert_eq!(fs::read_to_string(&file).unwrap(), "updated");
     }
