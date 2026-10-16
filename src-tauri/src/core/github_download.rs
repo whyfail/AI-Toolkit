@@ -1,5 +1,8 @@
 //! Download a GitHub directory via the Contents API, bypassing git clone entirely.
 
+use super::path_safety::{validate_skill_name, validate_subpath};
+use super::resource_limits::ResourceBudget;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Duration;
 
@@ -60,14 +63,29 @@ pub fn download_github_directory(
         "[DEBUG] Starting GitHub API download: {}/{}/{} ref={}",
         owner, repo, path, branch
     );
+    validate_skill_name(owner)?;
+    validate_skill_name(repo)?;
+    validate_subpath(path)?;
+    let mut budget = ResourceBudget::new()?;
     let client = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))
         .build()
         .context("build HTTP client")?;
 
     std::fs::create_dir_all(dest).with_context(|| format!("create directory {:?}", dest))?;
 
-    let result = download_dir_recursive(&client, owner, repo, branch, path, dest, token);
+    let result = download_dir_recursive(
+        &client,
+        owner,
+        repo,
+        branch,
+        path,
+        dest,
+        token,
+        &mut budget,
+        0,
+    );
     match &result {
         Ok(()) => eprintln!("[DEBUG] GitHub API download completed successfully"),
         Err(e) => eprintln!("[DEBUG] GitHub API download failed: {}", e),
@@ -75,6 +93,7 @@ pub fn download_github_directory(
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn download_dir_recursive(
     client: &reqwest::blocking::Client,
     owner: &str,
@@ -83,71 +102,88 @@ fn download_dir_recursive(
     path: &str,
     dest: &Path,
     token: Option<&str>,
+    budget: &mut ResourceBudget,
+    depth: usize,
 ) -> Result<()> {
-    let url = format!(
-        "https://api.github.com/repos/{}/{}/contents/{}?ref={}",
-        owner, repo, path, branch
-    );
-
+    budget.enter(depth)?;
+    let mut url = reqwest::Url::parse("https://api.github.com")?;
+    url.path_segments_mut()
+        .map_err(|_| anyhow::anyhow!("GitHub URL 无效"))?
+        .extend(["repos", owner, repo, "contents"])
+        .extend(
+            path.split('/')
+                .filter(|part| !part.is_empty() && *part != "."),
+        );
+    url.query_pairs_mut().append_pair("ref", branch);
     let mut req = client
-        .get(&url)
+        .get(url)
         .header("User-Agent", "ai-toolkit")
         .header("Accept", "application/vnd.github.v3+json");
     if let Some(t) = token {
-        req = req.header("Authorization", format!("Bearer {}", t));
+        req = req.bearer_auth(t);
     }
-    let resp = req
-        .send()
-        .with_context(|| format!("request GitHub contents: {}", url))?;
-    let resp = check_github_response(resp)?;
-
-    let items: Vec<GithubContent> = resp
-        .json()
-        .with_context(|| format!("parse GitHub contents response: {}", url))?;
-
+    let response = check_github_response(req.send().context("request GitHub contents")?)?;
+    // The API listing has its own bound before JSON allocation.
+    let mut body = Vec::new();
+    response.take(8 * 1024 * 1024 + 1).read_to_end(&mut body)?;
+    if body.len() > 8 * 1024 * 1024 {
+        anyhow::bail!("GitHub 目录清单超过限制");
+    }
+    let items: Vec<GithubContent> = serde_json::from_slice(&body)?;
     for item in items {
+        validate_skill_name(&item.name)?;
+        validate_subpath(&item.path)?;
+        budget.check()?;
         let local_path = dest.join(&item.name);
-
         match item.content_type.as_str() {
             "file" => {
+                budget.enter(depth + 1)?;
                 if let Some(download_url) = &item.download_url {
-                    if let Some(parent) = local_path.parent() {
-                        std::fs::create_dir_all(parent)
-                            .with_context(|| format!("create parent dir {:?}", parent))?;
+                    let url = reqwest::Url::parse(download_url)?;
+                    if url.scheme() != "https"
+                        || url.host_str() != Some("raw.githubusercontent.com")
+                        || !url.username().is_empty()
+                        || url.password().is_some()
+                        || url.port().is_some()
+                    {
+                        anyhow::bail!("GitHub 文件下载地址超出允许范围");
                     }
-                    let mut file_req = client.get(download_url).header("User-Agent", "ai-toolkit");
+                    std::fs::create_dir_all(dest)?;
+                    let mut request = client.get(url).header("User-Agent", "ai-toolkit");
                     if let Some(t) = token {
-                        file_req = file_req.header("Authorization", format!("Bearer {}", t));
+                        request = request.bearer_auth(t);
                     }
-                    let file_resp = file_req
-                        .send()
-                        .with_context(|| format!("download file: {}", item.path))?;
-                    let file_resp = check_github_response(file_resp)?;
-                    let bytes = file_resp
-                        .bytes()
-                        .with_context(|| format!("read file bytes: {}", item.path))?;
-
-                    std::fs::write(&local_path, &bytes)
-                        .with_context(|| format!("write file {:?}", local_path))?;
+                    let mut response =
+                        check_github_response(request.send().context("download GitHub file")?)?;
+                    let mut output = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&local_path)?;
+                    let mut chunk = [0u8; 64 * 1024];
+                    loop {
+                        let count = response.read(&mut chunk)?;
+                        if count == 0 {
+                            break;
+                        }
+                        budget.bytes(count as u64)?;
+                        output.write_all(&chunk[..count])?;
+                    }
                 }
             }
-            "dir" => {
-                download_dir_recursive(
-                    client,
-                    owner,
-                    repo,
-                    branch,
-                    &item.path,
-                    &local_path,
-                    token,
-                )?;
-            }
-            _ => {
-                // Skip symlinks, submodules, etc.
-            }
+            "dir" => download_dir_recursive(
+                client,
+                owner,
+                repo,
+                branch,
+                &item.path,
+                &local_path,
+                token,
+                budget,
+                depth + 1,
+            )?,
+            _ => {} // Never create links or submodules from API entries.
         }
     }
-
     Ok(())
 }
 

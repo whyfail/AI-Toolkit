@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -15,13 +16,19 @@ fn is_ignored(entry: &DirEntry) -> bool {
 /// Files are ordered alphabetically for deterministic output.
 pub fn hash_dir(path: &Path) -> Result<String> {
     let mut hasher = Sha256::new();
+    let mut budget = super::resource_limits::ResourceBudget::new()?;
 
     // Collect all entries first and sort for deterministic ordering
-    let mut entries: Vec<_> = WalkDir::new(path)
+    let mut entries = Vec::new();
+    for entry in WalkDir::new(path)
         .follow_links(false)
         .into_iter()
         .filter_entry(|entry| !is_ignored(entry))
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+    {
+        let entry = entry?;
+        budget.enter(entry.depth())?;
+        entries.push(entry);
+    }
 
     entries.sort_by(|a, b| a.path().cmp(b.path()));
 
@@ -37,9 +44,17 @@ pub fn hash_dir(path: &Path) -> Result<String> {
         hasher.update(relative.to_string_lossy().as_bytes());
 
         if entry.file_type().is_file() {
-            let bytes = std::fs::read(entry.path())
+            let mut file = std::fs::File::open(entry.path())
                 .with_context(|| format!("read file {:?}", entry.path()))?;
-            hasher.update(bytes);
+            let mut chunk = [0u8; 64 * 1024];
+            loop {
+                let count = file.read(&mut chunk)?;
+                if count == 0 {
+                    break;
+                }
+                budget.bytes(count as u64)?;
+                hasher.update(&chunk[..count]);
+            }
         }
     }
 

@@ -259,10 +259,30 @@ pub(super) fn request(data: Value) -> Result<Value, &'static str> {
         };
         let mut parts = Vec::new();
         let mut calls = Vec::new();
+        let mut reasoning = None::<String>;
         let mut saw_content = false;
         for block in blocks {
             let block_object = block.as_object().ok_or("内容块必须是对象")?;
             match block_object.get("type").and_then(Value::as_str) {
+                Some("thinking") if role == "assistant" => {
+                    if saw_content || !calls.is_empty() {
+                        return Err("thinking 必须在 assistant 的文本和工具调用之前");
+                    }
+                    fields(block_object, &["type", "thinking", "signature"])?;
+                    if block_object
+                        .get("signature")
+                        .is_some_and(|signature| signature.as_str() != Some(""))
+                    {
+                        return Err("带签名的 thinking 历史无法转换为当前模型协议");
+                    }
+                    let text = block_object
+                        .get("thinking")
+                        .and_then(Value::as_str)
+                        .ok_or("thinking 内容必须是字符串")?;
+                    // OpenAI-compatible clients round-trip unsigned reasoning this way.
+                    // Keep it separate from visible text; signed/encrypted blocks stay rejected.
+                    reasoning.get_or_insert_with(String::new).push_str(text);
+                }
                 Some("image") if role == "user" => {
                     saw_content = true;
                     parts.push(image_block(&block)?);
@@ -339,8 +359,11 @@ pub(super) fn request(data: Value) -> Result<Value, &'static str> {
                 ),
             }
         }
-        if saw_content || !calls.is_empty() {
+        if saw_content || !calls.is_empty() || reasoning.is_some() {
             let mut message = json!({"role":role,"content":content_value(parts)});
+            if let Some(reasoning) = reasoning {
+                message["reasoning_content"] = json!(reasoning);
+            }
             if !calls.is_empty() {
                 message["tool_calls"] = json!(calls);
             }
@@ -722,6 +745,60 @@ mod tests {
         data["messages"][0]["role"] = json!("user");
         data["system"] = data["messages"][0]["content"].clone();
         assert!(request(data).is_err());
+    }
+
+    #[test]
+    fn zcode_long_history_preserves_unsigned_thinking_and_tools() {
+        let data = json!({"model":"workbuddy/glm-5.3-flash","max_tokens":64,"messages":[
+            {"role":"user","content":"check the screenshot"},
+            {"role":"assistant","content":[
+                {"type":"thinking","thinking":"first step\n","signature":""},
+                {"type":"thinking","thinking":"second step"},
+                {"type":"text","text":"opening the image"},
+                {"type":"tool_use","id":"shot","name":"Read","input":{}}
+            ]},
+            {"role":"user","content":[{"type":"tool_result","tool_use_id":"shot","content":[
+                {"type":"image","source":{"type":"base64","media_type":"image/png","data":"aW1hZ2U="}}
+            ]}]}
+        ]});
+        let converted = request(data.clone()).unwrap();
+        assert_eq!(
+            converted["messages"][1]["reasoning_content"],
+            "first step\nsecond step"
+        );
+        assert_eq!(converted["messages"][1]["content"], "opening the image");
+        assert_eq!(converted["messages"][1]["tool_calls"][0]["id"], "shot");
+        assert_eq!(converted["messages"][2]["tool_call_id"], "shot");
+        assert_eq!(converted["messages"][2]["content"][0]["type"], "image_url");
+        assert!(converted["messages"][0].get("reasoning_content").is_none());
+
+        let mut reasoning_only = data.clone();
+        reasoning_only["messages"] = json!([
+            {"role":"user","content":"start"},
+            {"role":"assistant","content":[{"type":"thinking","thinking":"","signature":""}]},
+            {"role":"user","content":"continue"}
+        ]);
+        let converted = request(reasoning_only).unwrap();
+        assert_eq!(converted["messages"][1]["reasoning_content"], "");
+        assert_eq!(converted["messages"][1]["content"], "");
+
+        for block in [
+            json!({"type":"thinking","thinking":"history","signature":"signed-payload"}),
+            json!({"type":"thinking","thinking":"history","signature":null}),
+            json!({"type":"thinking","thinking":42,"signature":""}),
+            json!({"type":"thinking","thinking":"history","unknown":true}),
+            json!({"type":"redacted_thinking","data":"opaque"}),
+        ] {
+            let mut invalid = data.clone();
+            invalid["messages"][1]["content"][0] = block;
+            assert!(request(invalid).is_err());
+        }
+        let mut invalid = data;
+        invalid["messages"][1]["content"]
+            .as_array_mut()
+            .unwrap()
+            .swap(0, 2);
+        assert!(request(invalid).is_err());
     }
 
     #[test]

@@ -198,40 +198,7 @@ fn ensure_parent_dir(path: &Path) -> Result<()> {
 }
 
 fn remove_path_any(path: &Path) -> Result<()> {
-    let meta = match std::fs::symlink_metadata(path) {
-        Ok(meta) => meta,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(err) => return Err(err).with_context(|| format!("stat {:?}", path)),
-    };
-    let ft = meta.file_type();
-
-    if ft.is_symlink() {
-        std::fs::remove_file(path).with_context(|| format!("remove symlink {:?}", path))?;
-        return Ok(());
-    }
-    if ft.is_dir() {
-        // On Windows, remove_dir_all recursively deletes directory contents,
-        // which is wrong for junctions (directory symbolic links) - we only
-        // want to delete the junction itself. Use rmdir which handles this correctly.
-        #[cfg(windows)]
-        {
-            let exit = std::process::Command::new("cmd")
-                .suppress_console()
-                .args(["/c", "rmdir", path.to_string_lossy().as_ref()])
-                .output();
-            if let Ok(output) = exit {
-                if output.status.success() {
-                    return Ok(());
-                }
-                // If rmdir fails (e.g., not a junction, or regular directory),
-                // fall through to remove_dir_all
-            }
-        }
-        std::fs::remove_dir_all(path).with_context(|| format!("remove dir {:?}", path))?;
-        return Ok(());
-    }
-    std::fs::remove_file(path).with_context(|| format!("remove file {:?}", path))?;
-    Ok(())
+    super::path_safety::remove_entry(path)
 }
 
 fn is_same_link(link_path: &Path, target: &Path) -> bool {
@@ -336,6 +303,7 @@ fn should_skip_copy(entry: &walkdir::DirEntry) -> bool {
 }
 
 pub fn copy_dir_recursive(source: &Path, target: &Path) -> Result<()> {
+    let mut budget = super::resource_limits::ResourceBudget::new()?;
     if paths_resolve_to_same_entry(source, target) {
         anyhow::bail!(
             "refusing to copy directory onto itself: {:?} -> {:?}",
@@ -350,6 +318,7 @@ pub fn copy_dir_recursive(source: &Path, target: &Path) -> Result<()> {
         .filter_entry(|entry| !should_skip_copy(entry))
     {
         let entry = entry?;
+        budget.enter(entry.depth())?;
         if should_skip_copy(&entry) {
             continue;
         }
@@ -360,6 +329,7 @@ pub fn copy_dir_recursive(source: &Path, target: &Path) -> Result<()> {
             std::fs::create_dir_all(&target_path)
                 .with_context(|| format!("create dir {:?}", target_path))?;
         } else if entry.file_type().is_file() {
+            budget.bytes(entry.metadata()?.len())?;
             if let Some(parent) = target_path.parent() {
                 std::fs::create_dir_all(parent)?;
             }

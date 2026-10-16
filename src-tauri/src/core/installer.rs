@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -7,8 +6,11 @@ use uuid::Uuid;
 
 use super::central_repo::{ensure_central_repo, resolve_central_repo_path};
 use super::content_hash::hash_dir;
-use super::git_fetcher::clone_or_pull;
+use super::git_cache::cached_repo;
 use super::github_download::{download_github_directory, parse_github_api_params};
+use super::path_safety::{
+    publish_skill, skill_staging, source_within, validate_skill_name, validate_subpath,
+};
 use super::sync_engine::copy_dir_recursive;
 
 pub struct InstallResult {
@@ -82,15 +84,11 @@ fn has_claude_plugin_manifest(p: &Path) -> bool {
 
 /// Find SKILL.md or skill.md in a directory (case-insensitive, prefer uppercase).
 pub(crate) fn find_skill_md(dir: &Path) -> Option<PathBuf> {
-    let upper = dir.join("SKILL.md");
-    if upper.exists() {
-        return Some(upper);
-    }
-    let lower = dir.join("skill.md");
-    if lower.exists() {
-        return Some(lower);
-    }
-    None
+    let root = dir.canonicalize().ok()?;
+    ["SKILL.md", "skill.md"].into_iter().find_map(|name| {
+        let path = root.join(name).canonicalize().ok()?;
+        (path.starts_with(&root) && path.is_file()).then_some(path)
+    })
 }
 
 /// Extract name and description for a skill directory.
@@ -134,7 +132,7 @@ pub fn scan_git_skill_candidates(repo_dir: &Path) -> Vec<GitSkillCandidate> {
     if let Ok(rd) = std::fs::read_dir(repo_dir) {
         for entry in rd.flatten() {
             let p = entry.path();
-            if !p.is_dir() {
+            if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
                 continue;
             }
             let dir_name = entry.file_name();
@@ -161,14 +159,15 @@ pub fn scan_git_skill_candidates(repo_dir: &Path) -> Vec<GitSkillCandidate> {
 
     // Scan known sub-locations: skills/*, .claude/skills/*, etc.
     for base in SKILL_SCAN_BASES {
-        let base_dir = repo_dir.join(base);
-        if !base_dir.exists() {
+        let Ok(base_dir) = source_within(repo_dir, base) else {
             continue;
-        }
+        };
         if let Ok(rd) = std::fs::read_dir(&base_dir) {
             for entry in rd.flatten() {
                 let p = entry.path();
-                if !is_skill_dir(&p) {
+                if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false)
+                    || !is_skill_dir(&p)
+                {
                     continue;
                 }
                 let (name, desc) = extract_skill_info(&p);
@@ -186,6 +185,10 @@ pub fn scan_git_skill_candidates(repo_dir: &Path) -> Vec<GitSkillCandidate> {
         }
     }
 
+    out.retain(|candidate| {
+        validate_skill_name(&candidate.name).is_ok()
+            && source_within(repo_dir, &candidate.subpath).is_ok()
+    });
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out.dedup_by(|a, b| a.subpath == b.subpath);
     out
@@ -198,259 +201,117 @@ pub fn install_git_skill(
     name: Option<String>,
     subpath: Option<&str>,
 ) -> Result<InstallResult> {
-    let parsed = parse_github_url(repo_url);
-    let user_provided_name = name.is_some();
-
-    // If URL has a /tree/ or /blob/ subpath, that IS the subpath
-    let effective_subpath = subpath
-        .map(|s| s.to_string())
-        .or_else(|| parsed.subpath.clone());
-
-    let skill_name = name.unwrap_or_else(|| {
-        if let Some(sp) = &effective_subpath {
-            if sp.as_str() == "." {
-                derive_name_from_repo_url(&parsed.clone_url)
-            } else {
-                sp.rsplit('/')
-                    .next()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| derive_name_from_repo_url(&parsed.clone_url))
-            }
-        } else {
-            derive_name_from_repo_url(&parsed.clone_url)
-        }
-    });
-
-    let central_dir = resolve_central_repo_path()?;
-    ensure_central_repo(&central_dir)?;
-    let mut central_path = central_dir.join(&skill_name);
-
-    // 先删除已存在的目录（处理 APFS 删除延迟问题），不再先检查
-    if central_path.exists() {
-        std::fs::remove_dir_all(&central_path).context(format!(
-            "failed to remove existing skill: {:?}",
-            central_path
-        ))?;
-        // 等待 APFS 完成删除操作
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-
-    // Fast path: for GitHub URLs with a subpath, download via API instead of cloning.
-    let revision;
-    if let Some((owner, repo, branch, sp)) = parse_github_api_params(
-        &parsed.clone_url,
-        parsed.branch.as_deref(),
-        effective_subpath.as_deref(),
-    ) {
-        match download_github_directory(&owner, &repo, &branch, &sp, &central_path, None) {
-            Ok(()) => {
-                revision = format!("api-download-{}", branch);
-            }
-            Err(err) => {
-                let _ = std::fs::remove_dir_all(&central_path);
-                let err_msg = format!("{:#}", err);
-
-                if err_msg.contains("404") || err_msg.contains("Not Found") {
-                    anyhow::bail!(
-                        "该 Skill 在 GitHub 上未找到（可能已被删除或路径已变更）。\n请检查链接是否正确：{}/tree/{}/{}",
-                        parsed.clone_url.trim_end_matches(".git"),
-                        branch,
-                        sp
-                    );
-                }
-                if err_msg.contains("RATE_LIMITED") {
-                    anyhow::bail!(
-                        "GitHub API 频率限制已触发。可在设置中配置 GitHub Token 以提升限额。"
-                    );
-                }
-                if err_msg.contains("403") || err_msg.contains("Forbidden") {
-                    anyhow::bail!("GitHub API 访问被拒绝（可能触发了频率限制）。请稍后再试。");
-                }
-
-                log::warn!(
-                    "[installer] GitHub API download failed, falling back to git clone: {:#}",
-                    err
-                );
-                let (repo_dir, rev) =
-                    clone_to_cache_with_ttl(&parsed.clone_url, parsed.branch.as_deref())?;
-                let copy_src =
-                    if effective_subpath.as_deref() == Some(".") || effective_subpath.is_none() {
-                        repo_dir.clone()
-                    } else {
-                        repo_dir.join(effective_subpath.as_ref().unwrap())
-                    };
-                if !copy_src.exists() {
-                    anyhow::bail!("subpath not found in repo: {:?}", copy_src);
-                }
-                copy_dir_recursive(&copy_src, &central_path)
-                    .with_context(|| format!("copy {:?} -> {:?}", copy_src, central_path))?;
-                revision = rev;
-            }
-        }
-    } else {
-        // No /tree/ subpath in URL: clone and detect
-        let (repo_dir, rev) = clone_to_cache_with_ttl(&parsed.clone_url, parsed.branch.as_deref())?;
-
-        // If no explicit subpath, check for multi-skill
-        if effective_subpath.is_none() {
-            let candidates = scan_git_skill_candidates(&repo_dir);
-            if candidates.len() >= 2 {
-                anyhow::bail!(
-                    "MULTI_SKILLS|该仓库包含 {} 个 Skills。请复制具体 Skill 文件夹链接（例如 GitHub 的 /tree/<branch>/<skill-folder>），再导入。",
-                    candidates.len()
-                );
-            }
-        }
-
-        let copy_src = if let Some(sp) = &effective_subpath {
-            if sp == "." {
-                repo_dir.clone()
-            } else {
-                repo_dir.join(sp)
-            }
-        } else {
-            repo_dir.clone()
-        };
-
-        if !copy_src.exists() {
-            anyhow::bail!("path not found in repo: {:?}", copy_src);
-        }
-        copy_dir_recursive(&copy_src, &central_path)
-            .with_context(|| format!("copy {:?} -> {:?}", copy_src, central_path))?;
-        revision = rev;
-    }
-
-    // After download, prefer the name from SKILL.md over the derived name
-    let (description, md_name) = find_skill_md(&central_path)
-        .and_then(|p| parse_skill_md(&p))
-        .map(|(n, d)| (d, Some(n)))
-        .unwrap_or((None, None));
-
-    if !user_provided_name {
-        if let Some(ref better_name) = md_name {
-            if *better_name != skill_name {
-                let new_central = central_dir.join(better_name);
-                if !new_central.exists() {
-                    std::fs::rename(&central_path, &new_central).with_context(|| {
-                        format!("rename {:?} -> {:?}", central_path, new_central)
-                    })?;
-                    central_path = new_central;
-                }
-            }
-        }
-    }
-
-    let content_hash = compute_content_hash(&central_path);
-    let skill_id = format!("git-{}", Uuid::new_v4());
-
-    Ok(InstallResult {
-        skill_id,
-        name: skill_name,
-        description,
-        central_path,
-        content_hash,
-        source_subpath: effective_subpath,
-        source_revision: Some(revision),
-    })
+    install_git_skill_inner(repo_url, name, subpath, true)
 }
 
-/// Install a specific skill from a Git URL (after user picks from list_git_skills).
+/// Install a selected skill using the same validation and publication boundary.
 pub fn install_git_skill_from_selection(
     repo_url: &str,
     subpath: &str,
     name: Option<String>,
 ) -> Result<InstallResult> {
+    install_git_skill_inner(repo_url, name, Some(subpath), false)
+}
+
+fn install_git_skill_inner(
+    repo_url: &str,
+    name: Option<String>,
+    subpath: Option<&str>,
+    allow_api: bool,
+) -> Result<InstallResult> {
     let parsed = parse_github_url(repo_url);
     let user_provided_name = name.is_some();
-
-    let display_name = name.unwrap_or_else(|| {
-        if subpath == "." {
-            derive_name_from_repo_url(&parsed.clone_url)
-        } else {
-            subpath
-                .rsplit('/')
-                .next()
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| derive_name_from_repo_url(&parsed.clone_url))
-        }
+    let effective_subpath = subpath.map(str::to_owned).or(parsed.subpath);
+    if let Some(sp) = &effective_subpath {
+        validate_subpath(sp)?;
+    }
+    let mut skill_name = name.unwrap_or_else(|| {
+        effective_subpath
+            .as_deref()
+            .filter(|sp| *sp != ".")
+            .and_then(|sp| sp.rsplit('/').next())
+            .map(str::to_owned)
+            .unwrap_or_else(|| derive_name_from_repo_url(&parsed.clone_url))
     });
-
+    validate_skill_name(&skill_name)?;
     let central_dir = resolve_central_repo_path()?;
     ensure_central_repo(&central_dir)?;
-    let mut central_path = central_dir.join(&display_name);
+    let staging = skill_staging(&central_dir)?;
+    let prepared = staging.path().join("skill");
 
-    // 先删除已存在的目录（处理 APFS 删除延迟问题），不再先检查
-    if central_path.exists() {
-        std::fs::remove_dir_all(&central_path).context(format!(
-            "failed to remove existing skill: {:?}",
-            central_path
-        ))?;
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-
-    let (repo_dir, revision) =
-        clone_to_cache_with_ttl(&parsed.clone_url, parsed.branch.as_deref())?;
-
-    let copy_src = if subpath == "." {
-        repo_dir.clone()
+    let api_params = allow_api
+        .then(|| {
+            parse_github_api_params(
+                &parsed.clone_url,
+                parsed.branch.as_deref(),
+                effective_subpath.as_deref(),
+            )
+        })
+        .flatten();
+    let api_revision = if let Some((owner, repo, branch, sp)) = api_params {
+        match download_github_directory(&owner, &repo, &branch, &sp, &prepared, None) {
+            Ok(()) => Some(format!("api-download-{branch}")),
+            Err(error) => {
+                super::path_safety::remove_entry(&prepared)?;
+                let message = format!("{error:#}");
+                if message.contains("404") || message.contains("Not Found") {
+                    anyhow::bail!("该 Skill 在 GitHub 上未找到，请检查仓库链接和路径");
+                }
+                if message.contains("RATE_LIMITED") || message.contains("403") {
+                    anyhow::bail!("GitHub API 访问受限，请稍后重试或配置 GitHub Token");
+                }
+                log::warn!("GitHub API download failed, falling back to git: {error:#}");
+                None
+            }
+        }
     } else {
-        repo_dir.join(subpath)
+        None
     };
-
-    if !copy_src.exists() {
-        anyhow::bail!("path not found in repo: {:?}", copy_src);
+    let revision = if let Some(revision) = api_revision {
+        revision
+    } else {
+        let cached = cached_repo(&parsed.clone_url, parsed.branch.as_deref())?;
+        let repo_dir = &cached.path;
+        if effective_subpath.is_none() {
+            let candidates = scan_git_skill_candidates(&repo_dir);
+            if candidates.len() >= 2 {
+                anyhow::bail!(
+                    "MULTI_SKILLS|该仓库包含 {} 个 Skills，请选择具体 Skill 文件夹再导入。",
+                    candidates.len()
+                );
+            }
+        }
+        let source = source_within(&repo_dir, effective_subpath.as_deref().unwrap_or("."))?;
+        copy_dir_recursive(&source, &prepared).context("复制技能到临时目录失败")?;
+        cached.revision.clone()
+    };
+    if is_dir_empty(&prepared) {
+        anyhow::bail!("安装内容为空，请在网络稳定后重试");
     }
-
-    copy_dir_recursive(&copy_src, &central_path)
-        .with_context(|| format!("copy {:?} -> {:?}", copy_src, central_path))?;
-
-    // Sanity check: a fresh install that produced an empty central directory
-    // (e.g. because the partial-clone lazy fetch silently failed and left
-    // 0-byte placeholder files behind) is almost always a bug. Surface it as
-    // a real error so the caller can ask the user to retry, instead of
-    // persisting a "blank" skill that silently confuses them later.
-    if is_dir_empty(&central_path) {
-        anyhow::bail!(
-            "安装后的中央目录 {:?} 是空的。可能是 Git 仓库下载不完整,请重试或在网络稳定后再试。",
-            central_path
-        );
-    }
-
-    // Prefer name from SKILL.md
-    let (description, md_name) = find_skill_md(&central_path)
+    let (description, md_name) = find_skill_md(&prepared)
         .and_then(|p| parse_skill_md(&p))
         .map(|(n, d)| (d, Some(n)))
         .unwrap_or((None, None));
-
-    if !user_provided_name {
-        if let Some(ref better_name) = md_name {
-            if *better_name != display_name {
-                let new_central = central_dir.join(better_name);
-                if !new_central.exists() {
-                    std::fs::rename(&central_path, &new_central).with_context(|| {
-                        format!("rename {:?} -> {:?}", central_path, new_central)
-                    })?;
-                    central_path = new_central;
-                }
+    if let Some(md_name) = md_name {
+        validate_skill_name(&md_name)?;
+        if !user_provided_name {
+            // Retain the existing behavior when the document's name is already taken.
+            if md_name == skill_name
+                || !super::path_safety::skill_entry(&central_dir, &md_name)?.exists()
+            {
+                skill_name = md_name;
             }
         }
     }
-
-    let content_hash = compute_content_hash(&central_path);
-    let skill_id = format!("git-{}", Uuid::new_v4());
-    let source_subpath = if subpath == "." {
-        None
-    } else {
-        Some(subpath.to_string())
-    };
-
+    let content_hash = Some(hash_dir(&prepared)?);
+    let central_path = publish_skill(&prepared, &central_dir, &skill_name, true)?;
     Ok(InstallResult {
-        skill_id,
-        name: display_name,
+        skill_id: format!("git-{}", Uuid::new_v4()),
+        name: skill_name,
         description,
         central_path,
         content_hash,
-        source_subpath,
+        source_subpath: effective_subpath,
         source_revision: Some(revision),
     })
 }
@@ -582,99 +443,6 @@ fn derive_name_from_repo_url(repo_url: &str) -> String {
     }
 }
 
-fn now_ms() -> i64 {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap_or_default();
-    now.as_millis() as i64
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct RepoCacheMeta {
-    last_fetched_ms: i64,
-    head: Option<String>,
-}
-
-static GIT_CACHE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-fn get_git_cache_ttl_secs() -> u64 {
-    std::env::var("MCP_MANAGER_GIT_CACHE_TTL_SECS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(3600)
-}
-
-fn clone_to_cache_with_ttl(clone_url: &str, branch: Option<&str>) -> Result<(PathBuf, String)> {
-    let cache_root = std::env::temp_dir().join("ai-toolkit-git-cache");
-    std::fs::create_dir_all(&cache_root)
-        .with_context(|| format!("failed to create cache dir {:?}", cache_root))?;
-
-    let repo_dir = cache_root.join(repo_cache_key(clone_url, branch));
-    let meta_path = repo_dir.join(".ai-toolkit-cache.json");
-
-    let lock = GIT_CACHE_LOCK.get_or_init(|| Mutex::new(()));
-    let _guard = lock.lock().unwrap_or_else(|err| err.into_inner());
-
-    if repo_dir.join(".git").exists() {
-        if let Ok(meta) = std::fs::read_to_string(&meta_path) {
-            if let Ok(meta) = serde_json::from_str::<RepoCacheMeta>(&meta) {
-                if let Some(head) = meta.head {
-                    let ttl_ms = get_git_cache_ttl_secs().saturating_mul(1000) as i64;
-                    if ttl_ms > 0 && now_ms().saturating_sub(meta.last_fetched_ms) < ttl_ms {
-                        log::info!(
-                            "[installer] git cache hit (fresh) url={} branch={:?} repo_dir={:?}",
-                            clone_url,
-                            branch,
-                            repo_dir
-                        );
-                        return Ok((repo_dir, head));
-                    }
-                }
-            }
-        }
-    }
-
-    log::info!(
-        "[installer] git cache miss/stale; fetching url={} branch={:?} repo_dir={:?}",
-        clone_url,
-        branch,
-        repo_dir
-    );
-
-    let rev = clone_or_pull(clone_url, &repo_dir, branch).map_err(|err| {
-        if repo_dir.exists() {
-            let _ = std::fs::remove_dir_all(&repo_dir);
-        }
-        anyhow::anyhow!("{:#}", err)
-    })?;
-
-    let _ = std::fs::write(
-        &meta_path,
-        serde_json::to_string(&RepoCacheMeta {
-            last_fetched_ms: now_ms(),
-            head: Some(rev.clone()),
-        })
-        .unwrap_or_else(|_| "{}".to_string()),
-    );
-
-    Ok((repo_dir, rev))
-}
-
-fn repo_cache_key(clone_url: &str, branch: Option<&str>) -> String {
-    use sha2::Digest;
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(clone_url.as_bytes());
-    hasher.update(b"\n");
-    if let Some(b) = branch {
-        hasher.update(b.as_bytes());
-    }
-    hex::encode(hasher.finalize())
-}
-
-fn compute_content_hash(path: &Path) -> Option<String> {
-    hash_dir(path).ok()
-}
-
 fn parse_skill_md(path: &Path) -> Option<(String, Option<String>)> {
     parse_skill_md_with_reason(path).ok()
 }
@@ -738,6 +506,44 @@ mod local_copy_tests {
     use super::*;
 
     #[test]
+    fn invalid_install_inputs_are_rejected_before_resolving_or_writing_user_directories() {
+        for name in ["../victim", "/tmp/victim", "a\\b"] {
+            let error = install_git_skill("missing-repository", Some(name.into()), None)
+                .err()
+                .unwrap();
+            assert!(error.to_string().contains("目录名称"));
+        }
+        let error = install_git_skill_from_selection(
+            "missing-repository",
+            "../outside",
+            Some("valid".into()),
+        )
+        .err()
+        .unwrap();
+        assert!(error.to_string().contains("子路径"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discovery_does_not_follow_outside_links_or_accept_frontmatter_path_names() {
+        let repository = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(
+            repository.path().join("SKILL.md"),
+            "---\nname: ../victim\n---\nbody",
+        )
+        .unwrap();
+        std::fs::write(
+            outside.path().join("SKILL.md"),
+            "---\nname: outside\n---\nbody",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(outside.path(), repository.path().join("linked")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), repository.path().join("skills")).unwrap();
+        assert!(scan_git_skill_candidates(repository.path()).is_empty());
+    }
+
+    #[test]
     fn verified_local_copy_preserves_contents() {
         let source = tempfile::tempdir().unwrap();
         let destination_parent = tempfile::tempdir().unwrap();
@@ -773,7 +579,15 @@ mod local_copy_tests {
 }
 
 fn parse_skill_md_with_reason(path: &Path) -> Result<(String, Option<String>), &'static str> {
-    let text = std::fs::read_to_string(path).map_err(|_| "read_failed")?;
+    use std::io::Read;
+    let file = std::fs::File::open(path).map_err(|_| "read_failed")?;
+    let mut text = String::new();
+    file.take(4 * 1024 * 1024 + 1)
+        .read_to_string(&mut text)
+        .map_err(|_| "read_failed")?;
+    if text.len() > 4 * 1024 * 1024 {
+        return Err("document_too_large");
+    }
 
     // Parse YAML frontmatter. Supports:
     //   - Standard: first line "---", fields, closing "---"
@@ -825,9 +639,7 @@ fn parse_skill_md_with_reason(path: &Path) -> Result<(String, Option<String>), &
                 if next.trim().is_empty() {
                     // A blank line ends the block scalar in standard YAML
                     // unless followed by indented continuation.
-                    if i + 1 < raw_lines.len()
-                        && raw_lines[i + 1].starts_with([' ', '\t'])
-                    {
+                    if i + 1 < raw_lines.len() && raw_lines[i + 1].starts_with([' ', '\t']) {
                         block_lines.push(String::new());
                         i += 1;
                         continue;

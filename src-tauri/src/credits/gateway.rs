@@ -19,6 +19,8 @@ use tokio_util::sync::CancellationToken;
 #[path = "anthropic.rs"]
 mod anthropic;
 
+const MAX_REQUEST_BYTES: usize = 32 * 1024 * 1024;
+
 #[derive(Clone, Copy)]
 enum Protocol {
     Openai,
@@ -125,7 +127,7 @@ impl GatewayManager {
             // Anthropic SDKs append /v1/messages to the configured base URL.
             // Accept the app's shared /v1 base URL without arbitrary path rewriting.
             .route("/v1/v1/messages", post(messages))
-            .layer(DefaultBodyLimit::max(4 * 1024 * 1024))
+            .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
             .with_state(context);
         let shutdown = cancellation.clone();
         let last_error = self.last_error.clone();
@@ -522,6 +524,12 @@ fn validate_request(data: &Value) -> Result<(&str, bool, bool), &'static str> {
                 return Err("工具结果缺少 tool_call_id");
             }
         }
+        if message
+            .get("reasoning_content")
+            .is_some_and(|reasoning| role != "assistant" || !reasoning.is_string())
+        {
+            return Err("reasoning_content 仅支持 assistant 消息中的字符串");
+        }
         if let Some(content) = message.get("content") {
             if !content.is_string() && !content.is_null() {
                 let parts = content.as_array().ok_or("content 必须是文本或内容块数组")?;
@@ -652,12 +660,26 @@ async fn protocol_request(
     }
     let data = match body {
         Ok(Json(data)) => data,
-        Err(_) => {
-            return protocol.error(
-                StatusCode::BAD_REQUEST,
-                "invalid_json",
-                "请求 JSON 无效或过大",
-            )
+        Err(error) => {
+            let (status, code, message) = match error.status() {
+                StatusCode::PAYLOAD_TOO_LARGE => (
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "request_too_large",
+                    "请求正文超过 32 MiB 上限；请压缩图片或精简历史消息",
+                ),
+                StatusCode::UNSUPPORTED_MEDIA_TYPE => (
+                    StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                    "invalid_content_type",
+                    "Content-Type 必须为 application/json",
+                ),
+                StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => (
+                    StatusCode::BAD_REQUEST,
+                    "invalid_json",
+                    "请求 JSON 无效",
+                ),
+                status => (status, "request_body_error", "读取请求正文失败"),
+            };
+            return protocol.error(status, code, message);
         }
     };
     let data = if matches!(protocol, Protocol::Messages) {
@@ -1535,6 +1557,191 @@ mod tests {
                 event
             })
             .collect()
+    }
+
+    #[test]
+    fn reasoning_history_requires_an_assistant_string() {
+        let mut body = json!({"model":"glm-5.3","messages":[{"role":"assistant","content":"","reasoning_content":"history"}]});
+        assert!(validate_request(&body).is_ok());
+        body["messages"][0]["reasoning_content"] = json!(null);
+        assert!(validate_request(&body).is_err());
+        body["messages"][0]["reasoning_content"] = json!("history");
+        for role in ["user", "system", "tool"] {
+            body["messages"][0]["role"] = json!(role);
+            body["messages"][0]["tool_call_id"] = json!("shot");
+            assert!(validate_request(&body).is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn zcode_long_history_over_four_mib_reaches_each_provider() {
+        let image_data = "AAAA".repeat(40_000);
+        let mut messages = vec![json!({"role":"user","content":"review the screenshots"})];
+        let mut openai = messages.clone();
+        for index in 0..35 {
+            let id = format!("shot_{index}");
+            let reasoning = format!("inspect screenshot {index}");
+            messages.push(json!({"role":"assistant","content":[
+                {"type":"thinking","thinking":reasoning,"signature":""},
+                {"type":"tool_use","id":id,"name":"Read","input":{}}
+            ]}));
+            messages.push(json!({"role":"user","content":[{"type":"tool_result","tool_use_id":id,"content":[
+                {"type":"image","source":{"type":"base64","media_type":"image/png","data":image_data}}
+            ]}]}));
+            openai.push(
+                json!({"role":"assistant","content":"","reasoning_content":reasoning,"tool_calls":[
+                    {"id":id,"type":"function","function":{"name":"Read","arguments":"{}"}}
+                ]}),
+            );
+            openai.push(json!({"role":"tool","tool_call_id":id,"content":[
+                {"type":"image_url","image_url":{"url":format!("data:image/png;base64,{image_data}")}}
+            ]}));
+        }
+        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder] {
+            let manager = routed_test_manager();
+            for mut account in manager.accounts().unwrap() {
+                account.platform = platform;
+                manager.store.save_account(&account).unwrap();
+            }
+            let gateway = GatewayManager::new();
+            let status = gateway.start(manager.clone(), 0).await.unwrap();
+            let http = reqwest::Client::builder()
+                .no_proxy()
+                .timeout(std::time::Duration::from_secs(15))
+                .build()
+                .unwrap();
+            for messages_protocol in [true, false] {
+                manager.provider.queue_test_chat("first", fixture_chunks(vec![
+                    json!({"choices":[{"delta":{"content":"screenshots received"},"finish_reason":"stop"}]})
+                ]));
+                let mut body = json!({"model":format!("{}/glm-5.3",platform.key()),"max_tokens":64,"messages":if messages_protocol { &messages } else { &openai }});
+                if messages_protocol {
+                    body["stream"] = json!(true);
+                }
+                let bytes = serde_json::to_vec(&body).unwrap();
+                assert!(bytes.len() > 4 * 1024 * 1024);
+                let response = http
+                    .post(format!(
+                        "{}/{}",
+                        status.base_url,
+                        if messages_protocol {
+                            "messages"
+                        } else {
+                            "chat/completions"
+                        }
+                    ))
+                    .bearer_auth(manager.gateway_key().unwrap())
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(bytes)
+                    .send()
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                if messages_protocol {
+                    assert_eq!(
+                        sse_events(&response.text().await.unwrap()).last().unwrap()["type"],
+                        "message_stop"
+                    );
+                } else {
+                    assert_eq!(
+                        response.json::<Value>().await.unwrap()["choices"][0]["message"]["content"],
+                        "screenshots received"
+                    );
+                }
+            }
+            for body in manager.provider.test_chat_bodies() {
+                assert_eq!(body["messages"].as_array().unwrap().len(), 71);
+                for index in 0..35 {
+                    let assistant = &body["messages"][1 + 2 * index];
+                    let result = &body["messages"][2 + 2 * index];
+                    assert_eq!(
+                        assistant["reasoning_content"],
+                        format!("inspect screenshot {index}")
+                    );
+                    assert_eq!(assistant["content"], "");
+                    assert_eq!(result["tool_call_id"], format!("shot_{index}"));
+                    let url = result["content"][0]["image_url"]["url"].as_str().unwrap();
+                    assert!(url.starts_with("data:image/png;base64,"));
+                    assert_eq!(url.len(), "data:image/png;base64,".len() + image_data.len());
+                }
+            }
+            gateway.stop().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn request_body_rejections_distinguish_size_json_and_content_type() {
+        let manager = routed_test_manager();
+        let gateway = GatewayManager::new();
+        let status = gateway.start(manager.clone(), 0).await.unwrap();
+        let key = manager.gateway_key().unwrap();
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .unwrap();
+        let mut oversized = vec![b' '; 32 * 1024 * 1024 + 1];
+        oversized[..2].copy_from_slice(b"{}");
+        let oversized = bytes::Bytes::from(oversized);
+        for (path, messages_protocol) in [
+            ("messages", true),
+            ("v1/messages", true),
+            ("chat/completions", false),
+        ] {
+            let url = format!("{}/{path}", status.base_url);
+            for chunked in [false, true] {
+                let body = if chunked {
+                    reqwest::Body::wrap_stream(futures::stream::iter([Ok::<_, std::io::Error>(
+                        oversized.clone(),
+                    )]))
+                } else {
+                    oversized.clone().into()
+                };
+                let response = http
+                    .post(&url)
+                    .bearer_auth(&key)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(body)
+                    .send()
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+                let error = response.json::<Value>().await.unwrap();
+                assert_eq!(
+                    error["error"][if messages_protocol { "type" } else { "code" }],
+                    "request_too_large"
+                );
+                assert!(error["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("32 MiB"));
+            }
+            let response = http
+                .post(&url)
+                .bearer_auth(&key)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body("{")
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let error = response.json::<Value>().await.unwrap();
+            assert_eq!(error["error"]["message"], "请求 JSON 无效");
+            let response = http
+                .post(&url)
+                .bearer_auth(&key)
+                .body("{}")
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+            assert!(response.json::<Value>().await.unwrap()["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("application/json"));
+        }
+        assert!(manager.provider.test_chat_calls().is_empty());
+        gateway.stop().await.unwrap();
     }
 
     #[tokio::test]

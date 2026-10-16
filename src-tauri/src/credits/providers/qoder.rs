@@ -650,7 +650,11 @@ mod tests {
         assert_eq!(converted["messages"][1]["contents"][0], parts[1]);
         assert_eq!(converted["chat_context"]["text"]["text"], "");
 
-        let converted = body(json!({"messages":[{"role":"user","content":"read image"},{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"Read","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call_1","content":parts}]}), "gfmodel").unwrap();
+        let converted = body(json!({"messages":[{"role":"user","content":"read image"},{"role":"assistant","content":"","reasoning_content":"inspect the screenshot","tool_calls":[{"id":"call_1","type":"function","function":{"name":"Read","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call_1","content":parts}]}), "gfmodel").unwrap();
+        assert_eq!(
+            converted["messages"][1]["reasoning_content"],
+            "inspect the screenshot"
+        );
         assert_eq!(converted["messages"][2]["contents"], parts);
         assert_eq!(converted["messages"][2]["tool_call_id"], "call_1");
         assert_eq!(converted["model_config"]["is_vl"], true);

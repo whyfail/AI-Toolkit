@@ -7,10 +7,14 @@ use crate::core::installer::{
     install_git_skill, install_git_skill_from_selection, scan_git_skill_candidates,
     GitSkillCandidate,
 };
+use crate::core::path_safety::{
+    existing_skill_entry, publish_skill, remove_entry, skill_entry, skill_staging, source_within,
+    validate_skill_name,
+};
 use crate::core::skills_search::{
     search_skills_online as search_skills_online_core, OnlineSkillResult,
 };
-use crate::database::SkillRecord;
+use crate::database::{Database, SkillRecord};
 use crate::skill_core::tool_adapters::{
     adapter_by_key, default_tool_adapters, get_all_tool_status, is_tool_installed,
     resolve_default_path, resolve_read_paths, scan_tool_dir, ToolStatus,
@@ -20,6 +24,36 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use tauri::State;
 
+fn check_skill_identity(
+    db: &Database,
+    id: &str,
+    name: &str,
+) -> Result<Option<SkillRecord>, String> {
+    validate_skill_name(name).map_err(|e| e.to_string())?;
+    let record = db.get_skill_by_id(id).map_err(|e| e.to_string())?;
+    match &record {
+        Some(record) if record.name != name => return Err("技能 ID 与名称不一致".into()),
+        None if id != format!("local-{name}") => return Err("技能 ID 不存在".into()),
+        _ => {}
+    }
+    Ok(record)
+}
+
+fn managed_source(db: &Database, root: &Path, id: &str, name: &str) -> Result<PathBuf, String> {
+    let record = check_skill_identity(db, id, name)?;
+    let source = source_within(root, name).map_err(|e| e.to_string())?;
+    if let Some(record) = record {
+        if Path::new(&record.central_path)
+            .canonicalize()
+            .map_err(|e| e.to_string())?
+            != source
+        {
+            return Err("技能记录指向受管目录之外或与当前目录不一致".into());
+        }
+    }
+    Ok(source)
+}
+
 // Skills management commands
 // Migrated from skills-hub-main
 
@@ -28,51 +62,7 @@ use tauri::State;
 /// cannot delete (DeleteFile API fails on directories) and `remove_dir_all`
 /// would recursively delete the *target* contents instead of just the link.
 fn safe_remove(path: &Path) -> std::io::Result<()> {
-    let metadata = std::fs::symlink_metadata(path)?;
-    if metadata.file_type().is_symlink() {
-        return std::fs::remove_file(path);
-    }
-
-    if metadata.is_dir() {
-        #[cfg(windows)]
-        {
-            // On Windows, junction / directory symlink must be removed with rmdir
-            // which only deletes the reparse point, not the target contents.
-            let output = std::process::Command::new("cmd")
-                .suppress_console()
-                .args(["/c", "rmdir", path.to_string_lossy().as_ref()])
-                .output();
-            if let Ok(out) = output {
-                if out.status.success() {
-                    return Ok(());
-                }
-                // rmdir failed — fall through to remove_dir
-            }
-        }
-        std::fs::remove_dir(path)
-    } else {
-        std::fs::remove_file(path)
-    }
-}
-
-/// Check if a directory path is a Windows junction (reparse point that
-/// `is_symlink()` may not detect). Always returns false on non-Windows.
-#[cfg(windows)]
-fn is_junction(path: &Path) -> bool {
-    if !path.is_dir() {
-        return false;
-    }
-    // Use fsutil to check if the path has a reparse point.
-    let output = std::process::Command::new("fsutil")
-        .suppress_console()
-        .args(["reparsepoint", "query", path.to_string_lossy().as_ref()])
-        .output();
-    matches!(output, Ok(o) if o.status.success())
-}
-
-#[cfg(not(windows))]
-fn is_junction(_path: &Path) -> bool {
-    false
+    remove_entry(path).map_err(std::io::Error::other)
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -191,6 +181,8 @@ pub async fn get_managed_skills(state: State<'_, AppState>) -> Result<Vec<Manage
     let mut result: Vec<ManagedSkill> = Vec::new();
 
     for (skill_name, central_path) in skills_in_repo {
+        let valid_source = source_within(&central_dir, &skill_name).is_ok()
+            && validate_skill_name(&skill_name).is_ok();
         // 检查这个技能在哪些工具中已同步（使用预检测的安装状态）
         let mut targets: Vec<SyncTarget> = Vec::new();
 
@@ -240,7 +232,9 @@ pub async fn get_managed_skills(state: State<'_, AppState>) -> Result<Vec<Manage
                 "local".to_string(),
                 Some(central_path.to_string_lossy().to_string()),
                 None,
-                crate::core::installer::read_skill_description(&central_path),
+                valid_source
+                    .then(|| crate::core::installer::read_skill_description(&central_path))
+                    .flatten(),
                 now,
                 now,
                 None,
@@ -258,7 +252,7 @@ pub async fn get_managed_skills(state: State<'_, AppState>) -> Result<Vec<Manage
             created_at,
             updated_at,
             last_sync_at,
-            status: "active".to_string(),
+            status: if valid_source { "active" } else { "invalid" }.to_string(),
             targets,
         });
     }
@@ -478,46 +472,15 @@ pub async fn list_git_skills(repo_url: String) -> Result<Vec<GitSkillCandidate>,
         use crate::core::installer::parse_github_url;
 
         let parsed = parse_github_url(&repo_url_clone);
-        let (repo_dir, _) = clone_to_cache_for_list(&parsed.clone_url, parsed.branch.as_deref())
-            .map_err(|e| e.to_string())?;
+        let cached =
+            crate::core::git_cache::cached_repo(&parsed.clone_url, parsed.branch.as_deref())
+                .map_err(|e| e.to_string())?;
 
-        let candidates = scan_git_skill_candidates(&repo_dir);
+        let candidates = scan_git_skill_candidates(&cached.path);
         Ok(candidates)
     })
     .await
     .map_err(|e| e.to_string())?
-}
-
-fn clone_to_cache_for_list(
-    clone_url: &str,
-    branch: Option<&str>,
-) -> Result<(PathBuf, String), String> {
-    use crate::core::git_fetcher::clone_or_pull;
-
-    let cache_root = std::env::temp_dir().join("ai-toolkit-git-cache");
-    std::fs::create_dir_all(&cache_root).map_err(|e| e.to_string())?;
-
-    let repo_key = {
-        use sha2::Digest;
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(clone_url.as_bytes());
-        hasher.update(b"\n");
-        if let Some(b) = branch {
-            hasher.update(b.as_bytes());
-        }
-        hex::encode(hasher.finalize())
-    };
-
-    let repo_dir = cache_root.join(repo_key);
-    let revision = clone_or_pull(clone_url, &repo_dir, branch).map_err(|e| {
-        // clone 失败时清理残留目录，避免后续 clone 报 "already exists"
-        if repo_dir.exists() {
-            let _ = std::fs::remove_dir_all(&repo_dir);
-        }
-        e.to_string()
-    })?;
-
-    Ok((repo_dir, revision))
 }
 
 #[tauri::command]
@@ -599,15 +562,7 @@ pub async fn install_local_selection(
             use crate::core::installer::copy_local_skill_dir_verified;
 
             let base = PathBuf::from(&base_path);
-            let selected_dir = if subpath.is_empty() || subpath == "." {
-                base.clone()
-            } else {
-                base.join(&subpath)
-            };
-
-            if !selected_dir.exists() {
-                return Err(format!("Source path does not exist: {:?}", selected_dir));
-            }
+            let selected_dir = source_within(&base, &subpath).map_err(|e| e.to_string())?;
 
             let skill_name = name.unwrap_or_else(|| {
                 selected_dir
@@ -619,7 +574,7 @@ pub async fn install_local_selection(
             let central_dir = resolve_central_repo_path().map_err(|e| e.to_string())?;
             ensure_central_repo(&central_dir).map_err(|e| e.to_string())?;
 
-            let central_path = central_dir.join(&skill_name);
+            let central_path = skill_entry(&central_dir, &skill_name).map_err(|e| e.to_string())?;
             if central_path.exists() {
                 return Err(format!(
                     "Skill already exists in central repo: {:?}",
@@ -627,7 +582,10 @@ pub async fn install_local_selection(
                 ));
             }
 
-            copy_local_skill_dir_verified(&selected_dir, &central_path)
+            let staging = skill_staging(&central_dir).map_err(|e| e.to_string())?;
+            let prepared = staging.path().join("skill");
+            copy_local_skill_dir_verified(&selected_dir, &prepared).map_err(|e| e.to_string())?;
+            let central_path = publish_skill(&prepared, &central_dir, &skill_name, false)
                 .map_err(|e| e.to_string())?;
 
             // Parse description from the freshly-installed SKILL.md so it's
@@ -671,7 +629,7 @@ pub async fn install_local_selection(
         last_sync_at: result.last_sync_at,
     };
     if let Err(error) = state.db.save_skill(&skill_record) {
-        let _ = std::fs::remove_dir_all(&result.central_path);
+        let _ = remove_entry(Path::new(&result.central_path));
         return Err(format!("保存本地技能记录失败: {}", error));
     }
 
@@ -681,6 +639,7 @@ pub async fn install_local_selection(
 #[tauri::command]
 #[allow(non_snake_case)]
 pub async fn sync_skill_to_tool(
+    state: State<'_, AppState>,
     skillId: String,
     skillName: String,
     tool: String,
@@ -690,6 +649,16 @@ pub async fn sync_skill_to_tool(
         "[DEBUG] sync_skill_to_tool called: skillId={}, skillName={}, tool={}, source={}",
         skillId, skillName, tool, sourcePath
     );
+
+    let root = resolve_central_repo_path().map_err(|e| e.to_string())?;
+    let source = managed_source(&state.db, &root, &skillId, &skillName)?;
+    if Path::new(&sourcePath)
+        .canonicalize()
+        .map_err(|e| e.to_string())?
+        != source
+    {
+        return Err("同步来源与受管技能记录不一致".into());
+    }
 
     let result: SyncTarget = tokio::task::spawn_blocking(move || -> Result<SyncTarget, String> {
         use crate::core::sync_engine::sync_dir_for_tool_with_overwrite;
@@ -701,10 +670,10 @@ pub async fn sync_skill_to_tool(
             return Err(format!("未检测到已安装的 {}", tool_adapter.display_name));
         }
 
-        let source = PathBuf::from(&sourcePath);
         let target_dir = crate::skill_core::tool_adapters::resolve_default_path(&tool_adapter)
             .map_err(|e| e.to_string())?;
-        let target_path = target_dir.join(&skillName);
+        std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
+        let target_path = skill_entry(&target_dir, &skillName).map_err(|e| e.to_string())?;
 
         let outcome = sync_dir_for_tool_with_overwrite(&tool, &source, &target_path, true)
             .map_err(|e| e.to_string())?;
@@ -741,12 +710,16 @@ pub async fn delete_managed_skill(
     skill_id: String,
     skill_name: String,
 ) -> Result<(), String> {
+    validate_skill_name(&skill_name).map_err(|e| e.to_string())?;
+    let central_dir = resolve_central_repo_path().map_err(|e| e.to_string())?;
+    check_skill_identity(&state.db, &skill_id, &skill_name)?;
+    let central_skill_path = skill_entry(&central_dir, &skill_name).map_err(|e| e.to_string())?;
     // skill_id 格式: {tool_id}-{skill_name}
     // 我们需要找到这个技能在各个工具中的路径并删除
 
     // 首先获取所有技能，找到匹配的
     let all_tools = default_tool_adapters();
-    let mut paths_to_delete: Vec<(PathBuf, bool)> = Vec::new(); // (path, is_link)
+    let mut paths_to_delete: Vec<PathBuf> = Vec::new();
     let mut seen_paths = std::collections::HashSet::new();
 
     for tool in &all_tools {
@@ -762,7 +735,7 @@ pub async fn delete_managed_skill(
             if skill.name == skill_name {
                 let path_key = crate::agents::normalized_path_key(&skill.path);
                 if seen_paths.insert(path_key) {
-                    paths_to_delete.push((skill.path.clone(), skill.is_link));
+                    paths_to_delete.push(skill.path.clone());
                 }
             }
         }
@@ -770,13 +743,9 @@ pub async fn delete_managed_skill(
 
     // 删除所有找到的路径
     let count = paths_to_delete.len();
-    for (path, is_link) in paths_to_delete {
+    for path in paths_to_delete {
         if path.exists() || path.symlink_metadata().is_ok() {
-            let result = if is_link {
-                safe_remove(&path)
-            } else {
-                std::fs::remove_dir_all(&path)
-            };
+            let result = remove_entry(&path);
 
             if let Err(e) = result {
                 return Err(format!(
@@ -789,19 +758,7 @@ pub async fn delete_managed_skill(
         }
     }
 
-    // 删除 central repo 中的原始技能文件夹
-    let central_dir = resolve_central_repo_path().map_err(|e| e.to_string())?;
-    let central_skill_path = central_dir.join(&skill_name);
-    if central_skill_path.exists() {
-        std::fs::remove_dir_all(&central_skill_path).map_err(|e| {
-            format!(
-                "Failed to remove central skill directory {}: {}",
-                central_skill_path.display(),
-                e
-            )
-        })?;
-        println!("已删除 central repo 中的技能: {:?}", central_skill_path);
-    }
+    remove_entry(&central_skill_path).map_err(|e| format!("删除中央技能失败: {e}"))?;
 
     if !skill_id.is_empty() {
         state.db.delete_skill(&skill_id).map_err(|e| {
@@ -818,6 +775,7 @@ pub async fn delete_managed_skill(
 
 #[tauri::command]
 pub async fn unsync_skill_from_tool(skill_name: String, tool: String) -> Result<(), String> {
+    validate_skill_name(&skill_name).map_err(|e| e.to_string())?;
     // 只从指定工具目录删除技能，不删除 central repo 中的源文件
     eprintln!(
         "[DEBUG] unsync_skill_from_tool called: skillName={}, tool={}",
@@ -842,9 +800,11 @@ pub async fn unsync_skill_from_tool(skill_name: String, tool: String) -> Result<
             if skill.name == skill_name {
                 let path = &skill.path;
                 if path.exists() || path.symlink_metadata().is_ok() {
-                    let central = resolve_central_repo_path()
-                        .map_err(|e| e.to_string())?
-                        .join(&skill_name);
+                    let central = skill_entry(
+                        &resolve_central_repo_path().map_err(|e| e.to_string())?,
+                        &skill_name,
+                    )
+                    .map_err(|e| e.to_string())?;
                     let result = remove_tool_skill_preserving_source(path, &central, skill.is_link);
 
                     if let Err(e) = result {
@@ -889,60 +849,20 @@ pub async fn update_skill(state: State<'_, AppState>, skill_id: String) -> Resul
 
     // 如果有 GitHub 地址，则重新拉取
     if let Some(source_ref) = &skill_record.source_ref {
-        if source_ref.starts_with("http://") || source_ref.starts_with("https://") {
+        if skill_record.source_type == "git" {
             eprintln!("[DEBUG] Updating git skill from: {}", source_ref);
             let repo_url = source_ref.clone();
             let name = skill_record.name.clone();
-            let central_path = skill_record.central_path.clone();
+            let root = resolve_central_repo_path().map_err(|e| e.to_string())?;
+            managed_source(&state.db, &root, &skill_id, &name)?;
             let source_subpath = skill_record.source_subpath.clone();
 
             let skill_id_clone = skill_id.clone();
             let new_central_path =
                 tokio::task::spawn_blocking(move || -> Result<String, String> {
-                    // 先删除旧的技能目录
-                    let central_path_buf = PathBuf::from(&central_path);
-                    if central_path_buf.exists() {
-                        eprintln!(
-                            "[DEBUG] Removing existing skill directory: {:?}",
-                            central_path_buf
-                        );
-                        // Check if the path is a junction / symlink — if so, only remove
-                        // the link itself, not the target contents.
-                        let is_link = central_path_buf.is_symlink()
-                            || cfg!(windows)
-                                && central_path_buf.is_dir()
-                                && is_junction(&central_path_buf);
-                        if is_link {
-                            safe_remove(&central_path_buf)
-                                .map_err(|e| format!("Failed to remove old skill link: {}", e))?;
-                        } else {
-                            std::fs::remove_dir_all(&central_path_buf)
-                                .map_err(|e| format!("Failed to remove old skill: {}", e))?;
-                        }
-                    }
-                    // 重新安装（可能因 APFS 延迟而报 "already exists"，此时重试一次）
-                    let name_for_retry = name.clone();
                     let result =
-                        match install_git_skill(&repo_url, Some(name), source_subpath.as_deref()) {
-                            Ok(result) => result,
-                            Err(e) => {
-                                let err_msg = format!("{:?}", e);
-                                if err_msg.contains("already exists") {
-                                    eprintln!(
-                                        "[DEBUG] Race condition detected, retrying after delay..."
-                                    );
-                                    std::thread::sleep(std::time::Duration::from_millis(200));
-                                    install_git_skill(
-                                        &repo_url,
-                                        Some(name_for_retry),
-                                        source_subpath.as_deref(),
-                                    )
-                                    .map_err(|e| format!("{:?}", e))?
-                                } else {
-                                    return Err(err_msg);
-                                }
-                            }
-                        };
+                        install_git_skill(&repo_url, Some(name), source_subpath.as_deref())
+                            .map_err(|e| format!("{e:#}"))?;
                     Ok(result.central_path.to_string_lossy().to_string())
                 })
                 .await
@@ -984,20 +904,21 @@ pub async fn rename_skill(
         skill_id, new_name, new_source_ref
     );
 
-    // 获取原有技能信息
-    let skill_record = state
+    let record = state
         .db
         .get_skill_by_id(&skill_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Skill not found: {}", skill_id))?;
-
-    let old_name = skill_record.name.clone();
-    let _old_central_path = skill_record.central_path.clone();
-
-    // 解析 central repo 路径
+        .map_err(|e| e.to_string())?;
+    let old_name = match &record {
+        Some(record) => record.name.clone(),
+        None => skill_id
+            .strip_prefix("local-")
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| "技能 ID 不存在".to_string())?
+            .to_string(),
+    };
     let central_dir = resolve_central_repo_path().map_err(|e| e.to_string())?;
-    let old_path = central_dir.join(&old_name);
-    let new_path = central_dir.join(&new_name);
+    let old_path = existing_skill_entry(&central_dir, &old_name).map_err(|e| e.to_string())?;
+    let new_path = skill_entry(&central_dir, &new_name).map_err(|e| e.to_string())?;
 
     // 检查新路径是否已存在
     let name_changed = old_name != new_name;
@@ -1010,12 +931,13 @@ pub async fn rename_skill(
     let new_name_for_blocking = new_name.clone();
     let old_path_clone = old_path.clone();
     let new_path_clone = new_path.clone();
+    let central_dir_for_blocking = central_dir.clone();
     tokio::task::spawn_blocking(move || -> Result<(), String> {
         let old_path_for_blocking = old_path_clone;
         let new_path_for_blocking = new_path_clone;
 
         // 1. 重命名 central repo 中的文件夹
-        if old_path_for_blocking.exists() {
+        if std::fs::symlink_metadata(&old_path_for_blocking).is_ok() {
             if old_name_for_blocking == new_name_for_blocking {
                 // 名称没变，只更新 source_ref
             } else {
@@ -1025,6 +947,8 @@ pub async fn rename_skill(
         }
 
         // 2. 重命名所有已同步工具中的文件夹
+        let managed_source =
+            source_within(&central_dir_for_blocking, &new_name_for_blocking).is_ok();
         let all_tools = default_tool_adapters();
         for tool in &all_tools {
             let installed = is_tool_installed(tool);
@@ -1033,25 +957,42 @@ pub async fn rename_skill(
             }
 
             let skills_dir = resolve_default_path(tool).map_err(|e| e.to_string())?;
+            if !skills_dir.exists() {
+                continue;
+            }
             let old_tool_skill_path = skills_dir.join(&old_name_for_blocking);
-            let new_tool_skill_path = skills_dir.join(&new_name_for_blocking);
+            let new_tool_skill_path =
+                skill_entry(&skills_dir, &new_name_for_blocking).map_err(|e| e.to_string())?;
 
-            if old_tool_skill_path.exists() {
+            if std::fs::symlink_metadata(&old_tool_skill_path).is_ok() {
+                let old_tool_skill_path = existing_skill_entry(&skills_dir, &old_name_for_blocking)
+                    .map_err(|e| e.to_string())?;
                 if old_name_for_blocking == new_name_for_blocking {
                     // 名称没变，不需要重命名工具目录
                 } else {
                     // 先删除目标（如果存在）
                     if new_tool_skill_path.exists() {
-                        if new_tool_skill_path.is_symlink() {
-                            safe_remove(&new_tool_skill_path)
-                                .map_err(|e| format!("删除目标符号链接失败: {}", e))?
-                        } else {
-                            std::fs::remove_dir_all(&new_tool_skill_path)
-                                .map_err(|e| format!("删除目标目录失败: {}", e))?
-                        }
+                        remove_entry(&new_tool_skill_path)
+                            .map_err(|e| format!("删除目标技能失败: {e}"))?;
                     }
-                    std::fs::rename(&old_tool_skill_path, &new_tool_skill_path)
-                        .map_err(|e| format!("重命名工具技能文件夹失败: {}", e))?;
+                    let is_link = old_tool_skill_path.is_symlink();
+                    #[cfg(windows)]
+                    let is_link = is_link
+                        || junction::exists(&old_tool_skill_path).map_err(|e| e.to_string())?;
+                    // An existing outside/broken link may be renamed, never read or copied.
+                    if is_link && managed_source {
+                        remove_entry(&old_tool_skill_path).map_err(|e| e.to_string())?;
+                        crate::core::sync_engine::sync_dir_for_tool_with_overwrite(
+                            tool.id.as_key(),
+                            &new_path_for_blocking,
+                            &new_tool_skill_path,
+                            true,
+                        )
+                        .map_err(|e| e.to_string())?;
+                    } else {
+                        std::fs::rename(&old_tool_skill_path, &new_tool_skill_path)
+                            .map_err(|e| format!("重命名工具技能文件夹失败: {}", e))?;
+                    }
                 }
             }
         }
@@ -1061,17 +1002,42 @@ pub async fn rename_skill(
     .await
     .map_err(|e| e.to_string())??;
 
-    // 3. 更新数据库
     let new_central_path = new_path.to_string_lossy().to_string();
-    state
-        .db
-        .update_skill_metadata(
-            &skill_id,
-            &new_name,
-            new_source_ref.as_deref(),
-            &new_central_path,
-        )
-        .map_err(|e| e.to_string())?;
+    if record.is_some() {
+        state
+            .db
+            .update_skill_metadata(
+                &skill_id,
+                &new_name,
+                new_source_ref.as_deref(),
+                &new_central_path,
+            )
+            .map_err(|e| e.to_string())?;
+    } else {
+        // Filesystem-discovered skills have a synthetic ID until their first edit.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_secs() as i64;
+        let description = source_within(&central_dir, &new_name)
+            .ok()
+            .and_then(|source| crate::core::installer::read_skill_description(&source));
+        state
+            .db
+            .save_skill(&SkillRecord {
+                id: skill_id,
+                name: new_name,
+                description,
+                source_type: "local".into(),
+                source_ref: new_source_ref.or(Some(new_central_path.clone())),
+                source_subpath: None,
+                central_path: new_central_path,
+                created_at: now,
+                updated_at: now,
+                last_sync_at: None,
+            })
+            .map_err(|e| e.to_string())?;
+    }
 
     eprintln!("[DEBUG] rename_skill completed successfully");
     Ok(())
@@ -1080,18 +1046,20 @@ pub async fn rename_skill(
 #[tauri::command]
 pub async fn get_skill_readme(skill_name: String) -> Result<String, String> {
     let central_dir = resolve_central_repo_path().map_err(|e| e.to_string())?;
-    let skill_dir = central_dir.join(&skill_name);
-
-    // Try SKILL.md first, then skill.md
-    let skill_path = if skill_dir.join("SKILL.md").exists() {
-        skill_dir.join("SKILL.md")
-    } else if skill_dir.join("skill.md").exists() {
-        skill_dir.join("skill.md")
-    } else {
-        return Err("SKILL.md 文件不存在".to_string());
-    };
-
-    std::fs::read_to_string(&skill_path).map_err(|e| format!("读取文件失败: {}", e))
+    validate_skill_name(&skill_name).map_err(|e| e.to_string())?;
+    let skill_dir = source_within(&central_dir, &skill_name).map_err(|e| e.to_string())?;
+    let skill_path = crate::core::installer::find_skill_md(&skill_dir)
+        .ok_or_else(|| "SKILL.md 文件不存在或超出技能目录".to_string())?;
+    let file = std::fs::File::open(skill_path).map_err(|e| e.to_string())?;
+    use std::io::Read;
+    let mut contents = String::new();
+    file.take(4 * 1024 * 1024 + 1)
+        .read_to_string(&mut contents)
+        .map_err(|e| e.to_string())?;
+    if contents.len() > 4 * 1024 * 1024 {
+        return Err("技能文档超过 4 MiB".into());
+    }
+    Ok(contents)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1237,6 +1205,35 @@ fn remove_tool_skill_preserving_source(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn managed_sources_require_matching_identity_and_managed_root() {
+        let db = Database::in_memory().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("中文 skill");
+        std::fs::create_dir(&source).unwrap();
+        assert_eq!(
+            managed_source(&db, root.path(), "local-中文 skill", "中文 skill").unwrap(),
+            source.canonicalize().unwrap()
+        );
+        assert!(managed_source(&db, root.path(), "other-id", "中文 skill").is_err());
+        assert!(managed_source(&db, root.path(), "local-../outside", "../outside").is_err());
+        let record = SkillRecord {
+            id: "record".into(),
+            name: "中文 skill".into(),
+            description: None,
+            source_type: "local".into(),
+            source_ref: None,
+            source_subpath: None,
+            central_path: root.path().to_string_lossy().into_owned(),
+            created_at: 0,
+            updated_at: 0,
+            last_sync_at: None,
+        };
+        db.save_skill(&record).unwrap();
+        assert!(managed_source(&db, root.path(), "record", "中文 skill").is_err());
+        assert!(check_skill_identity(&db, "record", "different").is_err());
+    }
 
     #[cfg(unix)]
     #[test]

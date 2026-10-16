@@ -2,6 +2,8 @@
 
 AI-Toolkit 的「积分与代理」页面管理 WorkBuddy、TRAE CN、Qoder 国内账号。账号积分保留在来源平台；本地网关转发模型请求并消耗对应账号的额度。
 
+当前说明对应 **v2.1.0**：两种协议的请求正文上限为 32 MiB，并支持无签名思考内容与图片、工具调用历史的转换。完整变更见 [更新记录](../CHANGELOG.md)。
+
 下图为 macOS v2.0.0 实际窗口截图，昵称和账号 ID 已打码。余额、领取状态和模型数量仅代表截图时的账户状态。
 
 ![账户与积分面板，身份信息已打码](../assets/screenshots/credits-panel.png)
@@ -49,7 +51,11 @@ Qoder 账户卡片与 TRAE 一样仅显示积分任务、金额及领取状态�
 
 GLM-5.3-Flash 支持图像理解，见 [Qoder 官方模型目录](https://docs.qoder.cn/qoder/model-selector)。使用该模型时可以保留 ZCode 的图片输入能力。之前的 HTTP 400 来自代理未转换图片内容，不能据此判断模型没有视觉能力。
 
-Messages 接口接受用户附件和 `tool_result.content` 中的图片，将标准 `base64` 或 HTTP(S) URL 图片源转为 `image_url` 内容块，保留文本顺序、工具调用 ID 和错误标记。这套转换同时适用于 WorkBuddy、TRAE 和 Qoder。支持 JPEG、PNG、GIF 和 WebP，请求正文总大小上限为 4 MiB，视频与 PDF 输入不在本次图片兼容范围内。在 ZCode 中为所选视觉模型开启图片输入能力，例如 `workbuddy/glm-5.3-flash`、`traework/glm-5.3-flash` 和 `qoder/glm-5.3-flash`。
+Messages 接口接受用户附件和 `tool_result.content` 中的图片，将标准 `base64` 或 HTTP(S) URL 图片源转为 `image_url` 内容块，保留文本顺序、工具调用 ID 和错误标记。这套转换同时适用于 WorkBuddy、TRAE 和 Qoder。支持 JPEG、PNG、GIF 和 WebP，两种协议的请求正文总大小上限为 32 MiB，包含 base64 图片、工具定义和历史消息；视频与 PDF 输入不在本次图片兼容范围内。在 ZCode 中为所选视觉模型开启图片输入能力，例如 `workbuddy/glm-5.3-flash`、`traework/glm-5.3-flash` 和 `qoder/glm-5.3-flash`。
+
+超过正文上限时返回 HTTP 413 `request_too_large`，提示压缩图片或精简历史；JSON 格式无效返回 HTTP 400，未使用 `Content-Type: application/json` 返回 HTTP 415。这些入口错误发生在模型推理之前，不能据此判断模型是否支持图片。
+
+ZCode 历史中的无签名或空签名 `assistant.thinking` 块转换为独立的 `reasoning_content`，按原顺序保留思考文本，同时保留正文与工具调用。GLM 的历史思考字段见 [官方思考模式说明](https://docs.z.ai/guides/capabilities/thinking-mode)。带非空签名或加密的 Anthropic 思考块仍显式拒绝，不把它们当作普通文本或静默丢弃。
 
 | 来源 | 图片与工具结果的上游格式 |
 | --- | --- |
@@ -72,6 +78,8 @@ Qoder 每日活动的请求与返回契约已核对官方活动页脚本及本�
 Qoder 的 `qoder/glm-5.3-flash` 已通过当前运行代理的原生 `contents` 图片实测：用户附件和工具结果两种消息均返回 HTTP 200，准确识别了仅出现在图片中的随机五位数字。新的标准 Messages 图片转换、工具结果和 SSE 经过离线回归；仍需重新构建应用后验收 ZCode 完整会话，不能将这两次原生协议测试等同于新安装包的端到端验证。
 
 三平台的网关回归均检查实际交给适配器的图片内容、工具调用 ID、JSON 回复和 SSE 结束事件；WorkBuddy/TRAE 的适配器回归还覆盖纯图片、图文混排、远程图片和带错误标记的工具截图。WorkBuddy 本轮真实账号检查在读取系统钥匙串时被拒绝，未发出推理请求；WorkBuddy 与 TRAE 的实际图片理解仍需在重新构建应用并授权后验收。
+
+长会话回归覆盖三平台、两种协议中大于 4 MiB 的 35 张历史图片及无签名思考块；超过 32 MiB 的固定长度和分块请求均返回协议对应的 HTTP 413 错误。2026-10-16 的 ZCode 失败请求保留原消息结构、以等长有效 base64 替换日志中脱敏图片后，共 5,190,794 字节、35 张图片、14 段无签名思考块，本地模拟上游重放返回 HTTP 200 并完成 SSE；这验证了入口和协议转换，不代表真实上游模型已经接受该完整历史。
 
 macOS 使用 Keychain，Windows 使用 Credential Manager，Linux 使用 Secret Service；凭据库不可用时返回明确错误，不退回明文文件。构建与测试命令：`pnpm check`、`cargo test --manifest-path src-tauri/Cargo.toml`、`pnpm tauri build`。Windows 安装包由现有 Windows CI 构建验证，本机 macOS 无法完成 Windows 运行验收。
 

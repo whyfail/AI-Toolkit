@@ -8,6 +8,7 @@ pub mod error;
 pub mod import;
 pub mod mcp;
 pub mod migration;
+mod navigation;
 pub mod services;
 pub mod skill_core;
 pub mod tool_detection;
@@ -111,6 +112,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            navigation::create_main_window(app)?;
             tray::setup(app)?;
 
             // 迁移旧数据目录 ~/.ai-tool-manager/ → ~/.ai-toolkit/

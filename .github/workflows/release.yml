@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release Version (e.g., 1.0.0)'
+        description: 'Release Version (e.g., 2.1.0)'
         required: true
-        default: '1.0.0'
+        default: '2.1.0'
 
 env:
   CARGO_INCREMENTAL: 0
@@ -58,7 +58,7 @@ jobs:
       - name: Run quality checks
         run: |
           pnpm check
-          cargo test --manifest-path src-tauri/Cargo.toml
+          cargo test --manifest-path src-tauri/Cargo.toml --locked
 
       - name: Build Tauri App (macOS)
         shell: bash
@@ -206,7 +206,7 @@ jobs:
       - name: Run quality checks
         run: |
           pnpm check
-          cargo test --manifest-path src-tauri/Cargo.toml
+          cargo test --manifest-path src-tauri/Cargo.toml --locked
 
       - name: Build Tauri App (Windows)
         shell: pwsh
@@ -218,7 +218,8 @@ jobs:
           $maxAttempts = 3
           for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
             Write-Host "=== Windows build attempt ${attempt}/${maxAttempts} ==="
-            if (pnpm tauri build --bundles msi,updater) {
+            pnpm tauri build --bundles msi
+            if ($LASTEXITCODE -eq 0) {
               Write-Host "✅ Windows build succeeded"
               exit 0
             }
@@ -404,7 +405,7 @@ jobs:
           body: |
             ## AiToolkit v${{ steps.get_version_release.outputs.VERSION }}
 
-            Universal MCP Server & Skills Manager for AI CLI tools.
+            MCP, Skills, platform credits, and a local model proxy for AI programming tools.
 
             ### 🖥️ System Support
 
@@ -423,7 +424,7 @@ jobs:
 
             ### ✨ Features
 
-            - Unified management for 10+ AI CLI tools
+            - MCP and Skills adapters for 24 AI programming tools
             - Skills management panel with batch sync
             - Git repository installation for Skills
             - Online Skills search from skills.sh
@@ -431,6 +432,11 @@ jobs:
             - JSON paste mode with smart parsing
             - Built-in connection testing
             - Real-time sync to configuration files
+            - OpenAI and Anthropic proxy protocols with 32 MiB request bodies
+            - Image, tool, and unsigned reasoning history compatibility
+            - Skill path validation, private caches, and desktop/OAuth hardening
+
+            Full changelog: https://github.com/whyfail/AI-Toolkit/blob/main/CHANGELOG.md
           files: release-assets/*
           draft: false
           prerelease: false

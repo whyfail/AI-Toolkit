@@ -398,7 +398,7 @@ mod tests {
             json!({"type":"image_url","image_url":{"url":"https://example.test/screenshot.png"}});
         let messages = json!([
             {"role":"user","content":[image.clone()]},
-            {"role":"assistant","content":"","tool_calls":[{"id":"call_image","type":"function","function":{"name":"Read","arguments":"{}"}}]},
+            {"role":"assistant","content":"","reasoning_content":"inspect the screenshot","tool_calls":[{"id":"call_image","type":"function","function":{"name":"Read","arguments":"{}"}}]},
             {"role":"tool","tool_call_id":"call_image","content":[{"type":"text","text":"[tool_result is_error=true]\n"},remote.clone(),image.clone()]},
             {"role":"user","content":[{"type":"text","text":"compare both images"},image,remote]},
         ]);

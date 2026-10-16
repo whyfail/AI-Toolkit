@@ -35,6 +35,7 @@ pub(super) struct LoginFlow {
     base: Credentials,
     callback: Arc<tokio::sync::Mutex<Option<Result<Value, String>>>>,
     poll_lock: Arc<tokio::sync::Mutex<()>>,
+    callback_done: tokio_util::sync::CancellationToken,
 }
 fn pkce() -> (String, String) {
     let verifier = format!(
@@ -74,6 +75,7 @@ impl ProviderClient {
         let (verifier, challenge) = pkce();
         let (machine, device) = local_identity();
         let callback = Arc::new(tokio::sync::Mutex::new(None));
+        let callback_done = tokio_util::sync::CancellationToken::new();
         let mut base = empty_credentials();
         base.device_id = Some(device);
         base.extra = json!({"machineId":machine});
@@ -160,6 +162,8 @@ impl ProviderClient {
                     "/authorize".into(),
                     callback.clone(),
                     expires_at,
+                    flow_id.clone(),
+                    callback_done.clone(),
                 ));
                 url
             }
@@ -183,6 +187,7 @@ impl ProviderClient {
                 base,
                 callback,
                 poll_lock: Arc::default(),
+                callback_done,
             },
         );
         Ok(OAuthStart {
@@ -204,6 +209,7 @@ impl ProviderClient {
             return Err(ProviderError::new(404, "此登录已结束，请重新登录"));
         }
         if flow.expires_at < now_ms() {
+            flow.callback_done.cancel();
             self.flows.lock().await.remove(id);
             return Ok(OAuthPoll::Failed {
                 message: "登录已过期，请重新登录".into(),
@@ -213,6 +219,7 @@ impl ProviderClient {
         let result = self.poll_flow(flow.clone()).await;
         match result {
             Ok(Some(c)) => {
+                flow.callback_done.cancel();
                 // TRAE Work identity comes from the callback echo (the official
                 // client skips post-exchange GetUserInfo); other platforms and
                 // echo-less flows resolve identity server-side.
@@ -242,7 +249,18 @@ impl ProviderClient {
                 }
             }
             Ok(None) => Ok(OAuthPoll::Pending),
+            Err(e) if platform == Platform::Traework && e.message != "平台取消或拒绝了登录" =>
+            {
+                // A candidate is not a completed login. Invalid/foreign codes must
+                // not close the real browser's pending PKCE flow.
+                log::warn!(
+                    "TRAE OAuth 候选回调未通过验证（状态 {}），继续等待",
+                    e.status
+                );
+                Ok(OAuthPoll::Pending)
+            }
             Err(e) => {
+                flow.callback_done.cancel();
                 self.flows.lock().await.remove(id);
                 Ok(OAuthPoll::Failed { message: e.message })
             }
@@ -309,7 +327,7 @@ impl ProviderClient {
                 Ok(Some(c))
             }
             Platform::Traework => {
-                let cb = f.callback.lock().await.clone();
+                let cb = f.callback.lock().await.take();
                 let Some(cb) = cb else { return Ok(None) };
                 let cb = cb.map_err(|s| ProviderError::new(400, s))?;
                 // The callback's userInfo echo names the account: derive its
@@ -341,30 +359,20 @@ impl ProviderClient {
                         "RefreshToken",
                         "refresh-token",
                     ],
-                ) {
+                )
+                .filter(|_| callback_auth_code(&cb).is_none())
+                {
+                    if !callback_is_bound(&cb, &f.nonce) {
+                        return Err(ProviderError::new(400, "刷新凭证回调未绑定当前登录流程"));
+                    }
                     let mut c = f.base.clone();
                     c.refresh_token = Some(refresh);
                     return Ok(Some(
                         self.refresh_credentials(Platform::Traework, &c).await?,
                     ));
                 }
-                let code = text(
-                    &cb,
-                    &[
-                        "authCode",
-                        "auth_code",
-                        "AuthCode",
-                        "authorization_code",
-                        "code",
-                    ],
-                )
-                .or_else(|| {
-                    ["authCodeInfo", "auth_code_info", "AuthCodeInfo"]
-                        .iter()
-                        .find_map(|key| text(&cb, &[key]))
-                        .and_then(|info| auth_code_from_info(&info))
-                })
-                .ok_or_else(|| ProviderError::new(400, "Trae OAuth 回调缺少授权码"))?;
+                let code = callback_auth_code(&cb)
+                    .ok_or_else(|| ProviderError::new(400, "Trae OAuth 回调缺少授权码"))?;
                 // The callback echoes the realm that owns this login (e.g.
                 // api.trae.com.cn for accounts registered there) — exchange
                 // against it first. Keep the origin that actually exchanges
@@ -584,7 +592,7 @@ fn trae_authorization_url(
     device_type: &str,
     os_version: &str,
 ) -> String {
-    let params: [(&str, String, bool); 22] = [
+    let params: [(&str, String, bool); 23] = [
         ("login_version", "1".into(), false),
         ("auth_from", "trae".into(), false),
         ("login_channel", "native_ide".into(), false),
@@ -593,6 +601,7 @@ fn trae_authorization_url(
         ("client_id", client_id.into(), false),
         ("redirect", "0".into(), false),
         ("login_trace_id", flow_id.into(), true),
+        ("state", flow_id.into(), true),
         ("auth_callback_url", callback_url.into(), false),
         ("machine_id", machine_id.into(), true),
         ("device_id", device_id.into(), true),
@@ -772,102 +781,159 @@ fn auth_code_from_info(raw: &str) -> Option<String> {
     .map(str::to_owned)
 }
 
+fn callback_auth_code(value: &Value) -> Option<String> {
+    text(
+        value,
+        &[
+            "authCode",
+            "auth_code",
+            "AuthCode",
+            "authorization_code",
+            "code",
+        ],
+    )
+    .or_else(|| {
+        ["authCodeInfo", "auth_code_info", "AuthCodeInfo"]
+            .iter()
+            .find_map(|key| text(value, &[key]))
+            .and_then(|info| auth_code_from_info(&info))
+    })
+}
+
+fn callback_is_bound(value: &Value, expected: &str) -> bool {
+    if text(value, &["state", "State", "login_trace_id"]).as_deref() == Some(expected) {
+        return true;
+    }
+    ["authCodeInfo", "auth_code_info", "AuthCodeInfo"]
+        .iter()
+        .filter_map(|key| text(value, &[key]))
+        .filter_map(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .any(|info| text(&info, &["state", "State"]).as_deref() == Some(expected))
+}
+
 async fn listen_callback(
     listener: tokio::net::TcpListener,
     path: String,
     callback: Arc<tokio::sync::Mutex<Option<Result<Value, String>>>>,
     expires_at: i64,
+    expected_state: String,
+    done: tokio_util::sync::CancellationToken,
 ) {
+    let Ok(address) = listener.local_addr() else {
+        return;
+    };
+    let expected_host = address.to_string();
     while now_ms() < expires_at {
-        let Ok(Ok((mut socket, _))) = tokio::time::timeout(
-            std::time::Duration::from_millis((expires_at - now_ms()).max(1) as u64),
-            listener.accept(),
-        )
-        .await
-        else {
+        let accepted = tokio::select! {
+            _ = done.cancelled() => return,
+            accepted = tokio::time::timeout(
+                std::time::Duration::from_millis((expires_at - now_ms()).max(1) as u64),
+                listener.accept(),
+            ) => accepted,
+        };
+        let Ok(Ok((mut socket, _))) = accepted else {
             break;
         };
         let mut buf = Vec::new();
-        let read = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            loop {
-                let mut part = [0u8; 2048];
-                let n = socket.read(&mut part).await?;
-                if n == 0 {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::UnexpectedEof,
-                        "incomplete request",
-                    ));
+        let read = tokio::time::timeout(
+            std::time::Duration::from_millis((expires_at - now_ms()).clamp(1, 5000) as u64),
+            async {
+                loop {
+                    let mut part = [0u8; 2048];
+                    let n = socket.read(&mut part).await?;
+                    if n == 0 {
+                        return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
+                    }
+                    buf.extend_from_slice(&part[..n]);
+                    if buf.len() > 32768 {
+                        return Err(std::io::Error::from(std::io::ErrorKind::InvalidData));
+                    }
+                    if buf.windows(4).any(|part| part == b"\r\n\r\n") {
+                        return Ok(());
+                    }
                 }
-                buf.extend_from_slice(&part[..n]);
-                if buf.len() > 32768 {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "request too large",
-                    ));
-                }
-                if buf.contains(&b'\n') {
-                    return Ok(());
-                }
-            }
-        })
+            },
+        )
         .await;
         if !matches!(read, Ok(Ok(()))) {
             continue;
         }
         let request = String::from_utf8_lossy(&buf);
-        let first = request.lines().next().unwrap_or("");
-        let target = first
-            .strip_prefix("GET ")
-            .and_then(|s| s.split_whitespace().next());
+        let mut words = request.lines().next().unwrap_or("").split_whitespace();
+        let method = words.next();
+        let target = words.next();
+        let version = words.next();
+        let hosts: Vec<_> = request
+            .lines()
+            .skip(1)
+            .filter_map(|line| line.split_once(':'))
+            .filter(|(key, _)| key.eq_ignore_ascii_case("host"))
+            .map(|(_, value)| value.trim())
+            .collect();
+        let valid = method == Some("GET")
+            && matches!(version, Some("HTTP/1.1" | "HTTP/1.0"))
+            && words.next().is_none()
+            && hosts == [expected_host.as_str()];
         let parsed = target
-            .and_then(|t| reqwest::Url::parse(&format!("http://127.0.0.1{t}")).ok())
-            .filter(|u| u.path() == path);
-        let mut outcome: Option<Result<Value, String>> = None;
-        if let Some(u) = parsed {
-            let mut v = json!({});
-            for (k, value) in u.query_pairs() {
-                v[k.as_ref()] = json!(value.as_ref());
+            .filter(|target| valid && target.starts_with('/') && !target.starts_with("//"))
+            .and_then(|target| reqwest::Url::parse(&format!("http://{expected_host}{target}")).ok())
+            .filter(|url| url.path() == path);
+        let mut outcome = None;
+        if let Some(url) = parsed {
+            let mut value = json!({});
+            let mut duplicate = false;
+            for (key, data) in url.query_pairs() {
+                if value.get(key.as_ref()).is_some() {
+                    duplicate = true;
+                }
+                value[key.as_ref()] = json!(data.as_ref());
             }
-            let result = if text(&v, &["error", "error_code", "err", "errorCode"]).is_some() {
-                Err("平台取消或拒绝了登录".into())
-            } else if text(
-                &v,
-                &[
-                    "authCode",
-                    "auth_code",
-                    "AuthCode",
-                    "authorization_code",
-                    "code",
-                    "authCodeInfo",
-                    "auth_code_info",
-                    "AuthCodeInfo",
-                    "refreshToken",
-                    "refresh_token",
-                    "RefreshToken",
-                    "refresh-token",
-                ],
-            )
-            .is_some()
-            {
-                Ok(v)
+            if !duplicate {
+                let bound = callback_is_bound(&value, &expected_state);
+                if text(&value, &["error", "error_code", "err", "errorCode"]).is_some() {
+                    if bound {
+                        outcome = Some(Err("平台取消或拒绝了登录".into()));
+                    }
+                } else {
+                    let code = callback_auth_code(&value);
+                    let refresh = text(
+                        &value,
+                        &[
+                            "refreshToken",
+                            "refresh_token",
+                            "RefreshToken",
+                            "refresh-token",
+                        ],
+                    );
+                    if code.is_some() || (bound && refresh.is_some()) {
+                        outcome = Some(Ok(value));
+                    }
+                }
+            }
+        }
+        let accepted = if let Some(outcome) = outcome {
+            let mut pending = callback.lock().await;
+            if pending.is_none() {
+                *pending = Some(outcome);
+                true
             } else {
-                Err("OAuth 回调缺少凭证参数".into())
-            };
-            outcome = Some(result);
-            *callback.lock().await = outcome.clone();
-        }
-        let response = match &outcome {
-            Some(Ok(_)) => "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n登录回调已收到，请返回 AI-Toolkit。".to_string(),
-            Some(Err(message)) => {
-                format!("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n{message}")
+                false
             }
-            None => "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n".to_string(),
+        } else {
+            false
         };
-        let _ = socket.write_all(response.as_bytes()).await;
+        let response = if accepted {
+            "HTTP/1.1 202 Accepted\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n登录回调已收到，验证完成后请返回 AI-Toolkit。"
+        } else {
+            "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n回调无效、缺少流程绑定或已有回调等待验证，请重试官方登录。"
+        };
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            socket.write_all(response.as_bytes()),
+        )
+        .await;
         let _ = socket.shutdown().await;
-        if outcome.is_some() {
-            return;
-        }
+        // Keep listening until a verified login completes or the original deadline expires.
     }
 }
 #[cfg(test)]
@@ -938,6 +1004,7 @@ mod tests {
         // value, so the callback must appear unencoded and the path exactly /authorize.
         assert!(url.starts_with("https://www.trae.cn/authorization?login_version=1&auth_from=trae&login_channel=native_ide&"));
         assert!(url.contains("&auth_callback_url=http://127.0.0.1:51724/authorize&"));
+        assert!(url.contains("&state=flow-1&"));
         assert!(!url.contains("%2Fauthorize"));
         assert!(url.contains("x_device_brand=My%20Mac"));
         assert!(url.contains("x_os_version=15.5"));
@@ -999,11 +1066,14 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let result = Arc::new(tokio::sync::Mutex::new(None));
+        let done = tokio_util::sync::CancellationToken::new();
         let task = tokio::spawn(listen_callback(
             listener,
             "/authorize/probe".into(),
             result.clone(),
             now_ms() + 5000,
+            "current-flow".into(),
+            done.clone(),
         ));
         let mut socket = tokio::net::TcpStream::connect(addr).await.unwrap();
         socket
@@ -1012,14 +1082,86 @@ mod tests {
             .unwrap();
         tokio::task::yield_now().await;
         socket
-            .write_all(b"mented HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .write_all(format!("mented HTTP/1.1\r\nHost: {addr}\r\n\r\n").as_bytes())
             .await
             .unwrap();
         let mut response = String::new();
         socket.read_to_string(&mut response).await.unwrap();
+        done.cancel();
         task.await.unwrap();
-        assert!(response.starts_with("HTTP/1.1 200"));
+        assert!(response.starts_with("HTTP/1.1 202"));
         let callback = result.lock().await.clone().unwrap().unwrap();
         assert_eq!(callback["authCode"], "fragmented");
+    }
+
+    #[tokio::test]
+    async fn unbound_callbacks_do_not_stop_or_replace_a_pending_login() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let pending = Arc::new(tokio::sync::Mutex::new(None));
+        let done = tokio_util::sync::CancellationToken::new();
+        let task = tokio::spawn(listen_callback(
+            listener,
+            "/authorize".into(),
+            pending.clone(),
+            now_ms() + 5000,
+            "current-flow".into(),
+            done.clone(),
+        ));
+        async fn request(address: std::net::SocketAddr, query: &str, host: &str) -> String {
+            let mut socket = tokio::net::TcpStream::connect(address).await.unwrap();
+            socket
+                .write_all(
+                    format!("GET /authorize?{query} HTTP/1.1\r\nHost: {host}\r\n\r\n").as_bytes(),
+                )
+                .await
+                .unwrap();
+            let mut response = String::new();
+            socket.read_to_string(&mut response).await.unwrap();
+            response
+        }
+        for query in [
+            "error=cancel",
+            "refreshToken=synthetic",
+            "refreshToken=synthetic&state=old-flow",
+            "code=ignored&state=a&state=b",
+        ] {
+            assert!(request(address, query, &address.to_string())
+                .await
+                .starts_with("HTTP/1.1 400"));
+            assert!(pending.lock().await.is_none());
+        }
+        assert!(request(address, "code=ignored", "other.example")
+            .await
+            .starts_with("HTTP/1.1 400"));
+        assert!(request(address, "code=candidate-one", &address.to_string())
+            .await
+            .starts_with("HTTP/1.1 202"));
+        assert!(
+            request(address, "code=cannot-replace", &address.to_string())
+                .await
+                .starts_with("HTTP/1.1 400")
+        );
+        assert_eq!(
+            pending.lock().await.take().unwrap().unwrap()["code"],
+            "candidate-one"
+        );
+        // Consuming a failed PKCE candidate leaves the listener available for the real browser.
+        assert!(request(address, "code=candidate-two", &address.to_string())
+            .await
+            .starts_with("HTTP/1.1 202"));
+        assert_eq!(
+            pending.lock().await.take().unwrap().unwrap()["code"],
+            "candidate-two"
+        );
+        assert!(request(
+            address,
+            "refreshToken=synthetic&state=current-flow",
+            &address.to_string()
+        )
+        .await
+        .starts_with("HTTP/1.1 202"));
+        done.cancel();
+        task.await.unwrap();
     }
 }

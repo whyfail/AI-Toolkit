@@ -836,7 +836,7 @@ mod tests {
             json!({"type":"image_url","image_url":{"url":"https://example.test/screenshot.png"}});
         let messages = json!([
             {"role":"user","content":[image.clone()]},
-            {"role":"assistant","content":null,"tool_calls":[{"id":"call_image","type":"function","function":{"name":"Read","arguments":"{}"}}]},
+            {"role":"assistant","content":null,"reasoning_content":"inspect the screenshot","tool_calls":[{"id":"call_image","type":"function","function":{"name":"Read","arguments":"{}"}}]},
             {"role":"tool","tool_call_id":"call_image","content":[{"type":"text","text":"[tool_result is_error=true]\n"},remote.clone(),image.clone()]},
             {"role":"user","content":[{"type":"text","text":"compare both images"},image,remote]},
         ]);
@@ -845,6 +845,10 @@ mod tests {
             assert_eq!(body["messages"][index], messages[index]);
         }
         assert_eq!(body["messages"][1]["tool_calls"][0]["id"], "call_image");
+        assert_eq!(
+            body["messages"][1]["reasoning_content"],
+            "inspect the screenshot"
+        );
         assert_eq!(
             body["messages"][1]["tool_calls"][0]["function_call"]["name"],
             "Read"

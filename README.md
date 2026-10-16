@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.0.2-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -15,6 +15,13 @@
 ## 📖 简介
 
 AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MCP 服务器、Skills 技能、平台积分与本地模型代理**。当前版本提供 Skills 管理、MCP 服务器、积分与代理、设置、关于五个面板，支持 24 种工具的本地安装检测与配置适配。
+
+## 🆕 v2.1.0 更新
+
+- **长会话与图片历史**：两种代理协议的请求正文上限统一为 32 MiB，保留无签名思考内容、图片与工具调用历史；正文过大、JSON 无效与 Content-Type 错误分别返回明确状态。详见 [积分与模型代理](docs/credits-proxy.md)。
+- **Skills 操作加固**：安装、更新、导入、同步、重命名与删除统一校验名称、目录归属和来源身份；目录替换失败时恢复旧内容，Git 缓存使用用户私有目录并限制处理资源。
+- **桌面与凭据边界**：WebView 限制可信来源导航，外链交由系统浏览器；OAuth 加强 state、PKCE 和回环回调校验，数据库与缓存使用受限文件权限。
+- **依赖与构建更新**：更新 Tauri、Vite、PostCSS 等依赖，原生签名变量不再暴露给前端环境。验证范围与剩余事项见 [安全加固记录](docs/security-hardening.md)。
 
 ## ✨ 核心特性
 

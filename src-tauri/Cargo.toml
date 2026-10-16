@@ -1,6 +1,6 @@
 [package]
 name = "AiToolkit"
-version = "2.0.2"
+version = "2.1.0"
 description = "Universal MCP Server & Skills Manager for AI CLI Tools"
 authors = ["you"]
 edition = "2021"
@@ -13,7 +13,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2.11.1", features = ["tray-icon"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
@@ -64,9 +64,13 @@ security-framework = "3.7"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6", features = ["windows-native"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_System_JobObjects"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3.6", features = ["sync-secret-service", "crypto-rust", "vendored"] }
 
 [dev-dependencies]
-tauri = { version = "2", features = ["test"] }
+tauri = { version = "2.11.1", features = ["test"] }

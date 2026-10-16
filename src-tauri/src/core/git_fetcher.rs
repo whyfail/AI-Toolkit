@@ -1,6 +1,7 @@
+use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::utils::SuppressConsole;
 use anyhow::{Context, Result};
@@ -8,6 +9,7 @@ use anyhow::{Context, Result};
 /// Clone or update a git repository.
 /// Returns the HEAD commit hash.
 pub fn clone_or_pull(repo_url: &str, dest: &Path, branch: Option<&str>) -> Result<String> {
+    validate_git_source(repo_url, branch)?;
     // Ensure parent exists so `git clone` can create dest.
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)
@@ -15,7 +17,7 @@ pub fn clone_or_pull(repo_url: &str, dest: &Path, branch: Option<&str>) -> Resul
     }
 
     if dest.exists() && dest.join(".git").exists() {
-        // Pull updates
+        validate_cached_origin(repo_url, dest)?;
         fetch_and_checkout(dest, branch)
     } else {
         // Clone
@@ -48,7 +50,7 @@ fn git_clone(repo_url: &str, dest: &Path, branch: Option<&str>) -> Result<String
     if let Some(b) = branch {
         cmd.arg("--branch").arg(b).arg("--single-branch");
     }
-    cmd.arg(repo_url).arg(dest);
+    cmd.arg("--").arg(repo_url).arg(dest);
 
     let output = run_command_with_timeout(&mut cmd, Duration::from_secs(300))
         .with_context(|| format!("git clone {} into {:?}", repo_url, dest))?;
@@ -95,7 +97,7 @@ fn fetch_and_checkout(dest: &Path, branch: Option<&str>) -> Result<String> {
                 .stderr(Stdio::piped())
                 .arg("-C")
                 .arg(dest)
-                .args(["checkout", "-B", b, &format!("origin/{}", b)])
+                .args(["checkout", "-B", b, &format!("origin/{}", b), "--"])
                 .env("GIT_TERMINAL_PROMPT", "0"),
             Duration::from_secs(60),
         )
@@ -132,14 +134,16 @@ fn fetch_and_checkout(dest: &Path, branch: Option<&str>) -> Result<String> {
 }
 
 fn get_head_revision(dest: &Path) -> Result<String> {
-    let output = Command::new("git")
-        .suppress_console()
-        .arg("-C")
-        .arg(dest)
-        .arg("rev-parse")
-        .arg("HEAD")
-        .output()
-        .with_context(|| format!("git rev-parse HEAD in {:?}", dest))?;
+    let output = run_command_with_timeout(
+        Command::new("git")
+            .suppress_console()
+            .arg("-C")
+            .arg(dest)
+            .arg("rev-parse")
+            .arg("HEAD"),
+        Duration::from_secs(15),
+    )
+    .with_context(|| format!("git rev-parse HEAD in {:?}", dest))?;
 
     if !output.status.success() {
         anyhow::bail!("git rev-parse failed");
@@ -148,13 +152,224 @@ fn get_head_revision(dest: &Path) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn run_command_with_timeout(cmd: &mut Command, _timeout: Duration) -> Result<std::process::Output> {
-    // 使用 cmd.output() 代替 spawn + try_wait 轮询
-    // output() 会同时读取 stdout/stderr 管道，避免缓冲区满导致死锁
-    // 之前的 try_wait 轮询方式从不读取管道，git clone 输出量大时
-    // 管道缓冲区被填满，导致 git 进程阻塞在 write() 上永远无法退出
-    let output = cmd
-        .output()
-        .with_context(|| format!("spawn command: {:?}", cmd))?;
-    Ok(output)
+pub(crate) fn validate_git_source(repo_url: &str, branch: Option<&str>) -> Result<()> {
+    if repo_url.is_empty()
+        || repo_url.starts_with('-')
+        || repo_url.chars().any(char::is_control)
+        || repo_url.contains("::")
+    {
+        anyhow::bail!("不支持的 Git 来源");
+    }
+    if !Path::new(repo_url).exists() {
+        let allowed_url = reqwest::Url::parse(repo_url).ok().is_some_and(|url| {
+            matches!(url.scheme(), "https" | "http" | "ssh" | "git" | "file")
+                && (url.scheme() == "file" || url.host_str().is_some())
+        });
+        let scp = repo_url.split_once(':').is_some_and(|(host, path)| {
+            !host.is_empty()
+                && !path.is_empty()
+                && !host.starts_with('-')
+                && host
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || ".-_@".contains(c))
+        });
+        if !allowed_url && !scp {
+            anyhow::bail!("不支持的 Git URL 或本地路径");
+        }
+    }
+    if let Some(branch) = branch {
+        if branch.is_empty()
+            || branch.starts_with(['-', '/'])
+            || branch.ends_with(['/', '.'])
+            || branch.contains("..")
+            || branch.contains("@{")
+            || branch.contains("//")
+            || branch
+                .split('/')
+                .any(|part| part.is_empty() || part.starts_with('.') || part.ends_with(".lock"))
+            || branch
+                .chars()
+                .any(|c| c.is_whitespace() || c.is_control() || "~^:?*[\\".contains(c))
+        {
+            anyhow::bail!("无效的 Git 分支名称");
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_cached_origin(repo_url: &str, dest: &Path) -> Result<()> {
+    super::private_fs::ensure_private_dir(dest)?;
+    super::private_fs::ensure_private_dir(&dest.join(".git"))?;
+    super::private_fs::secure_file(&dest.join(".git/config"))?;
+    let output = run_command_with_timeout(
+        Command::new("git")
+            .suppress_console()
+            .arg("-C")
+            .arg(dest)
+            .args(["config", "--get", "remote.origin.url"]),
+        Duration::from_secs(10),
+    )?;
+    let origin = String::from_utf8(output.stdout)?;
+    if !output.status.success()
+        || origin.trim().trim_end_matches('/') != repo_url.trim_end_matches('/')
+    {
+        anyhow::bail!("Git 缓存来源与请求不一致");
+    }
+    Ok(())
+}
+
+pub(crate) fn run_command_with_timeout(
+    cmd: &mut Command,
+    timeout: Duration,
+) -> Result<std::process::Output> {
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    let mut child = cmd.spawn().context("启动 Git 子进程失败")?;
+    #[cfg(windows)]
+    let job = ProcessJob::attach(&mut child)?;
+    #[cfg(unix)]
+    let pid = child.id();
+    // Drain both pipes concurrently, retaining a bounded diagnostic prefix.
+    fn drain(mut pipe: impl Read) -> std::io::Result<Vec<u8>> {
+        let mut result = Vec::new();
+        let mut buffer = [0u8; 16384];
+        loop {
+            let n = pipe.read(&mut buffer)?;
+            if n == 0 {
+                return Ok(result);
+            }
+            let keep = n.min((2 * 1024 * 1024usize).saturating_sub(result.len()));
+            result.extend_from_slice(&buffer[..keep]);
+        }
+    }
+    let stdout = child.stdout.take().context("缺少 stdout 管道")?;
+    let stderr = child.stderr.take().context("缺少 stderr 管道")?;
+    let out = std::thread::spawn(move || drain(stdout));
+    let err = std::thread::spawn(move || drain(stderr));
+    let deadline = Instant::now() + timeout;
+    let status = (|| -> std::io::Result<_> {
+        loop {
+            if let Some(status) = child.try_wait()? {
+                return Ok(Some(status));
+            }
+            if Instant::now() >= deadline {
+                return Ok(None);
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    })();
+    // A command and its helpers share a fresh process group on Unix.
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(-(pid as i32), libc::SIGKILL);
+    }
+    #[cfg(windows)]
+    drop(job);
+    if !matches!(status, Ok(Some(_))) {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+    let stdout = out
+        .join()
+        .map_err(|_| anyhow::anyhow!("stdout 读取线程失败"))??;
+    let stderr = err
+        .join()
+        .map_err(|_| anyhow::anyhow!("stderr 读取线程失败"))??;
+    let status = status?
+        .ok_or_else(|| anyhow::anyhow!("Git 操作超时（{} 秒），子进程已终止", timeout.as_secs()))?;
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+#[cfg(windows)]
+struct ProcessJob(windows_sys::Win32::Foundation::HANDLE);
+
+#[cfg(windows)]
+impl ProcessJob {
+    fn attach(child: &mut std::process::Child) -> Result<Self> {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::System::JobObjects::*;
+        unsafe {
+            let handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if handle.is_null() {
+                let error = std::io::Error::last_os_error();
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error.into());
+            }
+            let job = Self(handle);
+            let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            if SetInformationJobObject(
+                handle,
+                JobObjectExtendedLimitInformation,
+                (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                std::mem::size_of_val(&limits) as u32,
+            ) == 0
+                || AssignProcessToJobObject(handle, child.as_raw_handle()) == 0
+            {
+                let error = std::io::Error::last_os_error();
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error.into());
+            }
+            Ok(job)
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ProcessJob {
+    fn drop(&mut self) {
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(self.0);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn git_sources_reject_helpers_and_option_inputs_but_allow_ssh_and_slash_branches() {
+        for url in ["-oops", "ext::invalid", "https://example.test/repo\narg"] {
+            assert!(validate_git_source(url, None).is_err());
+        }
+        for url in [
+            "https://example.test/repo.git",
+            "ssh://git@example.test/repo",
+            "git@example.test:repo.git",
+        ] {
+            validate_git_source(url, Some("feature/security-fix")).unwrap();
+        }
+        assert!(validate_git_source("https://example.test/repo", Some("--bad")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn timeout_drains_pipes_and_terminates_descendants() {
+        let sandbox = tempfile::tempdir().unwrap();
+        let marker = sandbox.path().join("late-marker");
+        let mut command = Command::new("sh");
+        command
+            .args([
+                "-c",
+                "(sleep 0.4; touch \"$1\") & while :; do printf '%8192s' x >&2; done",
+                "test",
+            ])
+            .arg(&marker);
+        let started = Instant::now();
+        assert!(run_command_with_timeout(&mut command, Duration::from_millis(100)).is_err());
+        assert!(started.elapsed() < Duration::from_secs(2));
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(!marker.exists());
+    }
 }

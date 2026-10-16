@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.0.2-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -15,6 +15,13 @@
 ## 📖 Introduction
 
 AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and a local model proxy**. The current version has five panels: Skills, MCP Servers, Credits & Proxy, Settings, and About, with local installation detection and configuration adapters for 24 AI programming tools.
+
+## 🆕 What's New in v2.1.0
+
+- **Long conversations and image history**: Both proxy protocols accept request bodies up to 32 MiB and preserve unsigned reasoning, images, and tool history. Oversized bodies, invalid JSON, and incorrect Content-Type return distinct errors. See [Credits & Model Proxy](docs/credits-proxy.md).
+- **Safer Skill operations**: Installation, updates, imports, syncing, renaming, and deletion validate names, directory boundaries, and source identity. Failed replacements restore the previous content; Git caches use private user directories and bounded resource usage.
+- **Desktop and credential boundaries**: WebView navigation is limited to trusted origins, external links open in the system browser, OAuth validates state, PKCE, and loopback callbacks, and databases and caches use restricted file permissions.
+- **Dependency and build updates**: Update Tauri, Vite, PostCSS, and related dependencies, and exclude native signing variables from the frontend environment. See [Security hardening](docs/security-hardening.md) for validation scope and remaining items.
 
 ## ✨ Key Features
 

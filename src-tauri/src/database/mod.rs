@@ -33,14 +33,13 @@ impl Database {
 
     pub fn new() -> Result<Self, AppError> {
         let db_path = Self::get_db_path()?;
+        Self::open_private(&db_path)
+    }
 
-        // 确保目录存在
-        if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                AppError::Database(format!("Failed to create database directory: {}", e))
-            })?;
-        }
-
+    fn open_private(db_path: &Path) -> Result<Self, AppError> {
+        crate::core::private_fs::prepare_private_file(db_path)
+            .map_err(|e| AppError::Database(format!("保护数据库文件失败: {e:#}")))?;
+        Self::secure_sidecars(db_path)?;
         let conn = Connection::open(&db_path)
             .map_err(|e| AppError::Database(format!("Failed to open database: {}", e)))?;
 
@@ -50,8 +49,23 @@ impl Database {
 
         // 初始化表
         db.init_schema()?;
-
+        Self::secure_sidecars(db_path)?;
         Ok(db)
+    }
+
+    fn secure_sidecars(db_path: &Path) -> Result<(), AppError> {
+        for suffix in ["-journal", "-wal", "-shm"] {
+            let mut name = db_path.as_os_str().to_os_string();
+            name.push(suffix);
+            let path = PathBuf::from(name);
+            match std::fs::symlink_metadata(&path) {
+                Ok(_) => crate::core::private_fs::secure_file(&path)
+                    .map_err(|e| AppError::Database(format!("保护 SQLite 辅助文件失败: {e:#}")))?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(AppError::Database(error.to_string())),
+            }
+        }
+        Ok(())
     }
 
     fn get_db_path() -> Result<PathBuf, AppError> {
@@ -432,6 +446,43 @@ macro_rules! lock_conn {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn private_database_tightens_existing_files_and_wal_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let sandbox = tempfile::tempdir().unwrap();
+        let directory = sandbox.path().join("data");
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("database.db");
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE existing (value TEXT); INSERT INTO existing VALUES ('preserved');",
+            )
+            .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let db = Database::open_private(&path).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let conn = db.conn.lock();
+        assert_eq!(
+            conn.query_row("SELECT value FROM existing", [], |row| row
+                .get::<_, String>(0))
+                .unwrap(),
+            "preserved"
+        );
+        conn.execute_batch("PRAGMA journal_mode=WAL; INSERT INTO existing VALUES ('new');")
+            .unwrap();
+        for suffix in ["-wal", "-shm"] {
+            let permissions = std::fs::metadata(format!("{}{suffix}", path.display()))
+                .unwrap()
+                .permissions();
+            assert_eq!(permissions.mode() & 0o777, 0o600);
+        }
+    }
     use crate::mcp::AppType;
     use parking_lot::Mutex;
     use rusqlite::Connection;

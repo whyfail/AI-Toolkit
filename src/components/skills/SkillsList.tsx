@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
+import { open as openUrl } from '@tauri-apps/plugin-shell';
 import remarkGfm from 'remark-gfm';
 import * as dialog from '@tauri-apps/plugin-dialog';
 import { GitBranch, Folder, Trash2, Sparkles, X, FileText, Github, RefreshCw, Pencil, ExternalLink, CheckCircle } from 'lucide-react';
@@ -12,6 +13,17 @@ import { Modal } from '@/components/ui/Modal';
 import { MotionList, MotionListItem } from '@/components/ui/MotionList';
 
 type SkillFilter = 'all' | 'git' | 'local' | 'synced' | 'unsynced';
+
+const markdownComponents: Components = {
+  a: ({ href, children, title }) => {
+    if (href?.startsWith('#')) return <a href={href} title={title}>{children}</a>;
+    if (!href || !/^https?:\/\//i.test(href)) return <span>{children}</span>;
+    return <a href={href} title={title} rel="noreferrer noopener" onClick={(event) => {
+      event.preventDefault();
+      void openUrl(href).catch(() => toast.error('无法打开文档链接'));
+    }}>{children}</a>;
+  },
+};
 
 interface SkillsListProps {
   skills: ManagedSkill[];
@@ -330,6 +342,11 @@ function SkillsList({
                       {sourceTypeLabel(skill.source_type)}
                       {skill.targets.length > 0 && ` · ${skill.targets.length} 个同步目标`}
                     </p>
+                    {skill.status === 'invalid' && (
+                      <p className="mt-1 text-xs text-amber-700 dark:text-amber-300" role="status">
+                        名称或来源路径不安全，请重命名或检查技能目录。
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -559,7 +576,7 @@ function SkillsList({
                         dark:[&_td]:border-white/8
                         [&_tr]:border [&_tr]:border-white/40 dark:[&_tr]:border-white/8
                         [&_table]:block [&_table]:overflow-x-auto">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{parsed.body}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{parsed.body}</ReactMarkdown>
                       </div>
                     );
                   })()

@@ -1,6 +1,6 @@
 {
   "name": "ai-toolkit",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "description": "Universal MCP Server & Skills Manager for AI CLI Tools",
   "author": "whyfail",
   "license": "MIT",
@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "vite",
     "lint": "oxlint src",
-    "check": "tsc --noEmit && oxlint src && node --test scripts/desktop-runtime.test.mjs scripts/qoder-rewards.test.mjs",
+    "check": "tsc --noEmit && oxlint src && node --test scripts/desktop-runtime.test.mjs scripts/qoder-rewards.test.mjs scripts/security-config.test.mjs",
     "build": "tsc && vite build",
     "version:sync": "node scripts/sync-version.mjs",
     "preview": "vite preview",
@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.60.0",
-    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "@tauri-apps/plugin-fs": "^2.0.0",
     "@tauri-apps/plugin-shell": "^2.0.0",
@@ -35,16 +35,16 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0",
+    "@tauri-apps/cli": "^2.12.3",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.3",
+    "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.20",
     "oxlint": "^1.62.0",
-    "postcss": "^8.4.47",
+    "postcss": "^8.5.30",
     "react-grab": "^0.1.32",
     "tailwindcss": "^3.4.14",
     "typescript": "^5.6.3",
-    "vite": "^5.4.10"
+    "vite": "^6.4.4"
   }
 }
