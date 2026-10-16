@@ -40,7 +40,7 @@ AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and
 - **Batch Sync**: Click to select multiple Skills in the sync modal and sync them to multiple target tools at once
 - **Git Installation**: Install Skills from GitHub/GitLab repositories with automatic repository structure parsing
 - **Online Search**: Search trending Skills from skills.sh
-- **Featured Recommendations**: Browse featured Skills with install counts and star information
+- **Popular Skills**: Browse the top 20 skills from skills.sh by cumulative installs, with detailed errors and a retry action if loading fails
 - **One-Click Update**: Auto-detect Skills with updates available and quick update support
 - **Delete Confirmation**: Confirm before deletion that the Skill will be removed from the central repository and all synced tools; the operation cannot be undone
 - **Sync Progress and Conflict Strategy**: Batch sync shows per-item progress; duplicate Skill names can be renamed, skipped, or overwritten

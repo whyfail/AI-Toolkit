@@ -1100,9 +1100,7 @@ pub async fn search_skills_online(
 pub struct FeaturedSkillDto {
     pub slug: String,
     pub name: String,
-    pub summary: String,
-    pub downloads: u64,
-    pub stars: u64,
+    pub installs: u64,
     pub source_url: String,
 }
 
@@ -1111,9 +1109,7 @@ impl From<FeaturedSkill> for FeaturedSkillDto {
         Self {
             slug: s.slug,
             name: s.name,
-            summary: s.summary,
-            downloads: s.downloads,
-            stars: s.stars,
+            installs: s.installs,
             source_url: s.source_url,
         }
     }
@@ -1127,7 +1123,7 @@ pub async fn get_featured_skills() -> Result<Vec<FeaturedSkillDto>, String> {
     })
     .await
     .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())
+    .map_err(|e| format!("{e:#}"))
 }
 
 #[derive(Clone, Debug, Serialize)]

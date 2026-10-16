@@ -72,9 +72,7 @@ export type UpdateResultDto = {
 export type FeaturedSkillDto = {
   slug: string
   name: string
-  summary: string
-  downloads: number
-  stars: number
+  installs: number
   source_url: string
 }
 

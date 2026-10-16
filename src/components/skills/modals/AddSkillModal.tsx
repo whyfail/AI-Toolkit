@@ -1,24 +1,16 @@
 import { useState, useCallback, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
 import * as dialog from '@tauri-apps/plugin-dialog';
 import { motion } from 'motion/react';
-import { GitBranch, Folder, Search, X, ChevronRight, Loader2, Check, Globe, Star, ArrowLeft, ExternalLink, Eye, RotateCcw } from 'lucide-react';
+import { GitBranch, Folder, Search, X, ChevronRight, Loader2, Check, Globe, Star, ArrowLeft, ExternalLink, Eye, RotateCcw, Download } from 'lucide-react';
 import { toast } from 'sonner';
-import type { ToolOption, OnlineSkillDto } from '../types';
+import type { ToolOption, OnlineSkillDto, FeaturedSkillDto } from '../types';
 import GitPickModal, { type GitSkillCandidate } from './GitPickModal';
 import { APP_COLORS } from '@/lib/tools';
 import { skillsApi } from '@/lib/api';
 import { Pressable } from '@/components/ui/Pressable';
 import { Modal } from '@/components/ui/Modal';
-
-interface FeaturedSkillDto {
-  slug: string;
-  name: string;
-  summary: string;
-  downloads: number;
-  stars: number;
-  source_url: string;
-}
 
 interface AddSkillModalProps {
   open: boolean;
@@ -100,9 +92,17 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  // Featured skills state
-  const [featuredSkills, setFeaturedSkills] = useState<FeaturedSkillDto[]>([]);
-  const [featuredLoading, setFeaturedLoading] = useState(false);
+  const {
+    data: featuredSkills = [],
+    isFetching: featuredLoading,
+    error: featuredError,
+    refetch: loadFeaturedSkills,
+  } = useQuery({
+    queryKey: ['skills', 'featured'],
+    queryFn: skillsApi.getFeaturedSkills,
+    enabled: open && activeTab === 'online',
+    retry: false,
+  });
 
   // Detail modal state
   const [detailSkill, setDetailSkill] = useState<FeaturedSkillDto | OnlineSkillDto | null>(null);
@@ -117,25 +117,6 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
 
   // 每个选中候选技能的自定义名称映射：subpath -> 自定义名称
   const [gitSkillNames, setGitSkillNames] = useState<Record<string, string>>({});
-
-  const loadFeaturedSkills = useCallback(async () => {
-    setFeaturedLoading(true);
-    try {
-      const skills = await skillsApi.getFeaturedSkills();
-      setFeaturedSkills(skills);
-    } catch (err) {
-      console.error('Failed to load featured skills:', err);
-    } finally {
-      setFeaturedLoading(false);
-    }
-  }, []);
-
-  // Load featured skills when entering online tab
-  useEffect(() => {
-    if (activeTab === 'online' && featuredSkills.length === 0) {
-      loadFeaturedSkills();
-    }
-  }, [activeTab, featuredSkills.length, loadFeaturedSkills]);
 
   useEffect(() => {
     if (!open) return;
@@ -523,27 +504,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                   </div>
                 </div>
 
-                {'summary' in detailSkill && detailSkill.summary && (
-                  <div className="glass-code rounded-xl p-4">
-                    <p className="text-sm leading-relaxed">
-                      {detailSkill.summary}
-                    </p>
-                  </div>
-                )}
-
                 <div className="flex items-center gap-6">
-                  {'stars' in detailSkill && (
-                    <div className="flex items-center gap-1.5 text-sm">
-                      <Star size={14} className="text-yellow-500" />
-                      <span>{formatCount(detailSkill.stars)}</span>
-                    </div>
-                  )}
-                  {'downloads' in detailSkill && (
-                    <div className="flex items-center gap-1.5 text-sm">
-                      <span className="text-slate-500 dark:text-slate-400">下载:</span>
-                      <span>{formatCount(detailSkill.downloads)}</span>
-                    </div>
-                  )}
                   {'installs' in detailSkill && (
                     <div className="flex items-center gap-1.5 text-sm">
                       <span className="text-slate-500 dark:text-slate-400">安装:</span>
@@ -934,11 +895,21 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                     {!onlineQuery.trim() && (
                       <div className="space-y-3">
                         <p className="text-xs text-[hsl(var(--muted-foreground))] font-medium">
-                          热门技能
+                          热门技能 · 累计安装量
                         </p>
                         {featuredLoading ? (
-                          <div className="flex items-center justify-center py-8">
+                          <div role="status" aria-label="正在加载热门技能" className="flex items-center justify-center py-8">
                             <Loader2 size={20} className="animate-spin text-[hsl(var(--muted-foreground))]" />
+                          </div>
+                        ) : featuredError ? (
+                          <div className="space-y-3 py-8 text-center text-sm">
+                            <p role="alert" className="text-red-500">
+                              {featuredError instanceof Error ? featuredError.message : String(featuredError)}
+                            </p>
+                            <Pressable onClick={() => { void loadFeaturedSkills(); }} className="glass-secondary-button">
+                              <RotateCcw size={14} />
+                              重试加载
+                            </Pressable>
                           </div>
                         ) : featuredSkills.length > 0 ? (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -954,9 +925,9 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                                 <div className="flex-1 min-w-0">
                                   <div className="text-sm font-medium truncate">{skill.name}</div>
                                   <div className="flex items-center gap-2 mt-0.5">
-                                    <Star size={10} className="text-yellow-500" />
+                                    <Download size={10} />
                                     <span className="text-xs text-[hsl(var(--muted-foreground))]">
-                                      {formatCount(skill.stars)}
+                                      {formatCount(skill.installs)} 次安装
                                     </span>
                                   </div>
                                 </div>
@@ -965,7 +936,7 @@ function AddSkillModal({ open, onClose, tools, syncTargets, onSyncTargetChange, 
                           </div>
                         ) : (
                           <div className="text-center py-8 text-sm text-[hsl(var(--muted-foreground))]">
-                            加载热门技能失败
+                            暂无热门技能
                           </div>
                         )}
                       </div>
