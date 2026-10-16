@@ -10,6 +10,10 @@ on:
         description: 'Release Version (e.g., 2.1.0)'
         required: true
         default: '2.1.0'
+      publish:
+        description: 'Publish the release after building both platforms'
+        type: boolean
+        default: true
 
 env:
   CARGO_INCREMENTAL: 0
@@ -304,6 +308,7 @@ jobs:
 
   publish-release:
     name: Publish GitHub Release
+    if: github.event_name != 'workflow_dispatch' || inputs.publish
     runs-on: ubuntu-22.04
     needs: [release-macos, release-windows]
     permissions:

@@ -7,6 +7,7 @@
 - **长会话图片历史**：OpenAI Chat Completions 与 Anthropic Messages 的请求正文上限统一为 32 MiB，支持超过原 4 MiB 限制的图片与工具历史；正文超限返回 HTTP 413，JSON 无效返回 HTTP 400，Content-Type 错误返回 HTTP 415，入口错误不再混为模型图片能力问题。
 - **思考历史兼容**：ZCode 的无签名或空签名 `assistant.thinking` 转为独立的 `reasoning_content`，按顺序保留思考、正文和工具调用；带非空签名或加密的 Anthropic 思考块仍明确拒绝。
 - **系统版本显示**：界面初始版本从 `package.json` 读取，并继续使用桌面端版本结果，避免加载期间显示旧的固定版本号。
+- **Windows 私有目录**：兼容管理员进程的默认所有者组，避免误拒绝新建缓存和数据库；受保护 DACL 显式授予当前用户与 SYSTEM，补充 Windows 所有者和实际 ACL 回归测试。
 
 ### 安全加固
 
