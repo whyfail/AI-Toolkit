@@ -180,9 +180,12 @@ impl State {
             });
             return;
         }
-        let actual = text(&v, &["model", "model_name", "selected_model"]);
-        if actual.is_some() {
-            self.identity = actual;
+        // TRAE's extra_info.model identifies a deployment endpoint (ep-...),
+        // not the selected model reported by its metadata event.
+        if self.platform != Platform::Traework || event != "extra_info" {
+            if let Some(actual) = text(&v, &["model", "model_name", "selected_model"]) {
+                self.identity = Some(actual);
+            }
         }
         if self.platform == Platform::Traework {
             match event {
@@ -321,6 +324,53 @@ data: {"tool_calls":[{"index":0,"id":"c","function_call":{"name":"read","argumen
             assert!(call.get("id").is_none());
             assert_eq!(call["index"], 0);
             assert_eq!(call["function"]["arguments"], "partial");
+        }
+    }
+
+    #[test]
+    fn trae_deployment_statistics_do_not_replace_the_model_identity() {
+        for identity in ["", "deepseek-v4.1-flash", "different-model"] {
+            let mut s = state(Platform::Traework);
+            for (event, data) in [
+                ("metadata", json!({"model":identity})),
+                (
+                    "timing_cost",
+                    json!({"provider_model_name":"ep-fixture-deployment"}),
+                ),
+                (
+                    "output",
+                    json!({"response":"OK","reasoning_content":null,"tool_calls":null}),
+                ),
+                (
+                    "extra_info",
+                    json!({"model":"ep-fixture-deployment","input_token":34,"version":1}),
+                ),
+                (
+                    "token_usage",
+                    json!({"prompt_tokens":34,"completion_tokens":76}),
+                ),
+                ("done", json!({"finish_reason":"stop"})),
+            ] {
+                s.parse(format!("event: {event}\ndata: {data}").as_bytes());
+            }
+            assert!(s.finished && s.ended);
+            let chunks: Vec<_> = s.queue.into_iter().map(Result::unwrap).collect();
+            for chunk in &chunks {
+                assert_eq!(
+                    chunk.upstream_model.as_deref(),
+                    (!identity.is_empty()).then_some(identity)
+                );
+            }
+            assert!(chunks
+                .iter()
+                .any(|chunk| chunk.data["choices"][0]["delta"]["content"] == "OK"));
+            assert!(chunks
+                .iter()
+                .any(|chunk| chunk.data["usage"]["completion_tokens"] == 76));
+            assert_eq!(
+                chunks.last().unwrap().data["choices"][0]["finish_reason"],
+                "stop"
+            );
         }
     }
 
