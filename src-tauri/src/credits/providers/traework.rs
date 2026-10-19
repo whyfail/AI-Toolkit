@@ -369,12 +369,34 @@ pub(super) fn parse_models(v: &Value) -> Vec<ModelInfo> {
             {
                 return None;
             }
-            Some(model(
-                id,
-                name,
-                m.pointer("/context_window_tokens/dev")
-                    .and_then(Value::as_u64),
-            ))
+            let contact = m["display_contact_config"]
+                .as_str()
+                .and_then(|config| serde_json::from_str::<Value>(config).ok())
+                .unwrap_or(Value::Null);
+            let upstream_model_ids = m["model_detail_list"]
+                .as_array().into_iter().flatten()
+                .filter_map(|detail| underlying_model_id(&detail["model_name"], &id))
+                .fold(Vec::new(), |mut ids, id| {
+                    if !ids.contains(&id) { ids.push(id); }
+                    ids
+                });
+            Some(ModelInfo {
+                upstream_model_ids,
+                // A hidden multimodal badge is not a declaration that the model
+                // cannot read images. Keep it unknown unless support is advertised.
+                supports_images: flag(&contact["multimodal"], &["enable"])
+                    .filter(|supported| *supported)
+                    .or_else(|| {
+                        flag(&m["display_config"], &["multimodal"]).filter(|supported| *supported)
+                    }),
+                supports_reasoning: flag(&contact["reasoning"], &["enable"])
+                    .filter(|supported| *supported),
+                ..model(
+                    id,
+                    name,
+                    token_limit(&m["context_window_tokens"], &["max", "dev"]),
+                )
+            })
         })
         .collect()
 }
@@ -602,6 +624,55 @@ pub(super) async fn chat(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn catalog_model_ids_preserve_versions_and_exclude_internal_names() {
+        let models = parse_models(&json!({"config_info_list":[
+            {"config_name":"deepseek-flash","display_config":{"display_name":"DeepSeek Flash"},"model_detail_list":[
+                {"model_name":"deepseek-v4-1-flash-260910"},
+                {"model_name":"deepseek-v4-1-flash-260910"},
+                {"model_name":"deepseek-v4-1-flash-261017"},
+                {"model_name":"deepseek-flash__dev"},
+                {"model_name":"ep-deployment"},
+                {"model_name":""}
+            ]},
+            {"config_name":"hidden","display_config":{"display_name":"Hidden"},"model_detail_list":[{"model_name":"hidden__dev","encrypted_model_params":{"EncryptedStr":"opaque"}}]}
+        ]}));
+        assert_eq!(models[0].upstream_model_ids, vec!["deepseek-v4-1-flash-260910", "deepseek-v4-1-flash-261017"]);
+        assert!(models[1].upstream_model_ids.is_empty());
+        let b = chat_body(json!({"messages":[{"role":"user","content":"hello"}]}), &models[0].id).unwrap();
+        assert_eq!(b["config_name"], "deepseek-flash");
+    }
+
+    #[test]
+    fn context_uses_advertised_maximum_when_present() {
+        let models = parse_models(&json!({"config_info_list":[
+            {"config_name":"large-window","display_config":{"display_name":"Large"},"context_window_tokens":{"dev":200000,"max":1000000}},
+            {"config_name":"fixed-window","display_config":{"display_name":"Fixed"},"context_window_tokens":{"dev":200000}},
+            {"config_name":"invalid-window","display_config":{"display_name":"Invalid"},"context_window_tokens":{"dev":256000,"max":0}}
+        ]}));
+        assert_eq!(models.iter().map(|m| m.context_window).collect::<Vec<_>>(), vec![Some(1000000), Some(200000), Some(256000)]);
+    }
+
+    #[test]
+    fn model_info_uses_advertised_capabilities_without_guessing_output_limits() {
+        let models = parse_models(&json!({"config_info_list":[
+            {"config_name":"vision-model","display_config":{"display_name":"Vision model","multimodal":true},"context_window_tokens":{"dev":200000},"display_contact_config":"{\"reasoning\":{\"enable\":true},\"multimodal\":{\"enable\":true}}","reasoning_effort_config":{"support_thinking":false}},
+            {"config_name":"hidden-badges","display_config":{"display_name":"Hidden badges","multimodal":false},"display_contact_config":"{\"reasoning\":{\"enable\":false}}"},
+            {"config_name":"unknown","display_config":{"display_name":"Unknown"},"display_contact_config":"invalid-json"}
+        ]}));
+        assert_eq!(models.len(), 3);
+        assert_eq!(models[0].context_window, Some(200000));
+        assert_eq!(models[0].supports_images, Some(true));
+        assert_eq!(models[0].supports_reasoning, Some(true));
+        for model in &models {
+            assert_eq!(model.max_output_tokens, None);
+        }
+        for model in &models[1..] {
+            assert_eq!(model.supports_images, None);
+            assert_eq!(model.supports_reasoning, None);
+        }
+    }
 
     #[tokio::test]
     async fn desktop_identity_and_balance_use_the_session_token() {

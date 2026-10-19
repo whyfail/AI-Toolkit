@@ -209,6 +209,28 @@ fn signed(
     }
     Ok(r)
 }
+fn context_windows(m: &Value) -> Vec<u64> {
+    // Qoder's context_config tiers can exceed max_input_tokens, which is
+    // the legacy input budget rather than the largest selectable window.
+    let mut windows: Vec<u64> = m["context_config"]
+        .as_object()
+        .into_iter()
+        .flat_map(|tiers| tiers.values())
+        .filter_map(|tier| token_limit(tier, &["token_count"]))
+        .collect();
+    if windows.is_empty() {
+        windows = m["available_context_windows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_u64)
+            .filter(|window| *window > 0)
+            .collect();
+    }
+    windows.sort_unstable();
+    windows.dedup();
+    windows
+}
 fn parse_models(v: &Value) -> Vec<ModelInfo> {
     data(v)["chat"]
         .as_array()
@@ -223,12 +245,20 @@ fn parse_models(v: &Value) -> Vec<ModelInfo> {
             // Public id follows the display name (workbuddy-style); the
             // platform key travels as upstream_id for the actual call.
             let id = display_slug(&name).unwrap_or_else(|| key.clone());
+            let windows = context_windows(m);
+            let context = windows.last().copied().or_else(|| token_limit(m, &["max_input_tokens"]));
+            let upstream_model_ids = underlying_model_id(&m["model"], &key).into_iter().collect();
             Some(ModelInfo {
                 upstream_id: (id != key).then_some(key),
+                upstream_model_ids,
+                context_window_options: windows,
+                max_output_tokens: token_limit(m, &["max_output_tokens"]),
+                supports_images: flag(m, &["is_vl"]),
+                supports_reasoning: flag(m, &["is_reasoning"]),
                 ..model(
                     id,
                     name,
-                    num(m, &["max_input_tokens"]).map(|n| n as u64),
+                    context,
                 )
             })
         })
@@ -606,6 +636,16 @@ fn body(mut b: Value, id: &str) -> Result<Value, ProviderError> {
     }
     Ok(out)
 }
+fn prepare_chat_body(m: &ModelInfo, b: Value) -> Result<Value, ProviderError> {
+    let upstream = m.upstream_id.as_deref().unwrap_or(&m.id);
+    let mut b = body(b, upstream)?;
+    if let Some(window) = m.context_window_options.iter().max() {
+        // Qoder CLI 1.1.71 selects context tiers with parameters.context_length.
+        // This is independent of max_tokens, which controls generated output.
+        b["parameters"]["context_length"] = json!(window);
+    }
+    Ok(b)
+}
 pub(super) async fn chat(
     client: &ProviderClient,
     c: &Credentials,
@@ -613,7 +653,7 @@ pub(super) async fn chat(
     b: Value,
 ) -> Result<ProviderChat, ProviderError> {
     let upstream = m.upstream_id.as_deref().unwrap_or(&m.id);
-    let mut b = body(b, upstream)?;
+    let mut b = prepare_chat_body(m, b)?;
     b["aliyun_user_type"] =
         json!(text(&c.extra, &["user_type"]).unwrap_or("personal_standard".into()));
     let url=format!("{GATEWAY}/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1");
@@ -631,6 +671,78 @@ pub(super) async fn chat(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn catalog_model_id_is_separate_from_the_routing_key() {
+        let models = parse_models(&json!({"chat":[{"key":"dfmodel","display_name":"DeepSeek-Flash","enable":true,"model":" deepseek-v4-1-flash-260910 "}]}));
+        assert_eq!(models[0].upstream_id.as_deref(), Some("dfmodel"));
+        assert_eq!(models[0].upstream_model_ids, vec!["deepseek-v4-1-flash-260910"]);
+        let b = prepare_chat_body(&models[0], json!({"messages":[{"role":"user","content":"hello"}]})).unwrap();
+        assert_eq!(b["model_config"]["key"], "dfmodel");
+        for hidden in [json!(""), json!("dfmodel"), json!("ep-deployment"), json!("deepseek-flash__dev"), json!(123), Value::Null] {
+            let models = parse_models(&json!({"chat":[{"key":"dfmodel","enable":true,"model":hidden}]}));
+            assert!(models[0].upstream_model_ids.is_empty());
+        }
+    }
+
+    #[test]
+    fn models_choose_largest_context_tier_instead_of_legacy_input_budget() {
+        let models = parse_models(&json!({"chat":[
+            {"key":"dfmodel","display_name":"DeepSeek-Flash","enable":true,"max_input_tokens":180000,"context_config":{"200K":{"token_count":200000,"is_default":true},"400K":{"token_count":400000},"1M":{"token_count":1000000},"duplicate":{"token_count":400000},"invalid":{"token_count":-1}}},
+            {"key":"future-model","enable":true,"max_input_tokens":200000,"available_context_windows":[400000,2000000,0,400000,-1,2.5,null],"default_context_window":400000},
+            {"key":"fixed-model","enable":true,"max_input_tokens":256000},
+            {"key":"unknown-model","enable":true,"max_input_tokens":0,"context_config":{"bad":{"token_count":0}}}
+        ]}));
+        assert_eq!(models[0].context_window, Some(1000000));
+        assert_eq!(models[0].context_window_options, vec![200000, 400000, 1000000]);
+        assert_eq!(models[1].context_window, Some(2000000));
+        assert_eq!(models[1].context_window_options, vec![400000, 2000000]);
+        assert_eq!(models[2].context_window, Some(256000));
+        assert!(models[2].context_window_options.is_empty());
+        assert_eq!(models[3].context_window, None);
+        assert!(models[3].context_window_options.is_empty());
+    }
+
+    #[test]
+    fn chat_selects_largest_context_for_text_and_images_without_changing_output_budget() {
+        let models = parse_models(&json!({"chat":[{"key":"dfmodel","display_name":"DeepSeek-Flash","enable":true,"max_input_tokens":180000,"context_config":{"200K":{"token_count":200000,"is_default":true},"1M":{"token_count":1000000}}}]}));
+        for content in [json!("hello"), json!([{"type":"image_url","image_url":{"url":"data:image/png;base64,aW1hZ2U="}}])] {
+            let b = prepare_chat_body(&models[0], json!({"messages":[{"role":"user","content":content}],"max_tokens":384000})).unwrap();
+            assert_eq!(b["parameters"]["context_length"], 1000000);
+            assert_eq!(b["parameters"]["max_tokens"], 384000);
+            assert_eq!(b["model_config"]["key"], "dfmodel");
+            assert_eq!(b["messages"][0]["content"], content);
+        }
+        let legacy = model("legacy-model".into(), "Legacy".into(), Some(180000));
+        let b = prepare_chat_body(&legacy, json!({"messages":[{"role":"user","content":"hello"}]})).unwrap();
+        assert!(b["parameters"].get("context_length").is_none());
+    }
+
+    #[test]
+    fn model_info_keeps_catalog_limits_without_inventing_missing_values() {
+        for (output, expected) in [
+            (json!(128000), Some(128000)),
+            (json!("128000"), Some(128000)),
+            (json!(0), None),
+            (json!(-1), None),
+            (json!(64.5), None),
+            (json!("128K"), None),
+            (Value::Null, None),
+        ] {
+            let models = parse_models(&json!({"chat":[{"key":"gfmodel","display_name":"GLM-5.3-Flash","enable":true,"max_input_tokens":1000000,"max_output_tokens":output,"is_vl":true,"is_reasoning":false}]}));
+            assert_eq!(models.len(), 1);
+            assert_eq!(models[0].id, "glm-5.3-flash");
+            assert_eq!(models[0].upstream_id.as_deref(), Some("gfmodel"));
+            assert_eq!(models[0].context_window, Some(1000000));
+            assert_eq!(models[0].max_output_tokens, expected);
+            assert_eq!(models[0].supports_images, Some(true));
+            assert_eq!(models[0].supports_reasoning, Some(false));
+        }
+        let models = parse_models(&json!({"chat":[{"key":"unknown","enable":true}]}));
+        assert_eq!(models[0].max_output_tokens, None);
+        assert_eq!(models[0].supports_images, None);
+        assert_eq!(models[0].supports_reasoning, None);
+    }
+
     #[test]
     fn image_requests_keep_multimodal_contents_and_enable_the_vision_route() {
         let parts = json!([{"type":"text","text":"describe this"},{"type":"image_url","image_url":{"url":"data:image/png;base64,aW1hZ2U="}}]);

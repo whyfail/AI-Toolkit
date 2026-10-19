@@ -723,24 +723,31 @@ async fn protocol_request(
             "该模型当前可用通道不支持工具调用",
         );
     }
-    let requested_output = data
-        .get("max_tokens")
-        .and_then(Value::as_u64)
-        .or_else(|| data.get("max_completion_tokens").and_then(Value::as_u64));
-    remaining.retain(|candidate| {
-        requested_output.is_none_or(|limit| {
+    let requested_output = ["max_tokens", "max_completion_tokens"]
+        .into_iter()
+        .find_map(|field| {
+            data.get(field)
+                .and_then(Value::as_u64)
+                .map(|limit| (field, limit))
+        });
+    if let Some((field, limit)) = requested_output {
+        let largest_context = remaining
+            .iter()
+            .filter_map(|candidate| candidate.model.context_window)
+            .max();
+        remaining.retain(|candidate| {
             candidate
                 .model
                 .context_window
                 .is_none_or(|context| limit <= context)
-        })
-    });
-    if remaining.is_empty() {
-        return protocol.error(
-            StatusCode::BAD_REQUEST,
-            "context_limit_exceeded",
-            "输出 token 上限超过该模型已知的上下文窗口",
-        );
+        });
+        if let (true, Some(context)) = (remaining.is_empty(), largest_context) {
+            return protocol.error(
+                StatusCode::BAD_REQUEST,
+                "context_limit_exceeded",
+                &format!("{requested} 请求 {field}={limit}，超过当前可用通道最大的已知上下文窗口 {context}；请在客户端降低输出 token 上限，并按通道目录配置上下文窗口"),
+            );
+        }
     }
     let mut last_status = StatusCode::SERVICE_UNAVAILABLE;
     while let Some((candidate, mut guard)) = select_candidate(&context, &remaining) {
@@ -1166,11 +1173,16 @@ mod tests {
                 rewards: vec![],
                 models: vec![ModelInfo {
                     upstream_id: None,
+                    upstream_model_ids: vec![],
                     id: canonical.into(),
                     name: canonical.into(),
                     canonical_id: Some(canonical.into()),
                     supports_tools: true,
                     context_window: None,
+                    context_window_options: vec![],
+                    max_output_tokens: None,
+                    supports_images: None,
+                    supports_reasoning: None,
                     verified: true,
                     verification_note: None,
                 }],
@@ -1571,6 +1583,88 @@ mod tests {
             .timeout(std::time::Duration::from_secs(3))
             .build()
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn output_limit_errors_report_the_requested_value_and_channel_context() {
+        let manager = routed_test_manager();
+        for (id, context) in [("first", 96_000), ("second", 180_000)] {
+            let mut account = manager.store.account(id).unwrap();
+            account.snapshot.as_mut().unwrap().models[0].context_window = Some(context);
+            manager.store.save_account(&account).unwrap();
+        }
+        let gateway = GatewayManager::new();
+        let status = gateway.start(manager.clone(), 0).await.unwrap();
+        let http = local_http();
+        let key = manager.gateway_key().unwrap();
+        for (endpoint, field) in [
+            ("messages", "max_tokens"),
+            ("chat/completions", "max_tokens"),
+            ("chat/completions", "max_completion_tokens"),
+        ] {
+            let mut body = json!({"model":"workbuddy/glm-5.3","messages":[{"role":"user","content":"hello"}],"stream":false});
+            body[field] = json!(384_000);
+            let response = http
+                .post(format!("{}/{endpoint}", status.base_url))
+                .bearer_auth(&key)
+                .json(&body)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let error = response.json::<Value>().await.unwrap();
+            assert_eq!(error["error"]["type"], "invalid_request_error");
+            let message = error["error"]["message"].as_str().unwrap();
+            for detail in [field, "384000", "180000", "workbuddy/glm-5.3", "客户端"] {
+                assert!(message.contains(detail), "missing {detail}: {message}");
+            }
+        }
+        assert!(manager.provider.test_chat_calls().is_empty());
+
+        for (endpoint, field) in [
+            ("messages", "max_tokens"),
+            ("chat/completions", "max_tokens"),
+            ("chat/completions", "max_completion_tokens"),
+        ] {
+            manager.provider.queue_test_chat(
+                "first",
+                fixture_chunks(vec![
+                    json!({"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}),
+                ]),
+            );
+            let mut body = json!({"model":"workbuddy/glm-5.3","messages":[{"role":"user","content":"hello"}],"stream":false});
+            body[field] = json!(32_000);
+            let response = http
+                .post(format!("{}/{endpoint}", status.base_url))
+                .bearer_auth(&key)
+                .json(&body)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                manager.provider.test_chat_bodies().last().unwrap()[field],
+                32_000
+            );
+        }
+        // An exact-boundary request must still route to the larger channel.
+        let response = http
+            .post(format!("{}/messages", status.base_url))
+            .bearer_auth(&key)
+            .json(&json!({"model":"workbuddy/glm-5.3","max_tokens":180_000,"messages":[{"role":"user","content":"hello"}],"stream":false}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            manager.provider.test_chat_calls(),
+            ["first", "first", "first", "second"]
+        );
+        assert_eq!(
+            manager.provider.test_chat_bodies().last().unwrap()["max_tokens"],
+            180_000
+        );
+        gateway.stop().await.unwrap();
     }
 
     fn sse_events(body: &str) -> Vec<Value> {

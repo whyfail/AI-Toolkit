@@ -52,10 +52,22 @@ pub struct ModelInfo {
     /// (e.g. Qoder key `gfmodel` behind the public id `glm-5.3-flash`).
     #[serde(default)]
     pub upstream_id: Option<String>,
+    /// Underlying model IDs explicitly advertised by the catalog, separate from routing keys.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub upstream_model_ids: Vec<String>,
     pub name: String,
     pub canonical_id: Option<String>,
     pub supports_tools: bool,
     pub context_window: Option<u64>,
+    /// Selectable context tiers advertised by the channel. The proxy uses the largest.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context_window_options: Vec<u64>,
+    #[serde(default)]
+    pub max_output_tokens: Option<u64>,
+    #[serde(default)]
+    pub supports_images: Option<bool>,
+    #[serde(default)]
+    pub supports_reasoning: Option<bool>,
     pub verified: bool,
     pub verification_note: Option<String>,
 }
@@ -168,4 +180,29 @@ pub fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_model_snapshots_keep_new_capabilities_unknown() {
+        let saved = serde_json::json!({
+            "id":"glm-5.3-flash", "name":"GLM-5.3-Flash", "canonicalId":null,
+            "supportsTools":true, "contextWindow":1000000,
+            "verified":false, "verificationNote":null
+        });
+        let model: ModelInfo = serde_json::from_value(saved).unwrap();
+        assert_eq!(model.context_window, Some(1000000));
+        assert!(model.upstream_model_ids.is_empty());
+        assert!(model.context_window_options.is_empty());
+        assert_eq!(model.max_output_tokens, None);
+        assert_eq!(model.supports_images, None);
+        assert_eq!(model.supports_reasoning, None);
+        let exported = serde_json::to_value(model).unwrap();
+        assert!(exported["maxOutputTokens"].is_null());
+        assert!(exported["supportsImages"].is_null());
+        assert!(exported["supportsReasoning"].is_null());
+    }
 }

@@ -12,6 +12,7 @@ let state;
 const toast = Object.assign(() => {}, { error() {}, success() {} });
 const stubs = {
   sonner: { toast },
+  "./ModelInfoPopover": { ModelInfoPopover: () => null },
   "@tauri-apps/plugin-shell": { open: async (url) => { state.opened.push(url); } },
   "@/components/ui/Modal": { Modal: () => null },
   "@/components/ui/AgentIcon": { AgentIcon: ({ name }) => createElement("span", { role: "img", "aria-label": name, title: name }) },

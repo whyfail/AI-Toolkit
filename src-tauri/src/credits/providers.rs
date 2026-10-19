@@ -299,6 +299,23 @@ pub(super) fn flag(v: &Value, keys: &[&str]) -> Option<bool> {
         })
     })
 }
+pub(super) fn token_limit(v: &Value, keys: &[&str]) -> Option<u64> {
+    keys.iter().find_map(|key| {
+        v.get(*key)
+            .and_then(|value| {
+                value
+                    .as_u64()
+                    .or_else(|| value.as_str().and_then(|text| text.parse::<u64>().ok()))
+            })
+            .filter(|limit| *limit > 0)
+    })
+}
+pub(super) fn underlying_model_id(v: &Value, route: &str) -> Option<String> {
+    let id = v.as_str()?.trim();
+    // Deployment endpoints and TRAE's internal __dev names do not identify model versions.
+    (!id.is_empty() && id != route && !id.starts_with("ep-") && !id.ends_with("__dev"))
+        .then(|| id.to_owned())
+}
 pub(super) fn epoch(v: &Value) -> Option<i64> {
     if let Some(n) = v
         .as_i64()
@@ -367,10 +384,15 @@ pub(super) fn model(id: String, name: String, context: Option<u64>) -> ModelInfo
     ModelInfo {
         canonical_id: canonical_glm(&name).or_else(|| canonical_glm(&id)),
         upstream_id: None,
+        upstream_model_ids: vec![],
         id,
         name,
         supports_tools: true,
         context_window: context,
+        context_window_options: vec![],
+        max_output_tokens: None,
+        supports_images: None,
+        supports_reasoning: None,
         verified: false,
         verification_note: Some("已从账号实时目录发现，尚未验证实际模型身份".into()),
     }

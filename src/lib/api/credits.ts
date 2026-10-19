@@ -20,10 +20,16 @@ export interface CreditPack {
 
 export interface CreditModel {
   id: string;
+  upstreamId?: string | null;
+  upstreamModelIds?: string[];
   name: string;
   canonicalId: string | null;
   supportsTools: boolean;
   contextWindow: number | null;
+  contextWindowOptions?: number[];
+  maxOutputTokens?: number | null;
+  supportsImages?: boolean | null;
+  supportsReasoning?: boolean | null;
   verified: boolean;
   verificationNote: string | null;
 }

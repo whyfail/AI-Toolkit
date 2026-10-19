@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight, CheckCircle2, Coins, Copy, ExternalLink, KeyRound, Loader2,
-  Plus, Power, RefreshCw, Server, ShieldCheck, Trash2, X,
+  Info, Plus, Power, RefreshCw, Server, ShieldCheck, Trash2, X,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-shell";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/Modal";
 import { Pressable } from "@/components/ui/Pressable";
 import { AgentIcon } from "@/components/ui/AgentIcon";
+import { ModelInfoPopover } from "./ModelInfoPopover";
 import { creditsQueryKey, useCreditsAction, useCreditsDashboard } from "@/hooks/useCredits";
 import {
   creditsApi, type CreditAccount, type CreditDashboard,
@@ -32,8 +33,16 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 const isCredits = (kind: string) => ["credit", "credits", "points"].includes(kind);
 const isClaimable = (account: CreditAccount) => account.enabled && account.snapshot?.rewards.some((reward) =>
   isCredits(reward.kind) && ["claimable", "available", "eligible"].includes(reward.status));
+const accountModels = (account: CreditAccount) => {
+  const seen = new Set<string>();
+  return (account.snapshot?.models ?? []).filter((model) => {
+    if (seen.has(model.id)) return false;
+    seen.add(model.id);
+    return true;
+  });
+};
 const availableModels = (data: CreditDashboard) => data.accounts.filter((account) => account.enabled && account.status === "ready" && (account.snapshot?.balance == null || account.snapshot.balance > 0))
-  .flatMap((account) => (account.snapshot?.models ?? []).map((model) => ({ account, model })));
+  .flatMap((account) => accountModels(account).map((model) => ({ account, model })));
 
 const labels: Record<string, string> = {
   active: "已连接", ready: "已连接", connected: "已连接", authenticated: "已连接",
@@ -83,24 +92,72 @@ function CopyField({ label, value }: { label: string; value: string }) {
 type ModelEntry = { account: CreditAccount; model: CreditModel };
 type ModelGroup = { title: string; entries: ModelEntry[] };
 
-function ModelRow({ account, model }: ModelEntry) {
+interface ModelRowProps extends ModelEntry {
+  infoId?: string;
+  onPreview: (entry: ModelEntry, anchor: HTMLElement, immediate?: boolean) => void;
+  onToggle: (entry: ModelEntry, anchor: HTMLElement) => void;
+  onLeave: () => void;
+  onBlur: () => void;
+}
+
+function ModelRow({ account, model, infoId, onPreview, onToggle, onLeave, onBlur }: ModelRowProps) {
+  const row = useRef<HTMLDivElement>(null);
   const id = `${account.platform}/${model.id}`;
-  return <div className="rounded-xl bg-slate-500/5 px-3 py-2.5">
+  return <div ref={row} className={`rounded-xl px-3 py-2.5 transition-colors ${infoId ? "bg-blue-500/10" : "bg-slate-500/5 hover:bg-slate-500/10"}`}
+    onPointerEnter={(event) => onPreview({ account, model }, event.currentTarget)} onPointerLeave={onLeave} onBlur={onBlur}>
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <div className="min-w-0"><p className="break-all text-xs font-medium">{model.name || model.id}</p><p className="mt-1 break-all text-[11px] text-slate-500 dark:text-slate-400">{id}</p></div>
+      <button type="button" className="min-w-0 flex-1 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
+        aria-label={`查看 ${model.name || model.id} 模型信息`} aria-describedby={infoId} aria-expanded={!!infoId}
+        onFocus={() => { if (row.current) onPreview({ account, model }, row.current, true); }}
+        onClick={() => { if (row.current) onToggle({ account, model }, row.current); }}>
+        <span className="flex items-center gap-2 text-xs font-medium"><span className="min-w-0 break-all">{model.name || model.id}</span><Info size={13} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
+        <span className="mt-1 block break-all text-[11px] text-slate-500 dark:text-slate-400">{id}</span>
+      </button>
       <div className="flex shrink-0 items-center gap-1.5"><Pressable type="button" className="glass-icon-button" aria-label={`复制模型 ID ${id}`} onClick={() => void copyValue(id, "模型 ID")}><Copy size={13} /></Pressable></div>
     </div>
-    
-    
   </div>;
 }
 
 function ModelsModal({ title, groups, onClose }: { title: string; groups: ModelGroup[]; onClose: () => void }) {
+  const infoId = useId();
+  const [details, setDetails] = useState<{ entry: ModelEntry; anchor: HTMLElement } | null>(null);
+  const delay = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pinned = useRef(false);
+  const pointerInside = useRef(false);
+  const clearDelay = useCallback(() => { if (delay.current) clearTimeout(delay.current); delay.current = null; }, []);
+  const dismiss = useCallback(() => { clearDelay(); pinned.current = false; pointerInside.current = false; setDetails(null); }, [clearDelay]);
+  useEffect(() => clearDelay, [clearDelay]);
+
+  const preview = (entry: ModelEntry, anchor: HTMLElement, immediate = false) => {
+    clearDelay();
+    if (!immediate) pointerInside.current = true;
+    const show = () => { pinned.current = false; setDetails({ entry, anchor }); };
+    if (immediate) show();
+    else if (details?.anchor !== anchor) delay.current = setTimeout(show, 180);
+  };
+  const scheduleClose = () => {
+    clearDelay();
+    if (pinned.current) return;
+    delay.current = setTimeout(() => {
+      if (!pointerInside.current && !details?.anchor.contains(document.activeElement)) setDetails(null);
+    }, 160);
+  };
+  const leave = () => { pointerInside.current = false; scheduleClose(); };
+  const blur = () => { pinned.current = false; scheduleClose(); };
+  const toggle = (entry: ModelEntry, anchor: HTMLElement) => {
+    if (details?.anchor === anchor && pinned.current) dismiss();
+    else { clearDelay(); pinned.current = true; setDetails({ entry, anchor }); }
+  };
+
   return <Modal open onClose={onClose} size="xl">
-    <div className="flex items-center justify-between border-b border-slate-500/10 px-6 py-4"><h2 className="text-base font-semibold">{title}</h2><Pressable type="button" className="glass-icon-button" onClick={onClose} aria-label="关闭模型列表"><X size={18} /></Pressable></div>
+    <div className="flex items-center justify-between gap-3 border-b border-slate-500/10 px-6 py-4"><div><h2 className="text-base font-semibold">{title}</h2><p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">悬浮或点击模型，查看通道参数与能力。</p></div><Pressable type="button" className="glass-icon-button" onClick={onClose} aria-label="关闭模型列表"><X size={18} /></Pressable></div>
     <div className="max-h-[75vh] space-y-6 overflow-y-auto p-6">
-      {groups.length ? groups.map((group) => <section key={group.title}><h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400">{group.title}</h3><div className="mt-3 space-y-2.5">{group.entries.map(({ account, model }) => <ModelRow key={`${account.id}-${model.id}`} account={account} model={model} />)}</div></section>) : <p className="text-xs text-slate-500 dark:text-slate-400">模型目录尚未就绪，刷新账户后查看。</p>}
+      {groups.length ? groups.map((group) => <section key={group.title}><h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400">{group.title}</h3><div className="mt-3 space-y-2.5">{group.entries.map(({ account, model }) => <ModelRow key={`${account.id}-${model.id}`} account={account} model={model}
+        infoId={details?.entry.model === model && details.entry.account.id === account.id ? infoId : undefined}
+        onPreview={preview} onToggle={toggle} onLeave={leave} onBlur={blur} />)}</div></section>) : <p className="text-xs text-slate-500 dark:text-slate-400">模型目录尚未就绪，刷新账户后查看。</p>}
     </div>
+    {details ? <ModelInfoPopover id={infoId} anchor={details.anchor} account={details.entry.account} model={details.entry.model} platformName={platformName(details.entry.account.platform)} onDismiss={dismiss}
+      onPointerEnter={() => { pointerInside.current = true; clearDelay(); }} onPointerLeave={leave} /> : null}
   </Modal>;
 }
 
@@ -109,6 +166,7 @@ function AccountCard({ account, onDelete }: { account: CreditAccount; onDelete: 
   const claim = useCreditsAction(() => creditsApi.claim(account.id));
   const toggle = useCreditsAction((enabled: boolean) => creditsApi.setAccountEnabled(account.id, enabled));
   const snapshot = account.snapshot;
+  const models = accountModels(account);
   const credits = snapshot?.rewards.filter((reward) => isCredits(reward.kind)) ?? [];
   const activities = snapshot?.rewards.filter((reward) => reward.kind === "activity") ?? [];
   const otherRewards = snapshot?.rewards.filter((reward) => !isCredits(reward.kind) && reward.kind !== "activity") ?? [];
@@ -136,8 +194,8 @@ function AccountCard({ account, onDelete }: { account: CreditAccount; onDelete: 
       {account.platform !== "qoder" && activities.length ? <div className="mt-3 rounded-lg bg-sky-500/5 p-2.5"><p className="mb-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">平台活动</p>{activities.map((reward) => <div key={reward.id} className="flex flex-wrap items-center justify-between gap-1 py-0.5"><span className="min-w-0 flex-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">{reward.name} · {labels[reward.status] ?? reward.status}</span>{reward.actionUrl ? <Pressable type="button" className="glass-secondary-button min-h-6 shrink-0 px-2 py-0.5 text-[11px]" onClick={() => void open(reward.actionUrl!).catch(() => toast.error("无法打开活动页"))}>活动详情<ExternalLink size={11} /></Pressable> : null}</div>)}</div> : null}
       {account.platform !== "qoder" && otherRewards.length ? <div className="mt-3 rounded-lg bg-slate-500/5 p-2.5"><p className="mb-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">优惠券及其他奖励</p>{otherRewards.map((reward) => <div key={reward.id} className="flex flex-wrap items-center justify-between gap-1 py-0.5"><span className="min-w-0 flex-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">{reward.name} · {labels[reward.status] ?? reward.status}</span>{reward.actionUrl ? <Pressable type="button" className="glass-secondary-button min-h-6 shrink-0 px-2 py-0.5 text-[11px]" onClick={() => void open(reward.actionUrl!).catch(() => toast.error("无法打开活动页"))}>打开活动页<ExternalLink size={11} /></Pressable> : null}</div>)}</div> : null}
     </div>
-    <div className="mt-4 border-t border-slate-500/10 pt-3"><Pressable type="button" className="glass-secondary-button min-h-8 px-3 py-2 text-xs" onClick={() => setShowingModels(true)}>可用模型 · {snapshot?.models.length ?? 0}</Pressable></div>
-    {showingModels ? <ModelsModal title="可用模型" groups={[{ title: account.label || platformName(account.platform), entries: (snapshot?.models ?? []).map((model) => ({ account, model })) }]} onClose={() => setShowingModels(false)} /> : null}
+    <div className="mt-4 border-t border-slate-500/10 pt-3"><Pressable type="button" className="glass-secondary-button min-h-8 px-3 py-2 text-xs" onClick={() => setShowingModels(true)}>可用模型 · {models.length}</Pressable></div>
+    {showingModels ? <ModelsModal title="可用模型" groups={[{ title: account.label || platformName(account.platform), entries: models.map((model) => ({ account, model })) }]} onClose={() => setShowingModels(false)} /> : null}
   </article>;
 }
 

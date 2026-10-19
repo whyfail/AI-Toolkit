@@ -197,11 +197,20 @@ fn parse_models(v: &Value) -> Vec<ModelInfo> {
             {
                 return None;
             }
-            Some(model(
-                id.clone(),
-                text(m, &["displayName", "display_name", "label", "name"]).unwrap_or(id),
-                num(m, &["maxInputTokens", "contextWindow", "contextLength"]).map(|n| n as u64),
-            ))
+            Some(ModelInfo {
+                upstream_model_ids: ["model", "modelId"].iter()
+                    .find_map(|key| underlying_model_id(&m[*key], &id))
+                    .into_iter().collect(),
+                max_output_tokens: token_limit(m, &["maxOutputTokens"]),
+                supports_images: flag(m, &["supportsImages"]),
+                supports_reasoning: flag(m, &["supportsReasoning"]),
+                supports_tools: flag(m, &["supportsToolCall"]).unwrap_or(true),
+                ..model(
+                    id.clone(),
+                    text(m, &["displayName", "display_name", "label", "name"]).unwrap_or(id),
+                    token_limit(m, &["contextWindow", "contextLength", "maxInputTokens"]),
+                )
+            })
         })
         .collect()
 }
@@ -359,6 +368,50 @@ pub(super) async fn chat(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn catalog_model_ids_do_not_replace_call_ids() {
+        let models = parse_models(&json!({"models":[
+            {"id":"deepseek-flash","model":"deepseek-v4-1-flash-260910"},
+            {"id":"other-model","modelId":"provider-model-version"},
+            {"id":"alias","model":"alias"},
+            {"id":"unknown"}
+        ]}));
+        assert_eq!(models[0].upstream_model_ids, vec!["deepseek-v4-1-flash-260910"]);
+        assert_eq!(models[1].upstream_model_ids, vec!["provider-model-version"]);
+        assert!(models[2].upstream_model_ids.is_empty());
+        assert!(models[3].upstream_model_ids.is_empty());
+        let b = prepare_chat_body(&models[0], json!({"messages":[{"role":"user","content":"hello"}]}));
+        assert_eq!(b["model"], "deepseek-flash");
+    }
+
+    #[test]
+    fn full_context_window_takes_precedence_over_input_budget() {
+        let models = parse_models(&json!({"models":[
+            {"id":"large-window","maxInputTokens":180000,"contextWindow":1000000},
+            {"id":"other-window","maxInputTokens":200000,"contextLength":512000},
+            {"id":"fixed-window","maxInputTokens":256000},
+            {"id":"invalid-window","contextWindow":0,"maxInputTokens":200000}
+        ]}));
+        assert_eq!(models.iter().map(|m| m.context_window).collect::<Vec<_>>(), vec![Some(1000000), Some(512000), Some(256000), Some(200000)]);
+    }
+
+    #[test]
+    fn model_info_preserves_explicit_limits_and_capabilities() {
+        let models = parse_models(&json!({"models":[
+            {"id":"vision-model","maxInputTokens":1000000,"maxOutputTokens":"128000","supportsImages":true,"supportsReasoning":false,"supportsToolCall":false},
+            {"id":"glm-5.3-flash"}
+        ]}));
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].context_window, Some(1000000));
+        assert_eq!(models[0].max_output_tokens, Some(128000));
+        assert_eq!(models[0].supports_images, Some(true));
+        assert_eq!(models[0].supports_reasoning, Some(false));
+        assert!(!models[0].supports_tools);
+        assert_eq!(models[1].max_output_tokens, None);
+        assert_eq!(models[1].supports_images, None);
+        assert_eq!(models[1].supports_reasoning, None);
+    }
+
     #[test]
     fn filters_internal_models_and_uses_live_glm_version() {
         let ms = parse_models(
