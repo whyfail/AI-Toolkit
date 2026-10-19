@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release Version (e.g., 2.1.1)'
+        description: 'Release Version (e.g., 2.1.2)'
         required: true
-        default: '2.1.1'
+        default: '2.1.2'
       publish:
         description: 'Publish the release after building both platforms'
         type: boolean
@@ -440,6 +440,8 @@ jobs:
             - OpenAI and Anthropic proxy protocols with 32 MiB request bodies
             - Image, tool, and unsigned reasoning history compatibility
             - Preserve TRAE tool-call IDs across empty continuation chunks
+            - Model detail cards with catalog limits, capabilities, and underlying model IDs
+            - Use the largest advertised context window, including Qoder context tier selection
             - Skill path validation, private caches, and desktop/OAuth hardening
 
             Full changelog: https://github.com/whyfail/AI-Toolkit/blob/main/CHANGELOG.md

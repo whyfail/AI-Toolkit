@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.1.1-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.1.2-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,10 +16,11 @@
 
 AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and a local model proxy**. The current version has five panels: Skills, MCP Servers, Credits & Proxy, Settings, and About, with local installation detection and configuration adapters for 24 AI programming tools.
 
-## 🆕 What's New in v2.1.1
+## 🆕 What's New in v2.1.2
 
-- **TRAE tool streaming fix**: Preserve the original tool-call ID when later argument chunks contain an empty or null ID, for both JSON and Messages SSE output. Calls that never provide an ID still return an explicit error. See [Credits & Model Proxy](docs/credits-proxy.md).
-- **Popular Skills restored**: Load the top 20 skills.sh entries by cumulative installs and show their actual install counts. Loading failures display a detailed error with a retry action; requests are enabled only when the add dialog's online tab is open.
+- **Model detail cards**: Hover, focus, or click a model to inspect its channel context window, output limit, input capabilities, and catalog-provided underlying model IDs. Missing new parameters remain unknown rather than being inferred from model names.
+- **Maximum context selection**: Prefer the largest context window advertised by the channel and activate Qoder's largest selectable tier in requests. Client output token budgets are preserved; limit errors report the requested value and available channel limit. See [Credits & Model Proxy](docs/credits-proxy.md).
+- **TRAE model identity fix**: Deployment statistics containing an `ep-` identifier no longer overwrite the streamed model identity. Actual model identity checks remain in place, and duplicate model entries within an account are deduplicated by catalog priority.
 
 See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/security-hardening.md) for security changes and validation scope.
 
@@ -54,6 +55,7 @@ See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/
 - **Local Model Proxy**: Manually start a service compatible with both OpenAI Chat Completions and Anthropic Messages, defaulting to `http://127.0.0.1:17860/v1`; copy a dedicated proxy API Key, keep it running after closing the window, and stop it by quitting from the tray
 - **Images & Tool Screenshots**: Both protocols accept base64 or HTTP(S) images and preserve screenshots returned by tools; image understanding depends on the selected upstream model
 - **Real Model Catalog**: Prefixed model IDs pin the account catalog model and are rejected when the upstream returns a different variant; cross-platform aliases route only between verified models, preferring credits that expire soonest
+- **Model Details & Context**: Inspect channel limits, capabilities, and catalog-provided underlying model IDs; prefer the largest advertised context window and explicitly select Qoder's largest available tier
 - **Credential Security**: Uses Keychain on macOS, Credential Manager on Windows, and Secret Service on Linux; startup and background requests never trigger authorization prompts—authorization needs return explicit errors
 - **Universal Client Setup**: Copy the Base URL, API Key, and model ID from the proxy page and add a custom provider with the protocol your client supports
 

@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.1.1-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.1.2-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,10 +16,11 @@
 
 AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MCP 服务器、Skills 技能、平台积分与本地模型代理**。当前版本提供 Skills 管理、MCP 服务器、积分与代理、设置、关于五个面板，支持 24 种工具的本地安装检测与配置适配。
 
-## 🆕 v2.1.1 更新
+## 🆕 v2.1.2 更新
 
-- **TRAE 工具流修复**：后续参数分片携带空字符串或 `null` ID 时，保留先前的真实工具调用 ID，兼容 JSON 和 Messages SSE 输出；全程缺少 ID 的调用仍返回明确错误。详见 [积分与模型代理](docs/credits-proxy.md)。
-- **热门 Skills 恢复**：使用 skills.sh 累计安装榜前 20 项，展示真实安装量；加载失败时显示具体原因并支持重试，仅在打开添加弹窗的在线页时启用请求。
+- **模型信息卡**：悬浮、聚焦或点击模型，查看通道上下文、最大输出、输入能力和目录公开的底层模型 ID；未公开的新增参数保持未知，不根据模型名称推测。
+- **最大上下文配置**：优先读取通道目录声明的最大窗口，Qoder 请求实际启用最大可选档位；客户端输出 Token 预算保持不变，超限错误显示请求值与可用通道上限。详见 [积分与模型代理](docs/credits-proxy.md)。
+- **TRAE 模型身份修复**：部署统计中的 `ep-` 编号不再覆盖流式元数据中的模型身份，保留真实型号校验；同账户重复模型条目按目录优先级去重。
 
 完整变更见 [更新记录](CHANGELOG.md)，安全加固与验证边界见 [安全加固记录](docs/security-hardening.md)。
 
@@ -54,6 +55,7 @@ AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MC
 - **本地模型代理**：手动启动兼容 OpenAI Chat Completions 和 Anthropic Messages 的服务，默认地址 `http://127.0.0.1:17860/v1`；支持复制独立代理 API Key，关闭窗口后继续运行，从托盘退出应用后停止
 - **图片与工具截图**：两个协议均支持 base64 或 HTTP(S) 图片输入，保留工具返回的截图；实际图片理解能力取决于所选来源模型
 - **真实模型目录**：带平台前缀的 ID 指定账户目录模型，上游返回不同型号时拒绝响应；跨平台别名仅在已验证模型间路由，优先使用即将到期的积分
+- **模型参数与上下文**：信息卡展示通道参数、能力及目录公开的底层模型 ID；优先使用目录声明的最大上下文，Qoder 显式选择最大可用档位
 - **凭据安全**：macOS 使用 Keychain、Windows 使用 Credential Manager、Linux 使用 Secret Service；启动与后台请求不触发授权弹窗，需要授权时返回明确错误
 - **通用客户端配置**：在代理页复制 Base URL、API Key 与模型 ID，按客户端支持的协议添加自定义提供商
 
