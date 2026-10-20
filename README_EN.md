@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.1.2-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.1.3-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,11 +16,10 @@
 
 AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and a local model proxy**. The current version has five panels: Skills, MCP Servers, Credits & Proxy, Settings, and About, with local installation detection and configuration adapters for 24 AI programming tools.
 
-## 🆕 What's New in v2.1.2
+## 🆕 What's New in v2.1.3
 
-- **Model detail cards**: Hover, focus, or click a model to inspect its channel context window, output limit, input capabilities, and catalog-provided underlying model IDs. Missing new parameters remain unknown rather than being inferred from model names.
-- **Maximum context selection**: Prefer the largest context window advertised by the channel and activate Qoder's largest selectable tier in requests. Client output token budgets are preserved; limit errors report the requested value and available channel limit. See [Credits & Model Proxy](docs/credits-proxy.md).
-- **TRAE model identity fix**: Deployment statistics containing an `ep-` identifier no longer overwrite the streamed model identity. Actual model identity checks remain in place, and duplicate model entries within an account are deduplicated by catalog priority.
+- **TRAE CN check-in fix**: Check-in status and claims use the separate UG gateway, fixing 404 responses for `.com.cn` accounts. Identity, token refresh, and billing requests keep using the account's own realm. See [Credits & Model Proxy](docs/credits-proxy.md).
+- **Development reloads**: Vite ignores changes under `src-tauri` so Rust source and generated files do not trigger frontend reloads.
 
 See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/security-hardening.md) for security changes and validation scope.
 

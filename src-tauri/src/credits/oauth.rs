@@ -376,7 +376,7 @@ impl ProviderClient {
                 // The callback echoes the realm that owns this login (e.g.
                 // api.trae.com.cn for accounts registered there) — exchange
                 // against it first. Keep the origin that actually exchanges
-                // successfully for every later call for this account.
+                // successfully for this account's identity and billing APIs.
                 let mut origins = vec![
                     traework::API.to_string(),
                     "https://api.trae.com.cn".into(),

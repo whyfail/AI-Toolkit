@@ -24,6 +24,13 @@ official CN platform origins. The reference's community Trae reverse proxy,
 content-filter transformations, guessed campaign IDs, and automatic device
 rotation are not included.
 
+TRAE check-in routing follows the installed official CN 3.4.4 client's
+`out/main.js`: `_requestCheckinCredits` resolves the separate boot-config
+`ugApi`, rather than the OAuth account realm. Its local request logs and
+read-only checks confirm `https://api.trae.cn` serves check-in status for
+`.com.cn` accounts too; the `.com.cn` host serves billing but returns 404
+for check-in. Status and claim share this UG gateway.
+
 Qoder CN daily credits use the independently implemented campaign contract
 from the [official activity page](https://openapi.qoder.com.cn/growth-page/activity-iframe)
 and its published `qbase/qoder/0.0.725` script, checked against Qoder CN 0.4.4.

@@ -8,13 +8,17 @@ pub(crate) const WORK_CLIENT_ID: &str = "ono9krqynydwx5";
 /// Authorization-page snapshot values of the real IDE client.
 pub(crate) const PAGE_PLUGIN_VERSION: &str = "2.3.83560";
 pub(crate) const PAGE_APP_VERSION: &str = "3.3.100";
-// Accounts issued on other realms (the callback host echoes e.g.
-// api.trae.com.cn) must call every API on their own realm.
+// Keep account, token refresh and billing calls on the account's own realm.
 pub(super) fn api_base(c: &Credentials) -> String {
     text(&c.extra, &["apiBase"]).unwrap_or_else(|| API.into())
 }
+// Check-in uses the IDE boot config's separate ugApi gateway. The .com.cn
+// account realm accepts billing calls but returns 404 for check-in endpoints.
+fn ug_api_base(c: &Credentials) -> String {
+    text(&c.extra, &["ugApiBase"]).unwrap_or_else(|| API.into())
+}
 /// The AI plane (model catalog + agent chat) is served by a dedicated gateway:
-/// the TLB cutover moved it off api.trae.cn, which keeps only account/billing
+/// the TLB cutover moved it off api.trae.cn, which serves account/billing/UG
 /// APIs. The TRAE IDE resolves api/ide/* to this host at runtime. Other realms
 /// can override it with the aiApiBase credential extra.
 pub(super) const AI_API: &str = "https://trae-api-cn.mchost.guru";
@@ -442,7 +446,7 @@ async fn rewards(client: &ProviderClient, c: &Credentials) -> Result<Vec<Reward>
             headers(
                 client.http.post(format!(
                     "{}/trae/api/v2/ug/checkin_credits/status",
-                    api_base(c)
+                    ug_api_base(c)
                 )),
                 c,
                 false,
@@ -524,7 +528,7 @@ pub(super) async fn claim(
             headers(
                 client.http.post(format!(
                     "{}/trae/api/v2/ug/checkin_credits/claim",
-                    api_base(c)
+                    ug_api_base(c)
                 )),
                 c,
                 false,
@@ -626,6 +630,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn checkin_gateway_is_independent_of_the_account_realm() {
+        let mut c = empty_credentials();
+        assert_eq!(ug_api_base(&c), API);
+        for realm in ["https://api.trae.cn", "https://api.trae.com.cn"] {
+            c.extra = json!({"apiBase":realm});
+            assert_eq!(api_base(&c), realm);
+            assert_eq!(ug_api_base(&c), "https://api.trae.cn");
+        }
+        c.extra["ugApiBase"] = json!("http://127.0.0.1:12345");
+        assert_eq!(ug_api_base(&c), "http://127.0.0.1:12345");
+    }
+
+    #[test]
     fn catalog_model_ids_preserve_versions_and_exclude_internal_names() {
         let models = parse_models(&json!({"config_info_list":[
             {"config_name":"deepseek-flash","display_config":{"display_name":"DeepSeek Flash"},"model_detail_list":[
@@ -675,9 +692,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn desktop_identity_and_balance_use_the_session_token() {
+    async fn desktop_identity_billing_and_checkin_use_their_own_gateways() {
         use axum::http::HeaderMap;
         use axum::{routing::post, Json, Router};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let claims = Arc::new(AtomicUsize::new(0));
+        let status_claims = claims.clone();
+        let submitted_claims = claims.clone();
+        let ug_app = Router::new()
+            .route("/trae/api/v2/ug/checkin_credits/status", post(move |headers: HeaderMap, Json(body): Json<Value>| {
+                let claims = status_claims.clone();
+                async move {
+                    assert_eq!(headers["authorization"], "Cloud-IDE-JWT session-test");
+                    assert_eq!(headers["x-device-id"], "existing-device-with-keys");
+                    assert_eq!(body["req_source"], 2);
+                    Json(json!({"enable":true,"checked_in":claims.load(Ordering::SeqCst) > 0,"credits":150}))
+                }
+            }))
+            .route("/trae/api/v2/ug/checkin_credits/claim", post(move |headers: HeaderMap, Json(body): Json<Value>| {
+                let claims = submitted_claims.clone();
+                async move {
+                    assert_eq!(headers["authorization"], "Cloud-IDE-JWT session-test");
+                    assert_eq!(headers["x-device-id"], "existing-device-with-keys");
+                    assert_eq!(body["req_source"], 2);
+                    claims.fetch_add(1, Ordering::SeqCst);
+                    Json(json!({"code":0}))
+                }
+            }));
+        let ug_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ug_address = ug_listener.local_addr().unwrap();
+        let ug_server = tokio::spawn(async move {
+            axum::serve(ug_listener, ug_app).await.unwrap();
+        });
         let app = Router::new()
             .route("/cloudide/api/v3/trae/GetUserInfo", post(|headers: HeaderMap, Json(body): Json<Value>| async move {
                 assert_eq!(headers["x-cloudide-token"], "session-test");
@@ -696,11 +742,8 @@ mod tests {
                 assert_eq!(body["req_source"], 1);
                 Json(json!({"is_credits_billing":true,"is_dollar_usage_billing":false,"usage_summary":{"total_amount":1500,"consumed_amount":200},"user_entitlement_pack_list":[{"entitlement_base_info":{"quota":{"credits_limit":1500}},"usage":{}}]}))
             }))
-            .route("/trae/api/v2/ug/checkin_credits/status", post(|| async {
-                Json(json!({"checked_in":true}))
-            }))
             .route("/api/ide/v1/get_detail_param", post(|| async {
-                Json(json!({"config_info_list":[]}))
+                Json(json!({"config_info_list":[{"config_name":"test-model","display_config":{"display_name":"Test"}}]}))
             }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -710,7 +753,7 @@ mod tests {
         let mut c = empty_credentials();
         c.access_token = "session-test".into();
         c.device_id = Some("existing-device-with-keys".into());
-        c.extra = json!({"apiBase":format!("http://{address}"),"aiApiBase":format!("http://{address}"),"userJwt":"separate-sso-token","credentialSource":"desktop","ideVersion":"3.4.2"});
+        c.extra = json!({"apiBase":format!("http://{address}"),"ugApiBase":format!("http://{ug_address}"),"aiApiBase":format!("http://{address}"),"userJwt":"separate-sso-token","credentialSource":"desktop","ideVersion":"3.4.2"});
         let client = ProviderClient::new();
         let (uid, _, authenticated) = authenticate(&client, &c).await.unwrap();
         assert_eq!(uid, "test-user");
@@ -723,6 +766,23 @@ mod tests {
         let snapshot = inspect(&client, &authenticated).await.unwrap();
         assert_eq!(snapshot.balance, Some(1300.0));
         assert_eq!(snapshot.packs[0].remaining, None);
+        assert_eq!(snapshot.models.len(), 1);
+        assert!(snapshot.diagnostic.is_none());
+        assert_eq!(snapshot.rewards[0].status, "claimable");
+        let account = Account {
+            id: "test-trae".into(),
+            platform: Platform::Traework,
+            user_id: uid,
+            label: "Test".into(),
+            enabled: true,
+            status: "ready".into(),
+            last_error: None,
+            snapshot: None,
+        };
+        let outcomes = claim(&client, &account, &authenticated).await.unwrap();
+        assert_eq!(outcomes[0].status, "claimed");
+        assert_eq!(claims.load(Ordering::SeqCst), 1);
+        ug_server.abort();
         server.abort();
     }
 

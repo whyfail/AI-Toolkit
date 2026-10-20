@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.1.2-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.1.3-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,11 +16,10 @@
 
 AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MCP 服务器、Skills 技能、平台积分与本地模型代理**。当前版本提供 Skills 管理、MCP 服务器、积分与代理、设置、关于五个面板，支持 24 种工具的本地安装检测与配置适配。
 
-## 🆕 v2.1.2 更新
+## 🆕 v2.1.3 更新
 
-- **模型信息卡**：悬浮、聚焦或点击模型，查看通道上下文、最大输出、输入能力和目录公开的底层模型 ID；未公开的新增参数保持未知，不根据模型名称推测。
-- **最大上下文配置**：优先读取通道目录声明的最大窗口，Qoder 请求实际启用最大可选档位；客户端输出 Token 预算保持不变，超限错误显示请求值与可用通道上限。详见 [积分与模型代理](docs/credits-proxy.md)。
-- **TRAE 模型身份修复**：部署统计中的 `ep-` 编号不再覆盖流式元数据中的模型身份，保留真实型号校验；同账户重复模型条目按目录优先级去重。
+- **TRAE CN 签到修复**：签到状态与领取使用独立 UG 网关，修复 `.com.cn` 账号签到返回 404 的问题；身份验证、Token 刷新与账单查询继续使用账号所属域名。详见 [积分与模型代理](docs/credits-proxy.md)。
+- **开发重载优化**：Vite 忽略 `src-tauri` 目录的文件变动，避免 Rust 源码和生成文件触发前端重载。
 
 完整变更见 [更新记录](CHANGELOG.md)，安全加固与验证边界见 [安全加固记录](docs/security-hardening.md)。
 
