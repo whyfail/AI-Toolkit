@@ -204,6 +204,8 @@ fn parse_models(v: &Value) -> Vec<ModelInfo> {
                 max_output_tokens: token_limit(m, &["maxOutputTokens"]),
                 supports_images: flag(m, &["supportsImages"]),
                 supports_reasoning: flag(m, &["supportsReasoning"]),
+                reasoning_effort_options: effort_options(&m["reasoning"]["supportedEfforts"]),
+                default_reasoning_effort: text(&m["reasoning"], &["defaultEffort", "effort"]),
                 supports_tools: flag(m, &["supportsToolCall"]).unwrap_or(true),
                 ..model(
                     id.clone(),
@@ -229,13 +231,20 @@ async fn models(client: &ProviderClient, c: &Credentials) -> Result<Vec<ModelInf
                 .header("X-Requested-With", "XMLHttpRequest")
         )
     );
-    let mut models = vec![];
+    let mut models: Vec<ModelInfo> = vec![];
     let mut failed = 0;
     for r in [enterprise, v3] {
         match r {
             Ok(v) => {
                 for m in parse_models(&v) {
-                    if !models.iter().any(|n: &ModelInfo| n.id == m.id) {
+                    if let Some(existing) = models.iter_mut().find(|n| n.id == m.id) {
+                        if existing.reasoning_effort_options.is_empty() {
+                            existing.reasoning_effort_options = m.reasoning_effort_options;
+                        }
+                        if existing.default_reasoning_effort.is_none() {
+                            existing.default_reasoning_effort = m.default_reasoning_effort;
+                        }
+                    } else {
                         models.push(m)
                     }
                 }
@@ -315,6 +324,19 @@ pub(super) async fn claim(
         rewards(client, c).await,
     )])
 }
+fn harness_system_text(text: &str) -> String {
+    // These two fixed DSH templates were verified separately against WorkBuddy.
+    // Keep the Harness identity and system priority; change no user/tool content.
+    let text = if let Some(rest) = text.strip_prefix("You are an AI agent powered by DeepSeek Harness.") {
+        format!("You are an AI agent running on DeepSeek Harness.{rest}")
+    } else {
+        text.to_owned()
+    };
+    text.replace(
+        "You are interacting with the user through the DeepSeek Harness Web GUI whose URL the runtime context names.",
+        "You are interacting with the user through the Web GUI whose URL the runtime context names.",
+    )
+}
 fn prepare_chat_body(m: &ModelInfo, mut body: Value) -> Value {
     body["model"] = json!(m.id);
     body["stream"] = json!(true);
@@ -326,6 +348,19 @@ fn prepare_chat_body(m: &ModelInfo, mut body: Value) -> Value {
             for message in messages {
                 if message["role"].as_str() == Some("developer") {
                     message["role"] = json!("system");
+                }
+                if message["role"] == "system" {
+                    if let Some(text) = message["content"].as_str() {
+                        message["content"] = json!(harness_system_text(text));
+                    } else if let Some(parts) = message["content"].as_array_mut() {
+                        for part in parts {
+                            if part["type"] == "text" {
+                                if let Some(text) = part["text"].as_str() {
+                                    part["text"] = json!(harness_system_text(text));
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -368,6 +403,21 @@ pub(super) async fn chat(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reasoning_levels_come_from_catalog_options_without_inventing_missing_levels() {
+        let models = parse_models(&json!({"models":[
+            {"id":"hy4-preview-x","supportsReasoning":true,"reasoning":{"supportedEfforts":[" high ","high","",null,3,"future-level"],"defaultEffort":"high"}},
+            {"id":"legacy","supportsReasoning":true,"reasoning":{"effort":"medium"}},
+            {"id":"unknown","supportsReasoning":true}
+        ]}));
+        assert_eq!(models[0].reasoning_effort_options, vec!["high", "future-level"]);
+        assert_eq!(models[0].default_reasoning_effort.as_deref(), Some("high"));
+        assert!(models[1].reasoning_effort_options.is_empty());
+        assert_eq!(models[1].default_reasoning_effort.as_deref(), Some("medium"));
+        assert!(models[2].reasoning_effort_options.is_empty());
+        assert_eq!(models[2].default_reasoning_effort, None);
+    }
+
     #[test]
     fn catalog_model_ids_do_not_replace_call_ids() {
         let models = parse_models(&json!({"models":[
@@ -442,6 +492,48 @@ mod tests {
         assert_eq!(body["messages"][0]["role"], "system");
         assert_eq!(body["messages"][0]["content"], messages[0]["content"]);
         assert_eq!(body["messages"][1], messages[1]);
+    }
+
+    #[test]
+    fn harness_templates_keep_system_priority_and_leave_other_messages_and_tools_unchanged() {
+        let original = "You are an AI agent powered by DeepSeek Harness.\nKeep tool instructions verbatim.\nYou are interacting with the user through the DeepSeek Harness Web GUI whose URL the runtime context names.\nKeep the runtime URL and file paths unchanged.";
+        let expected = "You are an AI agent running on DeepSeek Harness.\nKeep tool instructions verbatim.\nYou are interacting with the user through the Web GUI whose URL the runtime context names.\nKeep the runtime URL and file paths unchanged.";
+        let model = model("deepseek-v4.1-flash".into(), "DeepSeek Flash".into(), None);
+        for role in ["system", "developer"] {
+            for content in [json!(original), json!([{"type":"text","text":original},{"type":"text","text":"Read /Users/example/DeepSeek Harness/files verbatim."}])] {
+                let input = json!({"messages":[
+                    {"role":role,"content":content},
+                    {"role":"user","content":original},
+                    {"role":"assistant","content":original,"reasoning_content":"keep this reasoning","tool_calls":[{"id":"call_1","type":"function","function":{"name":"Read","arguments":"{}"}}]},
+                    {"role":"tool","tool_call_id":"call_1","content":[{"type":"text","text":original},{"type":"image_url","image_url":{"url":"https://example.test/screenshot.png"}}]}
+                ],"tools":[{"type":"function","function":{"name":"Read","description":original,"parameters":{"type":"object"}}}]});
+                let mut expected_messages = input["messages"].clone();
+                expected_messages[0]["role"] = json!("system");
+                if content.is_string() {
+                    expected_messages[0]["content"] = json!(expected);
+                } else {
+                    expected_messages[0]["content"][0]["text"] = json!(expected);
+                }
+                let converted = prepare_chat_body(&model, input.clone());
+                assert_eq!(converted["messages"], expected_messages);
+                assert_eq!(converted["tools"], input["tools"]);
+                assert_eq!(prepare_chat_body(&model, converted.clone()), converted);
+            }
+        }
+    }
+
+    #[test]
+    fn unrelated_system_text_and_harness_names_are_not_rewritten() {
+        let model = model("deepseek-v4.1-flash".into(), "DeepSeek Flash".into(), None);
+        for text in [
+            "Use DeepSeek Harness with the runtime URL.",
+            "Quoted example: You are an AI agent powered by DeepSeek Harness.",
+            "You are an AI agent powered by DeepSeek Harnessing.",
+            "Read /Users/example/DeepSeek Harness/files and the DeepSeek Harness Web GUI.",
+        ] {
+            let input = json!({"messages":[{"role":"system","content":text},{"role":"user","content":"hello"}]});
+            assert_eq!(prepare_chat_body(&model, input.clone())["messages"], input["messages"]);
+        }
     }
 
     #[test]

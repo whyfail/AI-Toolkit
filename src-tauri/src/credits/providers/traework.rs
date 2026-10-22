@@ -395,6 +395,8 @@ pub(super) fn parse_models(v: &Value) -> Vec<ModelInfo> {
                     }),
                 supports_reasoning: flag(&contact["reasoning"], &["enable"])
                     .filter(|supported| *supported),
+                reasoning_effort_options: effort_options(&m["reasoning_effort_config"]["options"]),
+                default_reasoning_effort: text(&m["reasoning_effort_config"], &["default_level"]),
                 ..model(
                     id,
                     name,
@@ -628,6 +630,18 @@ pub(super) async fn chat(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reasoning_levels_keep_native_names_and_do_not_infer_tiers_from_a_badge() {
+        let models = parse_models(&json!({"config_info_list":[
+            {"config_name":"glm-5.3-flash","display_config":{"display_name":"GLM-5.3-Flash"},"reasoning_effort_config":{"support_thinking":true,"options":["light","high","extra_high"],"default_level":"extra_high"}},
+            {"config_name":"unknown","display_config":{"display_name":"Unknown"},"display_contact_config":"{\"reasoning\":{\"enable\":true}}"}
+        ]}));
+        assert_eq!(models[0].reasoning_effort_options, vec!["light", "high", "extra_high"]);
+        assert_eq!(models[0].default_reasoning_effort.as_deref(), Some("extra_high"));
+        assert!(models[1].reasoning_effort_options.is_empty());
+        assert_eq!(models[1].default_reasoning_effort, None);
+    }
+
 
     #[test]
     fn checkin_gateway_is_independent_of_the_account_realm() {

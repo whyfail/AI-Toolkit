@@ -439,6 +439,7 @@ fn validate_request(data: &Value) -> Result<(&str, bool, bool), &'static str> {
         "messages",
         "stream",
         "stream_options",
+        "store",
         "tools",
         "tool_choice",
         "parallel_tool_calls",
@@ -465,6 +466,12 @@ fn validate_request(data: &Value) -> Result<(&str, bool, bool), &'static str> {
         .ok_or("缺少有效的 model")?;
     if object.get("stream").is_some_and(|v| !v.is_boolean()) {
         return Err("stream 必须是布尔值");
+    }
+    if object
+        .get("store")
+        .is_some_and(|value| value.as_bool() != Some(false))
+    {
+        return Err("代理仅支持 store=false，不提供响应存储");
     }
     if object.get("n").is_some_and(|v| v.as_u64() != Some(1)) {
         return Err("代理仅支持 n=1");
@@ -682,7 +689,7 @@ async fn protocol_request(
             return protocol.error(status, code, message);
         }
     };
-    let data = if matches!(protocol, Protocol::Messages) {
+    let mut data = if matches!(protocol, Protocol::Messages) {
         match anthropic::request(data) {
             Ok(data) => data,
             Err(message) => {
@@ -697,6 +704,10 @@ async fn protocol_request(
         Err(message) => return protocol.error(StatusCode::BAD_REQUEST, "invalid_request", message),
     };
     let requested = requested.to_owned();
+    // Consume the client's opt-out locally; providers need not support stored completions.
+    if let Some(object) = data.as_object_mut() {
+        object.remove("store");
+    }
     let accounts = match context.manager.accounts() {
         Ok(v) => v,
         Err(_) => {
@@ -815,10 +826,18 @@ async fn protocol_request(
                     );
                     continue;
                 }
+                // Expose only recognized fixed diagnostics, never arbitrary upstream bodies.
+                let (code, message) = match error.message.as_str() {
+                    super::providers::CHANNEL_VERIFICATION_ERROR => (
+                        "upstream_channel_rejected",
+                        super::providers::CHANNEL_VERIFICATION_ERROR,
+                    ),
+                    _ => ("upstream_error", "上游请求失败；未重试可能已被计费的请求"),
+                };
                 return protocol.error(
                     StatusCode::from_u16(error.status).unwrap_or(StatusCode::BAD_GATEWAY),
-                    "upstream_error",
-                    "上游请求失败；未重试可能已被计费的请求",
+                    code,
+                    message,
                 );
             }
         }
@@ -1183,6 +1202,8 @@ mod tests {
                     max_output_tokens: None,
                     supports_images: None,
                     supports_reasoning: None,
+                    reasoning_effort_options: vec![],
+                    default_reasoning_effort: None,
                     verified: true,
                     verification_note: None,
                 }],
@@ -1219,6 +1240,33 @@ mod tests {
         image["messages"][0]["content"][0]["image_url"]["url"] =
             json!("data:image/png;base64,invalid base64");
         assert!(validate_request(&image).is_err());
+    }
+
+    #[test]
+    fn store_option_only_allows_explicitly_disabling_storage() {
+        let mut request = json!({"model":"workbuddy/deepseek-v4.1-flash","messages":[{"role":"user","content":"hello"}],"stream":true});
+        assert_eq!(
+            validate_request(&request).unwrap(),
+            ("workbuddy/deepseek-v4.1-flash", true, false)
+        );
+        request["store"] = json!(false);
+        assert_eq!(
+            validate_request(&request).unwrap(),
+            ("workbuddy/deepseek-v4.1-flash", true, false)
+        );
+        for value in [
+            json!(true),
+            json!(null),
+            json!("false"),
+            json!(0),
+            json!({}),
+        ] {
+            request["store"] = value;
+            assert_eq!(
+                validate_request(&request).unwrap_err(),
+                "代理仅支持 store=false，不提供响应存储"
+            );
+        }
     }
 
     #[test]
@@ -1583,6 +1631,109 @@ mod tests {
             .timeout(std::time::Duration::from_secs(3))
             .build()
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn store_false_reaches_each_provider_without_requesting_storage() {
+        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder] {
+            let manager = routed_test_manager();
+            for mut account in manager.accounts().unwrap() {
+                account.platform = platform;
+                manager.store.save_account(&account).unwrap();
+            }
+            let gateway = GatewayManager::new();
+            let status = gateway.start(manager.clone(), 0).await.unwrap();
+            let http = local_http();
+            let key = manager.gateway_key().unwrap();
+            let url = format!("{}/chat/completions", status.base_url);
+            let mut body = json!({
+                "model":format!("{}/glm-5.3",platform.key()),
+                "messages":[{"role":"user","content":"hello"}],
+                "max_completion_tokens":64,
+                "stream":true,
+                "stream_options":{"include_usage":true},
+                "tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"},"strict":false}}],
+                "store":true
+            });
+            let response = http
+                .post(&url)
+                .bearer_auth(&key)
+                .json(&body)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(
+                response.json::<Value>().await.unwrap()["error"]["message"],
+                "代理仅支持 store=false，不提供响应存储"
+            );
+            assert!(manager.provider.test_chat_calls().is_empty());
+            body["store"] = json!(false);
+            for stream in [false, true] {
+                body["stream"] = json!(stream);
+                manager.provider.queue_test_chat("first", fixture_chunks(vec![
+                    json!({"choices":[{"delta":{"content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1}})
+                ]));
+                let response = http
+                    .post(&url)
+                    .bearer_auth(&key)
+                    .json(&body)
+                    .send()
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                if stream {
+                    let events = response.text().await.unwrap();
+                    assert!(events.contains("\"content\":\"hello\""));
+                    assert!(events.ends_with("data: [DONE]\n\n"));
+                } else {
+                    assert_eq!(
+                        response.json::<Value>().await.unwrap()["choices"][0]["message"]["content"],
+                        "hello"
+                    );
+                }
+            }
+            assert_eq!(manager.provider.test_chat_calls(), vec!["first", "first"]);
+            for forwarded in manager.provider.test_chat_bodies() {
+                assert!(forwarded.get("store").is_none());
+                assert_eq!(forwarded["messages"], body["messages"]);
+                assert_eq!(forwarded["tools"], body["tools"]);
+                assert_eq!(forwarded["stream_options"], body["stream_options"]);
+                assert_eq!(forwarded["max_completion_tokens"], 64);
+            }
+            gateway.stop().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn channel_verification_errors_are_explicit_without_account_failover() {
+        for endpoint in ["chat/completions", "messages"] {
+            let manager = routed_test_manager();
+            manager.provider.queue_test_chat(
+                "first",
+                vec![Err(ProviderError::new(
+                    400,
+                    "上游通道校验未通过（代码 11128），请使用官方客户端或平台授权的接口",
+                ))],
+            );
+            let gateway = GatewayManager::new();
+            let status = gateway.start(manager.clone(), 0).await.unwrap();
+            let response = local_http()
+                .post(format!("{}/{endpoint}", status.base_url))
+                .bearer_auth(manager.gateway_key().unwrap())
+                .json(&messages_body(true))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let error = response.json::<Value>().await.unwrap();
+            assert_eq!(error["error"]["message"], "上游通道校验未通过（代码 11128），请使用官方客户端或平台授权的接口");
+            if endpoint == "chat/completions" {
+                assert_eq!(error["error"]["code"], "upstream_channel_rejected");
+            }
+            assert_eq!(manager.provider.test_chat_calls(), vec!["first"]);
+            gateway.stop().await.unwrap();
+        }
     }
 
     #[tokio::test]

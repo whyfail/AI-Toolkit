@@ -248,6 +248,7 @@ fn parse_models(v: &Value) -> Vec<ModelInfo> {
             let windows = context_windows(m);
             let context = windows.last().copied().or_else(|| token_limit(m, &["max_input_tokens"]));
             let upstream_model_ids = underlying_model_id(&m["model"], &key).into_iter().collect();
+            let efforts = m["thinking_config"]["enabled"]["efforts"].as_object();
             Some(ModelInfo {
                 upstream_id: (id != key).then_some(key),
                 upstream_model_ids,
@@ -255,6 +256,10 @@ fn parse_models(v: &Value) -> Vec<ModelInfo> {
                 max_output_tokens: token_limit(m, &["max_output_tokens"]),
                 supports_images: flag(m, &["is_vl"]),
                 supports_reasoning: flag(m, &["is_reasoning"]),
+                reasoning_effort_options: efforts.map(|options| options.keys().cloned().collect()).unwrap_or_default(),
+                default_reasoning_effort: efforts.and_then(|options| {
+                    options.iter().find(|(_, config)| config["is_default"] == true).map(|(level, _)| level.clone())
+                }),
                 ..model(
                     id,
                     name,
@@ -579,8 +584,13 @@ fn credits_confirmed(v: &Value) -> bool {
 }
 fn body(mut b: Value, id: &str) -> Result<Value, ProviderError> {
     let messages = b["messages"]
-        .as_array()
+        .as_array_mut()
         .ok_or_else(|| ProviderError::new(400, "messages 必须是数组"))?;
+    for message in messages.iter_mut() {
+        if message["role"] == "developer" {
+            message["role"] = json!("system");
+        }
+    }
     let has_images = messages.iter().any(|m| {
         m["content"]
             .as_array()
@@ -671,6 +681,41 @@ pub(super) async fn chat(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reasoning_levels_use_thinking_configuration_instead_of_the_reasoning_badge() {
+        let models = parse_models(&json!({"chat":[
+            {"key":"dfmodel","enable":true,"is_reasoning":false,"thinking_config":{"disabled":{},"enabled":{"is_default":true,"efforts":{"low":{},"high":{},"max":{"is_default":true}}}}},
+            {"key":"toggle-only","enable":true,"thinking_config":{"enabled":{"is_default":true},"disabled":{}}},
+            {"key":"unknown","enable":true,"is_reasoning":true}
+        ]}));
+        assert_eq!(models[0].reasoning_effort_options, vec!["high", "low", "max"]);
+        assert_eq!(models[0].default_reasoning_effort.as_deref(), Some("max"));
+        for model in &models[1..] {
+            assert!(model.reasoning_effort_options.is_empty());
+            assert_eq!(model.default_reasoning_effort, None);
+        }
+    }
+
+    #[test]
+    fn developer_messages_become_system_messages_without_changing_the_conversation() {
+        for content in [json!("project instructions"), json!([{"type":"text","text":"project instructions"}])] {
+            let input = json!({"messages":[
+                {"role":"system","content":"base instructions"},
+                {"role":"developer","content":content},
+                {"role":"user","content":"hello"},
+                {"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"Read","arguments":"{}"}}]},
+                {"role":"tool","tool_call_id":"call_1","content":"result"}
+            ],"tools":[{"type":"function","function":{"name":"Read","parameters":{"type":"object"}}}],"tool_choice":"auto"});
+            let mut expected_messages = input["messages"].clone();
+            expected_messages[1]["role"] = json!("system");
+            let converted = body(input.clone(), "dfmodel").unwrap();
+            assert_eq!(converted["messages"], expected_messages);
+            assert_eq!(converted["system"], json!(["base instructions", content]));
+            assert_eq!(converted["tools"], input["tools"]);
+            assert_eq!(converted["tool_choice"], input["tool_choice"]);
+        }
+    }
+
     #[test]
     fn catalog_model_id_is_separate_from_the_routing_key() {
         let models = parse_models(&json!({"chat":[{"key":"dfmodel","display_name":"DeepSeek-Flash","enable":true,"model":" deepseek-v4-1-flash-260910 "}]}));

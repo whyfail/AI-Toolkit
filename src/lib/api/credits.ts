@@ -30,6 +30,8 @@ export interface CreditModel {
   maxOutputTokens?: number | null;
   supportsImages?: boolean | null;
   supportsReasoning?: boolean | null;
+  reasoningEffortOptions?: string[];
+  defaultReasoningEffort?: string | null;
   verified: boolean;
   verificationNote: string | null;
 }

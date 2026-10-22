@@ -11,6 +11,12 @@ interface ModelInfoProps {
 
 const tokenNumber = new Intl.NumberFormat("en-US");
 const compactTokens = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 });
+const effortLabels: Record<string, string> = {
+  none: "关闭", off: "关闭", disabled: "关闭", minimal: "最低", light: "轻", low: "低",
+  medium: "中", high: "高", extra_high: "极高", xhigh: "极高", max: "最高",
+};
+const effortOrder = ["none", "off", "disabled", "minimal", "light", "low", "medium", "high", "extra_high", "xhigh", "max"];
+const effortLabel = (effort: string) => typeof effortLabels[effort] === "string" ? `${effortLabels[effort]}（${effort}）` : effort;
 
 function TokenLimit({ label, value }: { label: string; value?: number | null }) {
   const known = value != null && Number.isSafeInteger(value) && value > 0;
@@ -32,6 +38,10 @@ function Capability({ label, value, note }: { label: string; value?: boolean | n
 
 export function ModelInfoContent({ account, model, platformName }: ModelInfoProps) {
   const snapshot = account.snapshot;
+  const efforts = [...(model.reasoningEffortOptions ?? [])].sort((a, b) => {
+    const rank = (value: string) => effortOrder.includes(value) ? effortOrder.indexOf(value) : effortOrder.length;
+    return rank(a) - rank(b);
+  });
   const updated = snapshot?.fetchedAt ? new Date(snapshot.fetchedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "尚未同步";
   return <>
     <div className="flex items-center justify-between gap-3 text-[10px] font-medium text-slate-500 dark:text-slate-400"><span>{platformName} · 通道参数</span>{snapshot?.stale ? <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-amber-700 dark:text-amber-300">缓存数据</span> : null}</div>
@@ -75,6 +85,14 @@ export function ModelInfoContent({ account, model, platformName }: ModelInfoProp
       <Capability label="工具调用" value={model.supportsTools} />
       <Capability label="思考输出" value={model.supportsReasoning} />
     </div>
+    <dl className="mt-3 rounded-xl border border-slate-500/10 px-3 py-2.5 text-[11px]">
+      <dt className="font-medium">推理等级</dt>
+      <dd className="mt-2 flex flex-wrap gap-1.5">
+        {efforts.length ? efforts.map((effort) => <span key={effort} className="max-w-full break-all rounded-md bg-slate-500/5 px-2 py-1 text-slate-600 dark:text-slate-300">{effortLabel(effort)}</span>)
+          : <span className="text-slate-500 dark:text-slate-400">未知 · 通道未提供</span>}
+      </dd>
+      {model.defaultReasoningEffort ? <dd className="mt-2 text-[10px] text-slate-500 dark:text-slate-400">默认：{effortLabel(model.defaultReasoningEffort)}</dd> : null}
+    </dl>
     <div className="mt-4 border-t border-slate-500/10 pt-3 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">
       <p>参数与能力来自当前账号通道。未知表示目录未提供，刷新账户可更新；目录标注不等于已实测。</p>
       <p className="mt-1">更新于 {updated}</p>

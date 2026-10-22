@@ -68,6 +68,10 @@ pub struct ModelInfo {
     pub supports_images: Option<bool>,
     #[serde(default)]
     pub supports_reasoning: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reasoning_effort_options: Vec<String>,
+    #[serde(default)]
+    pub default_reasoning_effort: Option<String>,
     pub verified: bool,
     pub verification_note: Option<String>,
 }
@@ -200,9 +204,12 @@ mod tests {
         assert_eq!(model.max_output_tokens, None);
         assert_eq!(model.supports_images, None);
         assert_eq!(model.supports_reasoning, None);
+        assert!(model.reasoning_effort_options.is_empty());
+        assert_eq!(model.default_reasoning_effort, None);
         let exported = serde_json::to_value(model).unwrap();
         assert!(exported["maxOutputTokens"].is_null());
         assert!(exported["supportsImages"].is_null());
         assert!(exported["supportsReasoning"].is_null());
+        assert!(exported["defaultReasoningEffort"].is_null());
     }
 }

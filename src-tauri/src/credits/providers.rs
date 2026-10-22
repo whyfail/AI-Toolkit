@@ -15,6 +15,8 @@ use reqwest::{Client, RequestBuilder, Response};
 use serde_json::{json, Value};
 use std::{pin::Pin, sync::Arc, time::Duration};
 pub(crate) use traework::local_credentials;
+pub(super) const CHANNEL_VERIFICATION_ERROR: &str =
+    "上游通道校验未通过（代码 11128），请使用官方客户端或平台授权的接口";
 pub struct ProviderChat {
     pub stream: Pin<Box<dyn Stream<Item = Result<ChatChunk, ProviderError>> + Send>>,
 }
@@ -212,12 +214,18 @@ fn upstream_error_detail(v: &Value) -> Option<(String, String)> {
     ))
 }
 fn upstream_body_error(status: u16, text: &str) -> ProviderError {
-    let mut error = http_error(status);
-    if let Some((code, message)) = serde_json::from_str::<Value>(text)
-        .ok()
-        .as_ref()
-        .and_then(upstream_error_detail)
+    let detail = serde_json::from_str::<Value>(text).ok();
+    // 11128 is also used for malformed requests; match the channel rejection text too.
+    if status == 400
+        && detail.as_ref().is_some_and(|value| {
+            value["code"].as_i64() == Some(11128)
+                && value["msg"].as_str() == Some("Illegal API invocation from an unapproved channel")
+        })
     {
+        return ProviderError::new(status, CHANNEL_VERIFICATION_ERROR);
+    }
+    let mut error = http_error(status);
+    if let Some((code, message)) = detail.as_ref().and_then(upstream_error_detail) {
         error.message = format!("平台拒绝（代码 {code}）：{message}");
     }
     error
@@ -316,6 +324,18 @@ pub(super) fn underlying_model_id(v: &Value, route: &str) -> Option<String> {
     (!id.is_empty() && id != route && !id.starts_with("ep-") && !id.ends_with("__dev"))
         .then(|| id.to_owned())
 }
+pub(super) fn effort_options(v: &Value) -> Vec<String> {
+    v.as_array().into_iter().flatten()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|effort| !effort.is_empty())
+        .fold(Vec::new(), |mut options, effort| {
+            if !options.iter().any(|known| known == effort) {
+                options.push(effort.to_owned());
+            }
+            options
+        })
+}
 pub(super) fn epoch(v: &Value) -> Option<i64> {
     if let Some(n) = v
         .as_i64()
@@ -393,6 +413,8 @@ pub(super) fn model(id: String, name: String, context: Option<u64>) -> ModelInfo
         max_output_tokens: None,
         supports_images: None,
         supports_reasoning: None,
+        reasoning_effort_options: vec![],
+        default_reasoning_effort: None,
         verified: false,
         verification_note: Some("已从账号实时目录发现，尚未验证实际模型身份".into()),
     }

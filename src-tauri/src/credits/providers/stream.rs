@@ -23,16 +23,9 @@ pub(super) async fn response(
         .map_err(|_| ProviderError::new(504, "等待平台响应超时"))?
         .map_err(ProviderError::transport)?;
     if !r.status().is_success() {
-        // TODO: remove once the per-platform upstream failures are verified live.
         let status = r.status();
         let body = r.text().await.unwrap_or_default();
-        eprintln!(
-            "credits: 上游 {:?} {} → {}",
-            p,
-            status,
-            body.chars().take(300).collect::<String>()
-        );
-        return Err(http_error(status.as_u16()));
+        return Err(upstream_body_error(status.as_u16(), &body));
     }
     let state = State {
         input: Box::pin(r.bytes_stream()),
@@ -383,5 +376,54 @@ data: {"tool_calls":[{"index":0,"id":"c","function_call":{"name":"read","argumen
     #[test]
     fn byte_boundaries_accept_crlf() {
         assert_eq!(boundary(b"data: x\r\n\r\n"), Some((7, 4)));
+    }
+
+    #[tokio::test]
+    async fn channel_verification_rejections_report_a_safe_specific_reason() {
+        use axum::{http::StatusCode, routing::post, Json, Router};
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().route(
+                    "/",
+                    post(|Json(body): Json<Value>| async { (StatusCode::BAD_REQUEST, Json(body)) }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        for (body, expected) in [
+            (
+                json!({"code":11128,"msg":"Illegal API invocation from an unapproved channel","token":"fixture-secret"}),
+                "上游通道校验未通过（代码 11128），请使用官方客户端或平台授权的接口",
+            ),
+            (
+                json!({"code":11128,"msg":"first message is not system prompt","token":"fixture-secret"}),
+                "平台请求失败（HTTP 400）",
+            ),
+            (
+                json!({"code":11133,"msg":"fixture-secret"}),
+                "平台请求失败（HTTP 400）",
+            ),
+        ] {
+            let error = response(http.post(&url).json(&body), Platform::Workbuddy)
+                .await
+                .err()
+                .unwrap();
+            assert_eq!(error.status, 400);
+            assert_eq!(error.message, expected);
+            assert!(!error.rejected);
+            assert!(!error.message.contains("fixture-secret"));
+        }
+        server.abort();
     }
 }
