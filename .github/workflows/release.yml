@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release Version (e.g., 2.1.4)'
+        description: 'Release Version (e.g., 2.1.5)'
         required: true
-        default: '2.1.4'
+        default: '2.1.5'
       publish:
         description: 'Publish the release after building both platforms'
         type: boolean

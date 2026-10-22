@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.1.4-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.1.5-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -14,13 +14,12 @@
 
 ## 📖 简介
 
-AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MCP 服务器、Skills 技能、平台积分与本地模型代理**。当前版本提供 Skills 管理、MCP 服务器、积分与代理、设置、关于五个面板，支持 25 种工具的本地安装检测与配置适配。
+AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MCP 服务器、Skills 技能、平台积分与本地模型代理**。当前版本提供 Skills 管理、MCP 服务器、积分与代理、更新日志、设置、关于六个面板，支持 25 种工具的本地安装检测与配置适配。
 
-## 🆕 v2.1.4 更新
+## 🆕 v2.1.5 更新
 
-- **DeepSeek Harness**：新增桌面应用与 `dsh` CLI 检测、启动、官方图标、MCP 和 Skills 同步，支持工具增至 25 种。详见 [Agent 适配说明](docs/agent-adapters.md)。
-- **模型推理等级**：信息卡展示三平台目录提供的推理档位与默认值，保留原始名称和中文说明；缺失档位保持未知，不改变客户端推理参数。
-- **代理兼容修复**：支持客户端的 `store: false`、Qoder 的 `developer` 消息转换及 WorkBuddy 的两处固定 Harness 系统模板兼容；通道拒绝返回明确错误且不自动重试。详见 [积分与模型代理](docs/credits-proxy.md)。
+- **应用内更新日志**：左侧新增「更新日志」面板，内置完整变更记录并按版本分组展示，自动标注当前运行版本，离线可用。
+- **侧边栏入口**：移除「Agent 技能与 MCP」副标题，点击应用图标可直接打开官网。
 
 完整变更见 [更新记录](CHANGELOG.md)，安全加固与验证边界见 [安全加固记录](docs/security-hardening.md)。
 

@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.1.4-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.1.5-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -14,13 +14,12 @@
 
 ## 📖 Introduction
 
-AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and a local model proxy**. The current version has five panels: Skills, MCP Servers, Credits & Proxy, Settings, and About, with local installation detection and configuration adapters for 25 AI programming tools.
+AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and a local model proxy**. The current version has six panels: Skills, MCP Servers, Credits & Proxy, Changelog, Settings, and About, with local installation detection and configuration adapters for 25 AI programming tools.
 
-## 🆕 What's New in v2.1.4
+## 🆕 What's New in v2.1.5
 
-- **DeepSeek Harness**: Adds desktop and `dsh` CLI discovery, launching, the official icon, MCP configuration, and Skills sync, bringing support to 25 tools. See [Agent adapters](docs/agent-adapters.md).
-- **Reasoning levels**: Model cards show catalog-provided effort options and defaults for all three platforms, preserving native names with Chinese labels. Missing options remain unknown, and client reasoning parameters are preserved.
-- **Proxy compatibility**: Accepts client `store: false`, maps Qoder `developer` messages, and adjusts two fixed Harness system templates for WorkBuddy. Channel rejections return a specific error without automatic retries. See [Credits & Model Proxy](docs/credits-proxy.md).
+- **In-app changelog**: A new Changelog panel in the sidebar bundles the full release history, groups it by version, marks the running version, and works offline.
+- **Sidebar entry**: The subtitle is gone, and clicking the app icon opens the official website.
 
 See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/security-hardening.md) for security changes and validation scope.
 
