@@ -20,6 +20,7 @@ import {
   Share2,
   Coins,
   RefreshCw,
+  History,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-shell";
 import { useAppVersion } from "@/hooks/useAppVersion";
@@ -30,8 +31,9 @@ import { appApi, updateApi } from "@/lib/api";
 import type { SkillsInstallPreferences } from "@/lib/api";
 import appLogo from "../src-tauri/icons/128x128.png";
 
-type Tab = "mcp" | "skills" | "credits" | "settings" | "about";
+type Tab = "mcp" | "skills" | "credits" | "changelog" | "settings" | "about";
 const CreditsPanel = lazy(() => import("@/components/credits/CreditsPanel"));
+const ChangelogPanel = lazy(() => import("@/components/changelog/ChangelogPanel"));
 const GITHUB_REPO_URL = "https://github.com/whyfail/ai-toolkit";
 const OFFICIAL_WEBSITE_URL = "https://whyfail.github.io/ai-toolkit-website/";
 let startupUpdateCheckStarted = false;
@@ -115,6 +117,7 @@ function App() {
     { id: "skills" as Tab, label: "Skills 管理", icon: Sparkles },
     { id: "mcp" as Tab, label: "MCP 服务器", icon: Database },
     { id: "credits" as Tab, label: "积分与代理", icon: Coins },
+    { id: "changelog" as Tab, label: "更新日志", icon: History },
     { id: "settings" as Tab, label: "设置", icon: Settings },
     { id: "about" as Tab, label: "关于", icon: Info },
   ];
@@ -123,22 +126,22 @@ function App() {
     <div className="glass-app flex h-full">
       {/* 侧边栏 */}
       <aside className="glass-sidebar z-10 flex w-[240px] flex-col border-y-0 border-l-0">
-        {/* Logo */}
+        {/* Logo：点击打开官网 */}
         <div className="px-6 pt-6 pb-5">
           <div className="flex items-center gap-3">
-            <img
-              src={appLogo}
-              alt="AI Toolkit"
-              className="h-11 w-11 rounded-2xl"
-            />
-            <div>
-              <h1 className="text-base font-semibold tracking-tight text-slate-950 dark:text-white">
-                AI Toolkit
-              </h1>
-              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Agent 技能与 MCP
-              </p>
-            </div>
+            <Pressable
+              onClick={() =>
+                void open(OFFICIAL_WEBSITE_URL).catch(() => toast.error("无法打开官网"))
+              }
+              aria-label="打开 AI Toolkit 官网"
+              title="打开 AI Toolkit 官网"
+              className="rounded-2xl"
+            >
+              <img src={appLogo} alt="" className="h-11 w-11 rounded-2xl" />
+            </Pressable>
+            <h1 className="text-base font-semibold tracking-tight text-slate-950 dark:text-white">
+              AI Toolkit
+            </h1>
           </div>
         </div>
 
@@ -214,6 +217,11 @@ function App() {
             {activeTab === "credits" && (
               <Suspense fallback={<div className="flex h-full items-center justify-center gap-3 text-sm text-slate-500"><Loader2 size={20} className="animate-spin" />正在加载积分与代理…</div>}>
                 <CreditsPanel />
+              </Suspense>
+            )}
+            {activeTab === "changelog" && (
+              <Suspense fallback={<div className="flex h-full items-center justify-center gap-3 text-sm text-slate-500"><Loader2 size={20} className="animate-spin" />正在加载更新日志…</div>}>
+                <ChangelogPanel />
               </Suspense>
             )}
             {activeTab === "settings" && <SettingsTab theme={theme} />}
