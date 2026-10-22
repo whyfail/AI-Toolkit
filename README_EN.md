@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.1.3-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.1.4-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -14,19 +14,20 @@
 
 ## 📖 Introduction
 
-AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and a local model proxy**. The current version has five panels: Skills, MCP Servers, Credits & Proxy, Settings, and About, with local installation detection and configuration adapters for 24 AI programming tools.
+AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and a local model proxy**. The current version has five panels: Skills, MCP Servers, Credits & Proxy, Settings, and About, with local installation detection and configuration adapters for 25 AI programming tools.
 
-## 🆕 What's New in v2.1.3
+## 🆕 What's New in v2.1.4
 
-- **TRAE CN check-in fix**: Check-in status and claims use the separate UG gateway, fixing 404 responses for `.com.cn` accounts. Identity, token refresh, and billing requests keep using the account's own realm. See [Credits & Model Proxy](docs/credits-proxy.md).
-- **Development reloads**: Vite ignores changes under `src-tauri` so Rust source and generated files do not trigger frontend reloads.
+- **DeepSeek Harness**: Adds desktop and `dsh` CLI discovery, launching, the official icon, MCP configuration, and Skills sync, bringing support to 25 tools. See [Agent adapters](docs/agent-adapters.md).
+- **Reasoning levels**: Model cards show catalog-provided effort options and defaults for all three platforms, preserving native names with Chinese labels. Missing options remain unknown, and client reasoning parameters are preserved.
+- **Proxy compatibility**: Accepts client `store: false`, maps Qoder `developer` messages, and adjusts two fixed Harness system templates for WorkBuddy. Channel rejections return a specific error without automatic retries. See [Credits & Model Proxy](docs/credits-proxy.md).
 
 See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/security-hardening.md) for security changes and validation scope.
 
 ## ✨ Key Features
 
 ### 🎯 MCP Server Management
-- Support for **24** mainstream AI programming tools: Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, TRAE, TRAE CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent, Mimo Code, Kimi Code, MiniMax Code, WorkBuddy, ZCode, Cursor, Windsurf, Cline, Roo Code, Kilo Code, Continue, Goose, Kiro
+- Support for **25** mainstream AI programming tools: Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, TRAE, TRAE CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent, Mimo Code, Kimi Code, MiniMax Code, DeepSeek Harness, WorkBuddy, ZCode, Cursor, Windsurf, Cline, Roo Code, Kilo Code, Continue, Goose, Kiro
 - Add, edit, and delete MCP servers in a single interface
 - Automatically detects installed AI tools on your system and prompts for MCP sync when new tools are discovered
 - Toggle switches **sync in real-time** to the corresponding tool's configuration file
@@ -71,7 +72,7 @@ Platform APIs and account permissions determine the actual availability of balan
 - Scans installed CLI tools, desktop apps, and IDE extensions at startup; the results determine the available sync targets for MCP and Skills
 - Detection evidence comes from executables, app bundles, or IDE extension manifests; leftover config and Skills directories do not count as installations
 - Codex CLI, desktop, and IDE share one Codex entry; both WorkBuddy editions share one WorkBuddy entry
-- Kimi Code and MiniMax Code support desktop and CLI discovery, official icons, MCP, and Skills sync
+- Kimi Code, MiniMax Code, and DeepSeek Harness support desktop and CLI discovery, official icons, MCP, and Skills sync
 - See [Agent adapter paths and official sources](docs/agent-adapters.md)
 
 ### 🔄 App Updates & Sharing

@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.1.3-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.1.4-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -14,19 +14,20 @@
 
 ## 📖 简介
 
-AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MCP 服务器、Skills 技能、平台积分与本地模型代理**。当前版本提供 Skills 管理、MCP 服务器、积分与代理、设置、关于五个面板，支持 24 种工具的本地安装检测与配置适配。
+AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MCP 服务器、Skills 技能、平台积分与本地模型代理**。当前版本提供 Skills 管理、MCP 服务器、积分与代理、设置、关于五个面板，支持 25 种工具的本地安装检测与配置适配。
 
-## 🆕 v2.1.3 更新
+## 🆕 v2.1.4 更新
 
-- **TRAE CN 签到修复**：签到状态与领取使用独立 UG 网关，修复 `.com.cn` 账号签到返回 404 的问题；身份验证、Token 刷新与账单查询继续使用账号所属域名。详见 [积分与模型代理](docs/credits-proxy.md)。
-- **开发重载优化**：Vite 忽略 `src-tauri` 目录的文件变动，避免 Rust 源码和生成文件触发前端重载。
+- **DeepSeek Harness**：新增桌面应用与 `dsh` CLI 检测、启动、官方图标、MCP 和 Skills 同步，支持工具增至 25 种。详见 [Agent 适配说明](docs/agent-adapters.md)。
+- **模型推理等级**：信息卡展示三平台目录提供的推理档位与默认值，保留原始名称和中文说明；缺失档位保持未知，不改变客户端推理参数。
+- **代理兼容修复**：支持客户端的 `store: false`、Qoder 的 `developer` 消息转换及 WorkBuddy 的两处固定 Harness 系统模板兼容；通道拒绝返回明确错误且不自动重试。详见 [积分与模型代理](docs/credits-proxy.md)。
 
 完整变更见 [更新记录](CHANGELOG.md)，安全加固与验证边界见 [安全加固记录](docs/security-hardening.md)。
 
 ## ✨ 核心特性
 
 ### 🎯 MCP 服务器管理
-- 支持 **24 种** 主流 AI 编程工具：Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, TRAE, TRAE CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent, Mimo Code, Kimi Code, MiniMax Code, WorkBuddy, ZCode, Cursor, Windsurf, Cline, Roo Code, Kilo Code, Continue, Goose, Kiro
+- 支持 **25 种** 主流 AI 编程工具：Qwen Code, Claude Code, Codex, Gemini CLI, OpenCode, TRAE, TRAE CN, Qoder, Qoder CLI, CodeBuddy, Hermes Agent, Mimo Code, Kimi Code, MiniMax Code, DeepSeek Harness, WorkBuddy, ZCode, Cursor, Windsurf, Cline, Roo Code, Kilo Code, Continue, Goose, Kiro
 - 在单一界面中添加、编辑、删除 MCP 服务器
 - 自动检测系统中已安装的 AI 工具，新工具发现时弹窗提示
 - 切换开关**实时同步**到对应工具的配置文件
@@ -71,7 +72,7 @@ AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MC
 - 启动时自动扫描本地已安装的 CLI、桌面应用和 IDE 扩展，检测结果作为 MCP 与 Skills 可同步目标的判定依据
 - 安装证据来自可执行文件、应用包或 IDE 扩展安装清单，残留的配置与 Skills 目录不会被误判为已安装
 - Codex CLI、桌面版和 IDE 扩展共用一个 Codex 入口；WorkBuddy 国内版与国际版共用一个 WorkBuddy 入口
-- 支持 Kimi Code、MiniMax Code 的桌面应用与 CLI 识别、官方图标、MCP 和 Skills 同步
+- 支持 Kimi Code、MiniMax Code、DeepSeek Harness 的桌面应用与 CLI 识别、官方图标、MCP 和 Skills 同步
 - 路径与官方来源见 [Agent 适配说明](docs/agent-adapters.md)
 
 ### 🔄 应用更新与分享

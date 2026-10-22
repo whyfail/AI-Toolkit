@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release Version (e.g., 2.1.3)'
+        description: 'Release Version (e.g., 2.1.4)'
         required: true
-        default: '2.1.3'
+        default: '2.1.4'
       publish:
         description: 'Publish the release after building both platforms'
         type: boolean
@@ -429,7 +429,7 @@ jobs:
 
             ### ✨ Features
 
-            - MCP and Skills adapters for 24 AI programming tools
+            - MCP and Skills adapters for 25 AI programming tools, including DeepSeek Harness
             - Skills management panel with batch sync
             - Git repository installation for Skills
             - Online Skills search from skills.sh
@@ -440,7 +440,10 @@ jobs:
             - OpenAI and Anthropic proxy protocols with 32 MiB request bodies
             - Image, tool, and unsigned reasoning history compatibility
             - Preserve TRAE tool-call IDs across empty continuation chunks
-            - Model detail cards with catalog limits, capabilities, and underlying model IDs
+            - Model detail cards with catalog limits, capabilities, underlying model IDs, and reasoning levels
+            - DeepSeek Harness desktop and CLI discovery, launching, MCP configuration, and Skills sync
+            - Client store=false, Qoder developer messages, and WorkBuddy Harness template compatibility
+            - Specific upstream channel-rejection errors without automatic retries or account failover
             - Use the largest advertised context window, including Qoder context tier selection
             - Route TRAE CN check-in status and claims through the separate UG gateway
             - Skill path validation, private caches, and desktop/OAuth hardening
