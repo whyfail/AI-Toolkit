@@ -19,6 +19,7 @@ export type ToolId =
   | 'mimo-code'
   | 'kimi-code'
   | 'minimax-code'
+  | 'deepseek-harness'
   | 'workbuddy'
   | 'zcode'
   | 'cursor'
@@ -170,6 +171,15 @@ export const SUPPORTED_TOOLS: ToolMeta[] = [
     docsUrl: 'https://github.com/MiniMax-AI/minimax-code',
   },
   {
+    id: 'deepseek-harness',
+    name: 'deepseek-harness',
+    displayName: 'DeepSeek Harness',
+    skillsDir: '.dsh/skills',
+    detectDir: '.dsh',
+    binaryName: 'dsh',
+    docsUrl: 'https://github.com/deepseek-ai/deepseek-harness',
+  },
+  {
     id: 'workbuddy',
     name: 'workbuddy',
     displayName: 'WorkBuddy',
@@ -277,6 +287,7 @@ export const APP_COLORS: Record<ToolId, string> = {
   'mimo-code': 'bg-rose-500',
   'kimi-code': 'bg-slate-900',
   'minimax-code': 'bg-orange-500',
+  'deepseek-harness': 'bg-blue-600',
   'workbuddy': 'bg-lime-600',
   'zcode': 'bg-emerald-500',
   'cursor': 'bg-slate-500',

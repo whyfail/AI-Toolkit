@@ -203,6 +203,9 @@ pub fn get_agent_config_paths(app: &AppType) -> Vec<PathBuf> {
                 .unwrap_or_else(|| resolve_path("~/.minimax"));
             return vec![root.join("mcp.json")];
         }
+        AppType::DeepSeekHarness => {
+            return vec![crate::services::deepseek_harness::home_dir().join("cordis.patch.yml")];
+        }
         _ => {}
     }
     let paths: Vec<&str> = match app {
@@ -325,7 +328,8 @@ pub fn get_agent_config_paths(app: &AppType) -> Vec<PathBuf> {
         | AppType::Kilo
         | AppType::Goose
         | AppType::KimiCode
-        | AppType::MinimaxCode => unreachable!(),
+        | AppType::MinimaxCode
+        | AppType::DeepSeekHarness => unreachable!(),
         AppType::Zcode => {
             if cfg!(windows) {
                 vec!["%USERPROFILE%\\.zcode\\cli\\config.json"]
@@ -368,6 +372,7 @@ pub fn get_agent_name(app: &AppType) -> String {
         AppType::MimoCode => "Mimo Code".to_string(),
         AppType::KimiCode => "Kimi Code".to_string(),
         AppType::MinimaxCode => "MiniMax Code".to_string(),
+        AppType::DeepSeekHarness => "DeepSeek Harness".to_string(),
         AppType::WorkBuddy => "WorkBuddy".to_string(),
         AppType::WorkBuddyCn => "WorkBuddy".to_string(),
         AppType::Zcode => "ZCode".to_string(),

@@ -14,6 +14,9 @@ pub fn sync_app_config(app: &AppType, servers: &[McpServer]) -> Result<(), AppEr
     let app = &app.canonical();
     let config_path = resolve_path(&get_config_path_for_app(app)?);
 
+    if matches!(app, AppType::DeepSeekHarness) {
+        return crate::services::deepseek_harness::sync_config(&config_path, servers);
+    }
     if matches!(app, AppType::Codex) {
         return sync_codex_config(&config_path, servers);
     }

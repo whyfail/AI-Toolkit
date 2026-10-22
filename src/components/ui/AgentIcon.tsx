@@ -8,6 +8,7 @@ import workbuddy from "@/assets/agents/workbuddy.svg";
 import zcode from "@/assets/agents/zcode.png";
 import kimiCode from "@/assets/agents/kimi-code.png";
 import minimaxCode from "@/assets/agents/minimax-code.png";
+import deepseekHarness from "@/assets/agents/deepseek-harness.svg";
 import { normalizeToolId } from "@/lib/tools";
 
 const icons: Partial<Record<string, { src: string; darkSrc?: string }>> = {
@@ -23,6 +24,7 @@ const icons: Partial<Record<string, { src: string; darkSrc?: string }>> = {
   zcode: { src: zcode },
   "kimi-code": { src: kimiCode },
   "minimax-code": { src: minimaxCode },
+  "deepseek-harness": { src: deepseekHarness },
 };
 
 export function AgentIcon({ id, name, className = "h-5 w-5" }: { id: string; name: string; className?: string }) {

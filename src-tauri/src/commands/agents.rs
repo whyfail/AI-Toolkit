@@ -353,6 +353,7 @@ fn get_agent_launch_command(app: &AppType) -> Option<String> {
         AppType::MimoCode => Some("mimo".to_string()),
         AppType::KimiCode => Some("kimi".to_string()),
         AppType::MinimaxCode => Some("mcode".to_string()),
+        AppType::DeepSeekHarness => Some("dsh".to_string()),
         AppType::WorkBuddy | AppType::WorkBuddyCn => None,
         AppType::Zcode => Some("zcode".to_string()),
         AppType::Cline => Some("cline".into()),
@@ -367,6 +368,7 @@ fn get_agent_launch_command(app: &AppType) -> Option<String> {
 fn get_agent_launch_args(app: &AppType) -> Vec<String> {
     match app {
         AppType::Hermes | AppType::Kiro => vec!["chat".to_string()],
+        AppType::DeepSeekHarness => vec!["web".to_string()],
         _ => vec![],
     }
 }

@@ -1,4 +1,5 @@
 pub mod mcp_service;
+pub mod deepseek_harness;
 pub mod sync;
 pub mod local_detection;
 pub mod trae_migration;

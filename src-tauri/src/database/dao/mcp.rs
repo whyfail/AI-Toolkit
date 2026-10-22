@@ -38,6 +38,7 @@ pub struct McpApps {
     pub kiro: bool,
     pub kimi_code: bool,
     pub minimax_code: bool,
+    pub deepseek_harness: bool,
 }
 
 impl McpApps {
@@ -78,6 +79,7 @@ impl McpApps {
             AppType::Kiro => self.kiro,
             AppType::KimiCode => self.kimi_code,
             AppType::MinimaxCode => self.minimax_code,
+            AppType::DeepSeekHarness => self.deepseek_harness,
         }
     }
 
@@ -116,6 +118,7 @@ impl McpApps {
             AppType::Kiro => self.kiro = enabled,
             AppType::KimiCode => self.kimi_code = enabled,
             AppType::MinimaxCode => self.minimax_code = enabled,
+            AppType::DeepSeekHarness => self.deepseek_harness = enabled,
         }
     }
 }
@@ -152,6 +155,7 @@ impl<'de> Deserialize<'de> for McpApps {
             ("kiro", &mut apps.kiro),
             ("kimi-code", &mut apps.kimi_code),
             ("minimax-code", &mut apps.minimax_code),
+            ("deepseek-harness", &mut apps.deepseek_harness),
         ] {
             if let Some(value) = values.get(name) {
                 *enabled =
@@ -165,7 +169,7 @@ impl<'de> Deserialize<'de> for McpApps {
 impl Serialize for McpApps {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let apps = self.normalized();
-        let mut map = serializer.serialize_map(Some(24))?;
+        let mut map = serializer.serialize_map(Some(25))?;
         for (name, enabled) in [
             ("qwen-code", apps.qwen_code),
             ("claude", apps.claude),
@@ -191,6 +195,7 @@ impl Serialize for McpApps {
             ("kiro", apps.kiro),
             ("kimi-code", apps.kimi_code),
             ("minimax-code", apps.minimax_code),
+            ("deepseek-harness", apps.deepseek_harness),
         ] {
             map.serialize_entry(name, &enabled)?;
         }
@@ -249,7 +254,7 @@ impl Database {
                         enabled_opencode, enabled_trae, enabled_trae_cn,
                         enabled_trae_work, enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
                         enabled_codebuddy, enabled_hermes, enabled_mimo_code, enabled_workbuddy,
-                        enabled_zcode, enabled_cursor, enabled_windsurf, enabled_cline, enabled_roo, enabled_kilo, enabled_continue, enabled_goose, enabled_kiro, enabled_kimi_code, enabled_minimax_code
+                        enabled_zcode, enabled_cursor, enabled_windsurf, enabled_cline, enabled_roo, enabled_kilo, enabled_continue, enabled_goose, enabled_kiro, enabled_kimi_code, enabled_minimax_code, enabled_deepseek_harness
                  FROM mcp_servers
                  ORDER BY name ASC, id ASC",
             )
@@ -290,6 +295,7 @@ impl Database {
                 let enabled_kiro: bool = row.get(30)?;
                 let enabled_kimi_code: bool = row.get(31)?;
                 let enabled_minimax_code: bool = row.get(32)?;
+                let enabled_deepseek_harness: bool = row.get(33)?;
 
                 let server: McpServerSpec =
                     serde_json::from_str(&server_config_str).unwrap_or_default();
@@ -329,6 +335,7 @@ impl Database {
                             kiro: enabled_kiro,
                             kimi_code: enabled_kimi_code,
                             minimax_code: enabled_minimax_code,
+                            deepseek_harness: enabled_deepseek_harness,
                         }
                         .normalized(),
                         description,
@@ -408,8 +415,8 @@ fn save_mcp_server_on_connection(
                 enabled_opencode, enabled_trae, enabled_trae_cn,
                 enabled_trae_work, enabled_trae_solo_cn, enabled_qoder, enabled_qodercli,
                 enabled_codebuddy, enabled_hermes, enabled_mimo_code, enabled_workbuddy,
-                enabled_zcode, enabled_cursor, enabled_windsurf, enabled_cline, enabled_roo, enabled_kilo, enabled_continue, enabled_goose, enabled_kiro, enabled_kimi_code, enabled_minimax_code, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33,
+                enabled_zcode, enabled_cursor, enabled_windsurf, enabled_cline, enabled_roo, enabled_kilo, enabled_continue, enabled_goose, enabled_kiro, enabled_kimi_code, enabled_minimax_code, enabled_deepseek_harness, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34,
                       strftime('%s', 'now') * 1000)",
             rusqlite::params![
                 server.id,
@@ -448,6 +455,7 @@ fn save_mcp_server_on_connection(
                 apps.kiro,
                 apps.kimi_code,
                 apps.minimax_code,
+                apps.deepseek_harness,
             ],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;

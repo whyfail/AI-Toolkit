@@ -116,6 +116,7 @@ impl Database {
                 enabled_kiro BOOLEAN DEFAULT FALSE,
                 enabled_kimi_code BOOLEAN DEFAULT FALSE,
                 enabled_minimax_code BOOLEAN DEFAULT FALSE,
+                enabled_deepseek_harness BOOLEAN DEFAULT FALSE,
                 created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
                 updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
             );
@@ -222,7 +223,7 @@ impl Database {
                 [],
             );
         }
-        for column in ["enabled_kimi_code", "enabled_minimax_code"] {
+        for column in ["enabled_kimi_code", "enabled_minimax_code", "enabled_deepseek_harness"] {
             let exists: bool = conn
                 .query_row(
                     "SELECT EXISTS(SELECT 1 FROM pragma_table_info('mcp_servers') WHERE name = ?1)",
@@ -538,14 +539,14 @@ mod tests {
             .expect("read existing state");
         assert!(!workbuddy_enabled);
         assert!(codex_enabled);
-        let additions: (bool, bool) = conn
+        let additions: (bool, bool, bool) = conn
             .query_row(
-                "SELECT enabled_kimi_code, enabled_minimax_code FROM mcp_servers WHERE id = 'existing'",
+                "SELECT enabled_kimi_code, enabled_minimax_code, enabled_deepseek_harness FROM mcp_servers WHERE id = 'existing'",
                 [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .expect("read new Agent switches after old schema migration");
-        assert_eq!(additions, (false, false));
+        assert_eq!(additions, (false, false, false));
         let trae_bits: (bool, bool, bool, bool) = conn
             .query_row(
                 "SELECT enabled_trae, enabled_trae_cn, enabled_trae_work, enabled_trae_solo_cn
@@ -595,6 +596,7 @@ mod tests {
         let additions = [
             AppType::KimiCode,
             AppType::MinimaxCode,
+            AppType::DeepSeekHarness,
             AppType::Cursor,
             AppType::Windsurf,
             AppType::Cline,

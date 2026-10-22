@@ -108,6 +108,11 @@ fn read_servers_from_app(app: AppType) -> Result<Vec<(AppType, McpServer)>, AppE
         AppType::Codex => import_codex_servers(&config_path)?,
         AppType::Hermes => import_hermes_servers(&config_path)?,
         AppType::Zcode => import_zcode_servers(&config_path)?,
+        AppType::DeepSeekHarness => {
+            crate::services::deepseek_harness::parse_servers(&fs::read_to_string(&config_path)?)?
+                .into_values()
+                .collect()
+        }
         AppType::Continue | AppType::Goose => {
             crate::import::parse_agent_yaml_servers(&fs::read_to_string(&config_path)?, &app)?
                 .into_values()

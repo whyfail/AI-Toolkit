@@ -21,6 +21,7 @@ pub enum ToolId {
     MimoCode,
     KimiCode,
     MinimaxCode,
+    DeepSeekHarness,
     WorkBuddy,
     WorkBuddyCn,
     Zcode,
@@ -71,6 +72,7 @@ impl ToolId {
             ToolId::MimoCode => "mimo-code",
             ToolId::KimiCode => "kimi-code",
             ToolId::MinimaxCode => "minimax-code",
+            ToolId::DeepSeekHarness => "deepseek-harness",
             ToolId::WorkBuddy | ToolId::WorkBuddyCn => "workbuddy",
             ToolId::Zcode => "zcode",
             ToolId::Cursor => "cursor",
@@ -203,6 +205,12 @@ pub fn default_tool_adapters() -> Vec<ToolAdapter> {
             relative_detect_dir: ".minimax",
         },
         ToolAdapter {
+            id: ToolId::DeepSeekHarness,
+            display_name: "DeepSeek Harness",
+            relative_skills_dir: ".dsh/skills",
+            relative_detect_dir: ".dsh",
+        },
+        ToolAdapter {
             id: ToolId::WorkBuddy,
             display_name: "WorkBuddy",
             relative_skills_dir: ".workbuddy/skills",
@@ -310,7 +318,7 @@ pub fn resolve_default_path(adapter: &ToolAdapter) -> Result<PathBuf> {
                 .context("Goose config has no parent directory")?
                 .join("skills"));
         }
-        ToolId::KimiCode | ToolId::MinimaxCode => {
+        ToolId::KimiCode | ToolId::MinimaxCode | ToolId::DeepSeekHarness => {
             let app = adapter
                 .id
                 .as_key()
@@ -351,6 +359,9 @@ fn skill_read_path_candidates(
     windows_appdata: Option<&Path>,
 ) -> Vec<PathBuf> {
     let mut paths = vec![canonical];
+    if adapter.id == ToolId::DeepSeekHarness {
+        paths.push(crate::services::deepseek_harness::shared_skills_dir());
+    }
     if let Some(home) = dirs::home_dir() {
         if matches!(
             adapter.id.canonical(),
@@ -691,14 +702,14 @@ mod tests {
             resolve_default_path(&china_legacy).unwrap(),
             resolve_default_path(&china).unwrap()
         );
-        assert_eq!(default_tool_adapters().len(), 24);
+        assert_eq!(default_tool_adapters().len(), 25);
         assert_eq!(adapters_sharing_skills_dir(&international).len(), 1);
         assert_eq!(adapters_sharing_skills_dir(&china).len(), 1);
     }
 
     #[test]
-    fn kimi_and_minimax_keep_private_sync_targets_and_discover_shared_skills() {
-        for key in ["kimi-code", "minimax-code"] {
+    fn agents_keep_private_sync_targets_and_discover_shared_skills() {
+        for key in ["kimi-code", "minimax-code", "deepseek-harness"] {
             let tool = adapter_by_key(key).unwrap();
             let app = key.parse::<crate::mcp::AppType>().unwrap();
             let config = crate::agents::get_canonical_mcp_config_path(&app);
@@ -706,7 +717,12 @@ mod tests {
             assert_eq!(target, config.parent().unwrap().join("skills"));
             assert_ne!(target, dirs::home_dir().unwrap().join(".agents/skills"));
             let candidates = skill_read_path_candidates(&tool, target, None);
-            assert!(candidates.contains(&dirs::home_dir().unwrap().join(".agents/skills")));
+            let shared = if key == "deepseek-harness" {
+                crate::services::deepseek_harness::shared_skills_dir()
+            } else {
+                dirs::home_dir().unwrap().join(".agents/skills")
+            };
+            assert!(candidates.contains(&shared));
 
             let directory = tempfile::tempdir().unwrap();
             let skills = directory.path().join("skills");

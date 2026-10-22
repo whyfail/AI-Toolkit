@@ -35,6 +35,8 @@ pub enum AppType {
     KimiCode,
     #[serde(rename = "minimax-code")]
     MinimaxCode,
+    #[serde(rename = "deepseek-harness")]
+    DeepSeekHarness,
     #[serde(rename = "workbuddy")]
     WorkBuddy,
     #[serde(rename = "workbuddy-cn")]
@@ -90,6 +92,7 @@ impl AppType {
             Self::MimoCode,
             Self::KimiCode,
             Self::MinimaxCode,
+            Self::DeepSeekHarness,
             Self::WorkBuddy,
             Self::Zcode,
             Self::Cursor,
@@ -119,6 +122,7 @@ impl AppType {
             Self::MimoCode => "mimo-code",
             Self::KimiCode => "kimi-code",
             Self::MinimaxCode => "minimax-code",
+            Self::DeepSeekHarness => "deepseek-harness",
             Self::WorkBuddy | Self::WorkBuddyCn => "workbuddy",
             Self::Zcode => "zcode",
             Self::Cursor => "cursor",
@@ -154,6 +158,7 @@ impl std::str::FromStr for AppType {
             "mimo-code" => Ok(Self::MimoCode),
             "kimi-code" => Ok(Self::KimiCode),
             "minimax-code" => Ok(Self::MinimaxCode),
+            "deepseek-harness" => Ok(Self::DeepSeekHarness),
             "workbuddy" => Ok(Self::WorkBuddy),
             "workbuddy-cn" => Ok(Self::WorkBuddy),
             "zcode" => Ok(Self::Zcode),
@@ -182,7 +187,7 @@ mod tests {
         assert_eq!(legacy_cn.canonical(), AppType::TraeCn);
         assert_eq!("trae-work".parse::<AppType>().unwrap(), AppType::Trae);
         assert_eq!("trae-solo-cn".parse::<AppType>().unwrap(), AppType::TraeCn);
-        assert_eq!(AppType::all().len(), 24);
+        assert_eq!(AppType::all().len(), 25);
         assert!(!AppType::all().contains(&AppType::TraeWork));
         assert!(!AppType::all().contains(&AppType::TraeSoloCn));
         assert_eq!(AppType::WorkBuddyCn.canonical(), AppType::WorkBuddy);

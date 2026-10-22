@@ -11,6 +11,7 @@ Skills、MCP、设置页和同步选项共用扫描结果。IDE 扩展需要同�
 - 同地区的 TRAE IDE 与 Agent 使用同一个入口。国际版和国内版仍分别使用 `trae` 与 `trae-cn`，因为配置文件和 Skills 目录不同。旧 Work/SOLO 的兼容检测与显式迁移流程继续保留。
 - Qoder 与 Qoder CLI 的 MCP 配置不同，继续分开；共享的 Skills 目录保持已有行为。
 - Kimi Code 的桌面版与 `kimi` CLI 共用 `kimi-code`；MiniMax Code 的桌面版与 `mcode` CLI 共用 `minimax-code`。可直接凭桌面应用包识别，无需单独安装 CLI。
+- DeepSeek Harness 的桌面版与 `dsh` CLI 共用 `deepseek-harness`；支持通过桌面应用启动，CLI 使用 `dsh web`。
 
 Codex 的配置依据：[OpenAI 官方配置说明](https://developers.openai.com/codex/config-basic/)、[Skills 说明](https://developers.openai.com/codex/skills/)。
 
@@ -28,6 +29,7 @@ Codex 的配置依据：[OpenAI 官方配置说明](https://developers.openai.co
 | Kiro | `~/.kiro/settings/mcp.json` | `~/.kiro/skills` | `kiro-cli`、`kiro` 或 Kiro 应用 | [配置作用域与路径](https://kiro.dev/docs/cli/chat/configuration/) |
 | Kimi Code | `~/.kimi-code/mcp.json`；支持 `KIMI_CODE_HOME` | `~/.kimi-code/skills`，跟随 `KIMI_CODE_HOME` | `kimi` 或 Kimi Code 桌面应用 | [MCP](https://github.com/MoonshotAI/kimi-code/blob/main/docs/en/customization/mcp.md)、[Skills](https://github.com/MoonshotAI/kimi-code/blob/main/docs/en/customization/skills.md) |
 | MiniMax Code | `~/.minimax/mcp.json`；支持 `MINIMAX_DATA_DIR`、`MAVIS_DATA_DIR` | `<数据目录>/skills`，默认 `~/.minimax/skills` | `mcode` 或 MiniMax Code 桌面应用 | [MCP 源码](https://github.com/MiniMax-AI/minimax-code/blob/main/packages/local-runtime-v2/src/service/mcp/runtime/local-mcp.service.ts)、[Skills 作用域](https://github.com/MiniMax-AI/minimax-code/blob/main/packages/local-runtime/assets/skills/skill-creator/SKILL.md) |
+| DeepSeek Harness | `~/.dsh/cordis.patch.yml`；支持 `DSH_HOME`，作为所有 profile 共用的机器配置层 | `<DSH_HOME>/skills`，默认 `~/.dsh/skills`；兼容读取 `~/.agents/skills` 或 `DSH_AGENTS_HOME/skills` | `dsh` 或 DeepSeek Harness 桌面应用 | [全局配置层](https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/cli/src/profile-boot.ts)、[MCP](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/README.md)、[Skills](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/skill/skill-filesystem/src/index.ts) |
 
 社区适配也可参考 [Vercel 开源 Skills 适配目录](https://github.com/vercel-labs/skills/blob/main/src/agents.ts)；配置格式以各 Agent 的官方说明及源码为准。
 
@@ -41,6 +43,9 @@ Codex 的配置依据：[OpenAI 官方配置说明](https://developers.openai.co
 - Goose 使用 YAML `extensions`，转换 `cmd`、`envs`、`uri`，保留内置扩展。MCP 与内置扩展同名时停止写入。Skills 同步到官方支持的专用配置目录，避免将共享中央目录作为可删除的同步副本。
 - Codex 的 TOML 同步保留远程 URL、HTTP headers、工作目录及非 MCP 设置。
 - Kimi Code 与 MiniMax Code 使用 `mcpServers` JSON；Kimi 的 SSE 条目转换为官方 `transport: "sse"`。两者均兼容读取 `~/.agents/skills`，同步写入各自专用目录，保留共享中央目录。
+- DeepSeek Harness 在机器级 `cordis.patch.yml` 的根级 `insert` 中管理 `@deepseek-ai/dsh-mcp-client`，支持 stdio 与 Streamable HTTP；MCP ID 须为 1–32 位字母、数字、下划线或连字符。保留其他插件、嵌套作用域和非 MCP 配置中的 `!!js` 表达式，不修改 profile 文件。MCP 自身含动态表达式、格式损坏或使用旧 SSE 时会返回错误并保留原文件。
 - MCP 同步仅面向扫描确认已安装的 Agent，不为未安装的 Agent 创建配置文件。无法解析的 JSON/JSONC/YAML 文件不会被覆盖。
 
 Kimi Code、MiniMax Code 的路径核对时间为 2026-10-15，图标取自本机官方应用包；其余路径核对时间为 2026-10-14。Linux 仍沿用项目的开发中支持状态；Windows 路径已适配，需要在 Windows 主机上完成实际应用验证。
+
+DeepSeek Harness 的路径与格式核对时间为 2026-10-22，依据官方源码与本机 `DeepSeek Harness.app` 0.2.1-rc.2；图标取自官方站点的蓝色鲸鱼 SVG，保留原始纯矢量路径，适配列表小尺寸与高 DPI 显示。

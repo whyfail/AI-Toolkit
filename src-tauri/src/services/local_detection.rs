@@ -129,6 +129,7 @@ pub fn agent_binary_names(app: &AppType) -> &'static [&'static str] {
         AppType::MimoCode => &["mimo"],
         AppType::KimiCode => &["kimi"],
         AppType::MinimaxCode => &["mcode"],
+        AppType::DeepSeekHarness => &["dsh"],
         AppType::Zcode => &["zcode"],
         AppType::Cursor => &["cursor-agent", "cursor"],
         AppType::Windsurf => &["windsurf", "devin"],
@@ -304,6 +305,7 @@ pub fn mac_app_names(app: &AppType) -> &'static [&'static str] {
         AppType::OpenCode => &["OpenCode.app"],
         AppType::KimiCode => &["Kimi Code.app"],
         AppType::MinimaxCode => &["MiniMax Code.app"],
+        AppType::DeepSeekHarness => &["DeepSeek Harness.app"],
         AppType::Trae | AppType::TraeWork => &["Trae.app", "TRAE Work.app"],
         AppType::TraeCn | AppType::TraeSoloCn => {
             &["Trae CN.app", "TRAE Work CN.app", "TRAE SOLO CN.app"]
@@ -440,6 +442,7 @@ pub fn find_app_executable_windows(app: &AppType) -> Option<std::path::PathBuf> 
         AppType::OpenCode => &["OpenCode.exe", "opencode.exe"],
         AppType::KimiCode => &["Kimi Code.exe"],
         AppType::MinimaxCode => &["MiniMax Code.exe"],
+        AppType::DeepSeekHarness => &["DeepSeek Harness.exe"],
         AppType::Qoder => &["Qoder.exe"],
         AppType::Zcode => &["ZCode.exe", "zcode.exe"],
         AppType::WorkBuddy | AppType::WorkBuddyCn => &["WorkBuddy.exe"],
@@ -478,6 +481,7 @@ pub fn find_app_executable_windows(app: &AppType) -> Option<std::path::PathBuf> 
         "opencode",
         "Kimi Code",
         "MiniMax Code",
+        "DeepSeek Harness",
         "Qoder",
         "ZCode",
         "zcode",
@@ -589,6 +593,8 @@ mod tests {
     #[test]
     fn desktop_only_codex_and_workbuddy_use_one_product_without_region_metadata() {
         assert_eq!(mac_app_names(&AppType::Codex), &["Codex.app"]);
+        assert_eq!(mac_app_names(&AppType::DeepSeekHarness), &["DeepSeek Harness.app"]);
+        assert_eq!(agent_binary_names(&AppType::DeepSeekHarness), &["dsh"]);
         assert_eq!(
             mac_app_names(&AppType::WorkBuddy),
             mac_app_names(&AppType::WorkBuddyCn)

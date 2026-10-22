@@ -29,7 +29,9 @@ pub fn import_from_path(app: AppType, path: &PathBuf) -> Option<ImportResult> {
     };
 
     let extension = path.extension().and_then(|s| s.to_str());
-    let servers = if extension == Some("toml") {
+    let servers = if matches!(app, AppType::DeepSeekHarness) {
+        crate::services::deepseek_harness::parse_servers(&content).ok()
+    } else if extension == Some("toml") {
         parse_mcp_toml(&content, &app)
     } else if matches!(extension, Some("yaml" | "yml")) {
         parse_mcp_yaml(&content, &app)
