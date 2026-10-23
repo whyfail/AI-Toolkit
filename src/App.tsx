@@ -26,6 +26,7 @@ import { open } from "@tauri-apps/plugin-shell";
 import { useAppVersion } from "@/hooks/useAppVersion";
 import { useTheme, type ThemeMode } from "@/hooks/useTheme";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
+import { useCreditsRuntime } from "@/hooks/useCredits";
 import { useInstalledTools } from "@/contexts/InstalledToolsContext";
 import { appApi, updateApi } from "@/lib/api";
 import type { SkillsInstallPreferences } from "@/lib/api";
@@ -59,6 +60,7 @@ const copyText = async (text: string) => {
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>("skills");
+  useCreditsRuntime(activeTab === "credits");
   const [startupUpdateInfo, setStartupUpdateInfo] = useState<{
     version: string;
     body: string;

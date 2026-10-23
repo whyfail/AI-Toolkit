@@ -42,9 +42,11 @@ export function ModelInfoContent({ account, model, platformName }: ModelInfoProp
     const rank = (value: string) => effortOrder.includes(value) ? effortOrder.indexOf(value) : effortOrder.length;
     return rank(a) - rank(b);
   });
-  const updated = snapshot?.fetchedAt ? new Date(snapshot.fetchedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "尚未同步";
+  const modelsFetchedAt = snapshot?.sync?.modelsFetchedAt ?? snapshot?.fetchedAt;
+  const updated = modelsFetchedAt ? new Date(modelsFetchedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "尚未同步";
+  const modelsStale = snapshot?.sync?.modelsFetchedAt != null ? !!snapshot.sync.modelsError : snapshot?.stale;
   return <>
-    <div className="flex items-center justify-between gap-3 text-[10px] font-medium text-slate-500 dark:text-slate-400"><span>{platformName} · 通道参数</span>{snapshot?.stale ? <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-amber-700 dark:text-amber-300">缓存数据</span> : null}</div>
+    <div className="flex items-center justify-between gap-3 text-[10px] font-medium text-slate-500 dark:text-slate-400"><span>{platformName} · 通道参数</span>{modelsStale ? <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-amber-700 dark:text-amber-300">缓存数据</span> : null}</div>
     <h3 className="mt-2 break-words text-base font-semibold leading-snug">{model.name || model.id}</h3>
     <p className="mt-1 break-all font-mono text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">{account.platform}/{model.id}</p>
 

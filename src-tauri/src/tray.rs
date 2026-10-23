@@ -59,10 +59,18 @@ pub fn handle_run_event<R: Runtime>(app: &AppHandle<R>, event: &RunEvent) {
                     eprintln!("隐藏主窗口失败: {error}");
                     return;
                 }
+                if let Some(state) = app.try_state::<AppState>() {
+                    let _ = state.credits.set_credits_view_active(false);
+                }
                 #[cfg(target_os = "macos")]
                 if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Accessory) {
                     eprintln!("隐藏 Dock 图标失败: {error}");
                 }
+            }
+        }
+        RunEvent::WindowEvent { event: WindowEvent::Focused(false), .. } => {
+            if let Some(state) = app.try_state::<AppState>() {
+                let _ = state.credits.set_credits_view_active(false);
             }
         }
         // ExitRequested 可以被取消；只在确定退出时停止代理。

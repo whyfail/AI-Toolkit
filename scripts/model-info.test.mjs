@@ -68,6 +68,15 @@ test("明确不支持与未知分开，缓存数据保持可辨认", () => {
   }
 });
 
+test("余额刷新不能让尚未同步或查询失败的模型目录显示为最新", () => {
+  const owner = { ...account, snapshot: { fetchedAt: Date.now(), stale: false,
+    sync: { modelsFetchedAt: 0, modelsError: null } } };
+  assert.match(render({}, owner), /更新于 尚未同步/);
+  owner.snapshot.sync.modelsFetchedAt = 1;
+  owner.snapshot.sync.modelsError = "catalog unavailable";
+  assert.match(render({}, owner), /缓存数据/);
+});
+
 test("浮层可左右翻转，窄窗口与四角位置均不超出可视区域", () => {
   assert.equal(modelInfoPosition({ left: 40, right: 260, top: 40, bottom: 100 }, { width: 320, height: 420 }, { width: 1400, height: 900 }).left, 270);
   assert.equal(modelInfoPosition({ left: 850, right: 1100, top: 40, bottom: 100 }, { width: 320, height: 420 }, { width: 1200, height: 900 }).left, 520);

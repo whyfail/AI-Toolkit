@@ -161,7 +161,7 @@ function ModelsModal({ title, groups, onClose }: { title: string; groups: ModelG
   </Modal>;
 }
 
-function AccountCard({ account, onDelete }: { account: CreditAccount; onDelete: () => void }) {
+function AccountCard({ account, onDelete, refreshing = false }: { account: CreditAccount; onDelete: () => void; refreshing?: boolean }) {
   const refresh = useCreditsAction(() => creditsApi.refresh(account.id));
   const claim = useCreditsAction(() => creditsApi.claim(account.id));
   const toggle = useCreditsAction((enabled: boolean) => creditsApi.setAccountEnabled(account.id, enabled));
@@ -181,11 +181,11 @@ function AccountCard({ account, onDelete }: { account: CreditAccount; onDelete: 
       <div><p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">剩余额度</p><p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">{snapshot?.balance != null ? number(snapshot.balance) : "—"}<span className="ml-2 text-xs font-normal text-slate-500 dark:text-slate-400">{snapshot?.unit === "credits" ? "积分" : snapshot?.unit ?? "积分"}</span></p></div>
       <Badge success={account.enabled && ["active", "ready", "connected", "authenticated"].includes(account.status)}>{!account.enabled ? "已停用" : labels[account.status] ?? account.status}</Badge>
     </div>
-    <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">{snapshot?.balance == null ? "余额待同步" : `更新于 ${time(snapshot.fetchedAt)}`}{snapshot?.stale ? " · 历史缓存" : ""}{snapshot?.quota ? ` · ${snapshot.quota}` : ""}</p>
+    <p role="status" className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">{refreshing || refresh.isPending ? "同步中 · " : ""}{snapshot?.fetchedAt ? `上次成功同步 ${time(snapshot.fetchedAt)}` : "余额待同步"}{snapshot?.stale ? account.lastError ? " · 同步失败，显示历史余额" : " · 余额待更新" : ""}{snapshot?.quota ? ` · ${snapshot.quota}` : ""}</p>
     {account.lastError || snapshot?.diagnostic ? <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:text-amber-200">{account.lastError || snapshot?.diagnostic}</p> : null}
     <div className="mt-4 flex flex-wrap gap-2">
       <Pressable type="button" className="glass-primary-button min-h-8 px-3 py-2 text-xs" disabled={busy || !isClaimable(account)} onClick={() => claim.mutate(undefined, { onSuccess: reportClaims })}>{claim.isPending ? <Loader2 size={13} className="animate-spin" /> : <Coins size={13} />}领取积分</Pressable>
-      <Pressable type="button" className="glass-secondary-button min-h-8 px-3 py-2 text-xs" disabled={busy} onClick={() => refresh.mutate(undefined)}><RefreshCw size={13} className={refresh.isPending ? "animate-spin" : ""} />刷新</Pressable>
+      <Pressable type="button" className="glass-secondary-button min-h-8 px-3 py-2 text-xs" disabled={busy} onClick={() => refresh.mutate(undefined)}><RefreshCw size={13} className={refresh.isPending || refreshing ? "animate-spin" : ""} />刷新</Pressable>
       <Pressable type="button" className="glass-secondary-button min-h-8 px-3 py-2 text-xs" disabled={busy} onClick={() => toggle.mutate(!account.enabled)}>{account.enabled ? "停用" : "启用"}</Pressable>
     </div>
     <div className="mt-4 border-t border-slate-500/10 pt-4">
@@ -199,7 +199,7 @@ function AccountCard({ account, onDelete }: { account: CreditAccount; onDelete: 
   </article>;
 }
 
-function AccountStack({ accounts, onDelete }: { accounts: CreditAccount[]; onDelete: (account: CreditAccount) => void }) {
+function AccountStack({ accounts, onDelete, refreshingAccountIds = [] }: { accounts: CreditAccount[]; onDelete: (account: CreditAccount) => void; refreshingAccountIds?: string[] }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const frontCard = useRef<HTMLDivElement>(null);
   const selectedIndex = Math.max(0, accounts.findIndex((account) => account.id === selectedId));
@@ -223,7 +223,7 @@ function AccountStack({ accounts, onDelete }: { accounts: CreditAccount[]; onDel
           tabIndex={active ? -1 : undefined}
           className={`grid min-w-0 rounded-[var(--radius-card,12px)] ${active ? "bg-[hsl(var(--card))]" : "invisible pointer-events-none"}`}
         >
-          <AccountCard account={account} onDelete={() => onDelete(account)} />
+          <AccountCard account={account} onDelete={() => onDelete(account)} refreshing={refreshingAccountIds.includes(account.id)} />
         </div>
         {!active ? <Pressable
           type="button"
@@ -351,9 +351,11 @@ function AccountsView({ data, onAdd }: { data: CreditDashboard; onAdd: (platform
   const remove = useCreditsAction(creditsApi.deleteAccount);
   const [deleting, setDeleting] = useState<CreditAccount | null>(null);
   const [autoClaim, setAutoClaim] = useState(data.settings.autoClaim);
+  const [autoRefresh, setAutoRefresh] = useState(data.settings.autoRefresh ?? true);
   const save = useCreditsAction(creditsApi.saveSettings);
-  const changed = autoClaim !== data.settings.autoClaim;
+  const changed = autoClaim !== data.settings.autoClaim || autoRefresh !== (data.settings.autoRefresh ?? true);
   useEffect(() => { setAutoClaim(data.settings.autoClaim); }, [data.settings.autoClaim]);
+  useEffect(() => { setAutoRefresh(data.settings.autoRefresh ?? true); }, [data.settings.autoRefresh]);
   return <div className="space-y-6">
     <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-slate-500 dark:text-slate-400">各平台分别展示原生额度，领取结果逐项记录。</p><div className="flex flex-wrap gap-2"><Pressable type="button" className="glass-secondary-button text-xs" disabled={refresh.isPending || !data.accounts.length} onClick={() => refresh.mutate(undefined)}><RefreshCw size={14} className={refresh.isPending ? "animate-spin" : ""} />刷新余额</Pressable><Pressable type="button" className="glass-primary-button text-xs" disabled={claim.isPending || !data.accounts.some(isClaimable)} onClick={() => claim.mutate(undefined, { onSuccess: reportClaims })}>{claim.isPending ? <Loader2 size={14} className="animate-spin" /> : <Coins size={14} />}一键领取积分</Pressable></div></div>
     <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
@@ -361,13 +363,14 @@ function AccountsView({ data, onAdd }: { data: CreditDashboard; onAdd: (platform
         const accounts = data.accounts.filter((account) => account.platform === platform.id);
         return <section key={platform.id} className="min-w-0 space-y-3">
           <div className="flex items-center gap-2 px-1"><AgentIcon id={platform.id} name={platform.name} className="h-7 w-7" /><h2 className="text-sm font-semibold">{platform.name}</h2><span className="ml-auto text-xs text-slate-500 dark:text-slate-400">{accounts.length} 个账户</span></div>
-          {accounts.length ? <AccountStack accounts={accounts} onDelete={setDeleting} /> : <div className="glass-card flex min-h-[260px] flex-col items-center justify-center p-6 text-center"><KeyRound size={25} className="text-slate-400" /><p className="mt-4 text-sm font-medium">连接 {platform.name}</p><p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">登录后查看余额、领取资格与模型目录。</p><Pressable type="button" className="glass-secondary-button mt-5 text-xs" onClick={() => onAdd(platform.id)}><Plus size={14} />添加账户</Pressable></div>}
+          {accounts.length ? <AccountStack accounts={accounts} onDelete={setDeleting} refreshingAccountIds={data.refreshingAccountIds} /> : <div className="glass-card flex min-h-[260px] flex-col items-center justify-center p-6 text-center"><KeyRound size={25} className="text-slate-400" /><p className="mt-4 text-sm font-medium">连接 {platform.name}</p><p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">登录后查看余额、领取资格与模型目录。</p><Pressable type="button" className="glass-secondary-button mt-5 text-xs" onClick={() => onAdd(platform.id)}><Plus size={14} />添加账户</Pressable></div>}
         </section>;
       })}
     </div>
-    <section className="glass-card p-5"><h2 className="text-sm font-semibold">领取设置</h2>
+    <section className="glass-card p-5"><h2 className="text-sm font-semibold">同步与领取设置</h2>
+      <label aria-label="自动刷新余额" htmlFor="credits-auto-refresh" className="mt-4 flex items-start gap-3"><input id="credits-auto-refresh" type="checkbox" className="mt-0.5 h-4 w-4 accent-blue-500" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} disabled={save.isPending} /><span><span className="block text-sm font-medium">自动刷新余额</span><span className="mt-1 block text-xs leading-relaxed text-slate-500 dark:text-slate-400">默认开启。查看本页时每 5 分钟同步，其他页面或托盘运行时每 15 分钟同步；代理调用后自动补刷。退出应用后停止。</span></span></label>
       <label aria-label="自动领取可用积分" htmlFor="credits-auto-claim" className="mt-4 flex items-start gap-3"><input id="credits-auto-claim" type="checkbox" className="mt-0.5 h-4 w-4 accent-blue-500" checked={autoClaim} onChange={(event) => setAutoClaim(event.target.checked)} disabled={save.isPending} /><span><span className="block text-sm font-medium">自动领取可用积分</span><span className="mt-1 block text-xs leading-relaxed text-slate-500 dark:text-slate-400">默认关闭。开启后仅在 AI Toolkit 运行期间，按北京时间每天 10:30 检查并领取；当天 10:30 后启动会补做检查，已领取任务会跳过。</span></span></label>
-      <Pressable type="button" className="glass-secondary-button mt-4 text-xs" disabled={!changed || save.isPending} onClick={() => save.mutate({ port: data.settings.port, autoClaim }, { onSuccess: () => toast.success("设置已保存") })}>{save.isPending ? <Loader2 size={13} className="animate-spin" /> : null}保存设置</Pressable>
+      <Pressable type="button" className="glass-secondary-button mt-4 text-xs" disabled={!changed || save.isPending} onClick={() => save.mutate({ port: data.settings.port, autoClaim, autoRefresh }, { onSuccess: () => toast.success("设置已保存") })}>{save.isPending ? <Loader2 size={13} className="animate-spin" /> : null}保存设置</Pressable>
     </section>
     <section className="glass-card p-5"><h2 className="text-sm font-semibold">最近领取</h2>{data.rewards.length ? <div className="mt-4 divide-y divide-slate-500/10">{data.rewards.slice(0, 12).map((outcome) => <div key={`${outcome.accountId}-${outcome.rewardId}-${outcome.createdAt}-${outcome.status}`} className="flex flex-wrap items-center justify-between gap-3 py-3 text-xs"><div className="min-w-0"><p className="font-medium">{outcome.name}{outcome.amount != null && isCredits(outcome.kind) ? ` · +${number(outcome.amount)}` : ""}</p><p className="mt-1 break-words text-slate-500 dark:text-slate-400">{data.accounts.find((account) => account.id === outcome.accountId)?.label || "账户"} · {outcome.message}</p></div><div className="flex shrink-0 items-center gap-3"><span className="text-[11px] text-slate-500 dark:text-slate-400">{time(outcome.createdAt)}</span><Badge success={["success", "claimed"].includes(outcome.status)}>{outcome.status === "pending" ? "待确认" : labels[outcome.status] ?? outcome.status}</Badge></div></div>)}</div> : <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">还没有领取记录。</p>}</section>
     {deleting ? <Modal open onClose={() => !remove.isPending && setDeleting(null)} size="sm" dismissOnBackdrop={!remove.isPending}><div className="p-6"><h2 className="text-base font-semibold">移除账户</h2><p className="mt-3 break-words text-sm leading-relaxed text-slate-500 dark:text-slate-400">移除“{deleting.label || platformName(deleting.platform)}”及本地保存的凭据，后续代理请求将不再使用此账户。</p><div className="mt-6 flex justify-end gap-2"><Pressable type="button" className="glass-secondary-button text-xs" disabled={remove.isPending} onClick={() => setDeleting(null)}>取消</Pressable><Pressable type="button" className="glass-danger-button text-xs" disabled={remove.isPending} onClick={() => remove.mutate(deleting.id, { onSuccess: () => setDeleting(null) })}>{remove.isPending ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}移除</Pressable></div></div></Modal> : null}

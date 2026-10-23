@@ -149,7 +149,7 @@ fn reward(v: &Value) -> Reward {
         action_url: None,
     }
 }
-async fn rewards(client: &ProviderClient, c: &Credentials) -> Result<Vec<Reward>, ProviderError> {
+pub(super) async fn rewards(client: &ProviderClient, c: &Credentials) -> Result<Vec<Reward>, ProviderError> {
     let v = client
         .json(
             headers(
@@ -216,7 +216,7 @@ fn parse_models(v: &Value) -> Vec<ModelInfo> {
         })
         .collect()
 }
-async fn models(client: &ProviderClient, c: &Credentials) -> Result<Vec<ModelInfo>, ProviderError> {
+pub(super) async fn models(client: &ProviderClient, c: &Credentials) -> Result<Vec<ModelInfo>, ProviderError> {
     let (enterprise, v3) = tokio::join!(
         client.json(headers(
             client
@@ -263,6 +263,9 @@ async fn models(client: &ProviderClient, c: &Credentials) -> Result<Vec<ModelInf
         ));
     }
     Ok(models)
+}
+pub(super) async fn balance(client: &ProviderClient, c: &Credentials) -> Result<ProviderSnapshot, ProviderError> {
+    Ok(snapshot(packs(client, c).await?, vec![], vec![], None))
 }
 pub(super) async fn inspect(
     client: &ProviderClient,

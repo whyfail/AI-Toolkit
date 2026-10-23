@@ -103,6 +103,17 @@ pub struct ProviderSnapshot {
     pub fetched_at: i64,
     pub stale: bool,
     pub diagnostic: Option<String>,
+    #[serde(default)]
+    pub sync: SnapshotSync,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotSync {
+    pub rewards_fetched_at: Option<i64>,
+    pub models_fetched_at: Option<i64>,
+    pub rewards_error: Option<String>,
+    pub models_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -136,12 +147,16 @@ pub struct RewardOutcome {
 pub struct ProxySettings {
     pub port: u16,
     pub auto_claim: bool,
+    #[serde(default = "auto_refresh_default")]
+    pub auto_refresh: bool,
 }
+fn auto_refresh_default() -> bool { true }
 impl Default for ProxySettings {
     fn default() -> Self {
         Self {
             port: 17860,
             auto_claim: false,
+            auto_refresh: true,
         }
     }
 }
@@ -177,6 +192,7 @@ pub struct Dashboard {
     pub gateway: GatewayStatus,
     pub rewards: Vec<RewardOutcome>,
     pub requests: Vec<RequestSummary>,
+    pub refreshing_account_ids: Vec<String>,
 }
 
 pub fn now_ms() -> i64 {
@@ -189,6 +205,15 @@ pub fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn existing_settings_enable_balance_refresh_without_enabling_claims() {
+        let old: ProxySettings = serde_json::from_str(r#"{"port":17860,"autoClaim":false}"#).unwrap();
+        assert!(old.auto_refresh); assert!(!old.auto_claim);
+        let mut disabled = old; disabled.auto_refresh = false;
+        let roundtrip: ProxySettings = serde_json::from_str(&serde_json::to_string(&disabled).unwrap()).unwrap();
+        assert!(!roundtrip.auto_refresh);
+    }
 
     #[test]
     fn old_model_snapshots_keep_new_capabilities_unknown() {

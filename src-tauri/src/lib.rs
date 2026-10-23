@@ -126,6 +126,7 @@ pub fn run() {
             // 自动导入已安装 Agent 的 MCP 配置
             let state = app.state::<AppState>();
             let credit_manager = state.credits.clone();
+            credit_manager.attach_events(app.app_handle().clone());
             spawn(async move { credit_manager.start_scheduler(); });
             commands::app::init_skills_install_location(&state);
             if let Err(error) = services::mcp_service::import_on_startup(&state.db) {
@@ -183,6 +184,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::credits::credits_dashboard,
+            commands::credits::credits_set_view_active,
+            commands::credits::credits_network_restored,
             commands::credits::credits_import_local,
             commands::credits::credits_set_account_enabled,
             commands::credits::credits_delete_account,

@@ -6,7 +6,7 @@ use crate::{
     },
 };
 use serde_json::{json, Value};
-use tauri::State;
+use tauri::{Manager, State};
 
 #[tauri::command]
 pub async fn credits_import_local(
@@ -46,6 +46,19 @@ pub async fn credits_import_local(
 #[tauri::command]
 pub fn credits_dashboard(state: State<'_, AppState>) -> Result<Dashboard, String> {
     state.credits.dashboard()
+}
+
+#[tauri::command]
+pub fn credits_set_view_active(state: State<'_, AppState>, app: tauri::AppHandle, active: bool) -> Result<(), String> {
+    let active = active && app.get_webview_window("main").is_some_and(|window|
+        window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false)
+            && !window.is_minimized().unwrap_or(true));
+    state.credits.set_credits_view_active(active)
+}
+
+#[tauri::command]
+pub fn credits_network_restored(state: State<'_, AppState>) -> Result<(), String> {
+    state.credits.credits_network_restored()
 }
 
 #[tauri::command]

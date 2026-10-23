@@ -238,7 +238,8 @@ mod tests {
         assert!(store()
             .save_settings(&ProxySettings {
                 port: 0,
-                auto_claim: true
+                auto_claim: true,
+                auto_refresh: true,
             })
             .is_err());
     }
@@ -259,6 +260,7 @@ mod tests {
             fetched_at: now_ms(),
             stale: false,
             diagnostic: None,
+            sync: SnapshotSync::default(),
         });
         assert!(s.save_account(&changed).is_err());
         assert_eq!(s.account("one").unwrap().label, "测试");

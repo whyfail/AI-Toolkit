@@ -1210,6 +1210,7 @@ mod tests {
                 fetched_at: now_ms(),
                 stale: false,
                 diagnostic: None,
+                sync: super::super::types::SnapshotSync::default(),
             }),
         }
     }
@@ -1538,6 +1539,8 @@ mod tests {
                     status: 429,
                     message: "test rejection".into(),
                     rejected,
+                    retry_after_ms: None,
+                    pause_auto: false,
                 })])),
             };
             let error = match prime_response(upstream, &context, &candidate).await {
@@ -2318,6 +2321,8 @@ mod tests {
             status: 429,
             message: "fixture-only error".into(),
             rejected: true,
+            retry_after_ms: None,
+            pause_auto: false,
         }));
         manager.provider.queue_test_chat("first", chunks);
         let gateway = GatewayManager::new();
@@ -2352,6 +2357,8 @@ mod tests {
                     status: 429,
                     message: "test".into(),
                     rejected,
+                    retry_after_ms: None,
+                    pause_auto: false,
                 })]
             };
             manager.provider.queue_test_chat("first", chunks);
@@ -2542,6 +2549,8 @@ mod tests {
                     status: 429,
                     message: "fixture rejection".into(),
                     rejected,
+                    retry_after_ms: None,
+                    pause_auto: false,
                 })],
             );
             let gateway = GatewayManager::new();
@@ -2593,6 +2602,8 @@ mod tests {
                     status: 429,
                     message: "late rejection".into(),
                     rejected: true,
+                    retry_after_ms: None,
+                    pause_auto: false,
                 }),
             ],
         );

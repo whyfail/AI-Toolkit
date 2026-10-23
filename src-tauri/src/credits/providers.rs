@@ -9,6 +9,7 @@ mod traework;
 mod workbuddy;
 
 use super::types::*;
+use super::refresh::{Part, Scope};
 use futures::Stream;
 pub use oauth::{OAuthPoll, OAuthStart};
 use reqwest::{Client, RequestBuilder, Response};
@@ -30,6 +31,8 @@ pub struct ProviderError {
     pub status: u16,
     pub message: String,
     pub rejected: bool,
+    pub retry_after_ms: Option<i64>,
+    pub pause_auto: bool,
 }
 impl std::fmt::Display for ProviderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -43,10 +46,34 @@ impl ProviderError {
             status,
             message: message.into(),
             rejected: false,
+            retry_after_ms: None,
+            pause_auto: false,
         }
     }
     fn transport(_: reqwest::Error) -> Self {
         Self::new(502, "平台连接失败或请求超时")
+    }
+}
+
+#[derive(Clone)]
+pub(super) struct Inspection {
+    pub balance: Option<Result<ProviderSnapshot, ProviderError>>,
+    pub rewards: Option<Result<Vec<Reward>, ProviderError>>,
+    pub models: Option<Result<Vec<ModelInfo>, ProviderError>>,
+}
+impl Inspection {
+    pub fn failed(scope: Scope, error: ProviderError) -> Self {
+        Self {
+            balance: scope.contains(Part::Balance).then(|| Err(error.clone())),
+            rewards: scope.contains(Part::Rewards).then(|| Err(error.clone())),
+            models: scope.contains(Part::Models).then(|| Err(error)),
+        }
+    }
+    pub fn auth_rejected(&self) -> bool {
+        [self.balance.as_ref().and_then(|value| value.as_ref().err()),
+            self.rewards.as_ref().and_then(|value| value.as_ref().err()),
+            self.models.as_ref().and_then(|value| value.as_ref().err())]
+            .into_iter().flatten().any(|error| error.rejected && matches!(error.status, 401 | 403))
     }
 }
 
@@ -56,6 +83,8 @@ pub struct ProviderClient {
     flows: Arc<tokio::sync::Mutex<std::collections::HashMap<String, oauth::LoginFlow>>>,
     #[cfg(test)]
     test_chats: Arc<std::sync::Mutex<TestChats>>,
+    #[cfg(test)]
+    test_inspections: Arc<std::sync::Mutex<TestInspections>>,
 }
 #[cfg(test)]
 #[derive(Default)]
@@ -66,6 +95,13 @@ struct TestChats {
     >,
     calls: Vec<String>,
     bodies: Vec<Value>,
+}
+#[cfg(test)]
+#[derive(Default)]
+struct TestInspections {
+    queues: std::collections::HashMap<String, std::collections::VecDeque<Inspection>>,
+    calls: Vec<(String, Scope)>,
+    gate: Option<Arc<tokio::sync::Semaphore>>,
 }
 impl ProviderClient {
     pub fn new() -> Self {
@@ -78,6 +114,8 @@ impl ProviderClient {
             flows: Arc::default(),
             #[cfg(test)]
             test_chats: Arc::default(),
+            #[cfg(test)]
+            test_inspections: Arc::default(),
         }
     }
     #[cfg(test)]
@@ -97,6 +135,18 @@ impl ProviderClient {
     #[cfg(test)]
     pub fn test_chat_bodies(&self) -> Vec<Value> {
         self.test_chats.lock().unwrap().bodies.clone()
+    }
+    #[cfg(test)]
+    pub(super) fn queue_test_inspection(&self, id: &str, result: Inspection) {
+        self.test_inspections.lock().unwrap().queues.entry(id.into()).or_default().push_back(result);
+    }
+    #[cfg(test)]
+    pub(super) fn test_inspection_gate(&self, gate: Arc<tokio::sync::Semaphore>) {
+        self.test_inspections.lock().unwrap().gate = Some(gate);
+    }
+    #[cfg(test)]
+    pub(super) fn test_inspection_calls(&self) -> Vec<(String, Scope)> {
+        self.test_inspections.lock().unwrap().calls.clone()
     }
     pub async fn authenticate(
         &self,
@@ -133,6 +183,56 @@ impl ProviderClient {
             Platform::Traework => traework::inspect(self, c).await,
             Platform::Qoder => qoder::inspect(self, c).await,
         }
+    }
+    pub(super) async fn inspect_parts(&self, a: &Account, c: &Credentials, scope: Scope) -> Inspection {
+        #[cfg(test)]
+        {
+            let scripted = {
+                let mut fixtures = self.test_inspections.lock().unwrap();
+                let result = fixtures.queues.get_mut(&a.id).and_then(|queue| queue.pop_front());
+                result.map(|result| {
+                    fixtures.calls.push((a.id.clone(), scope));
+                    (result, fixtures.gate.clone())
+                })
+            };
+            if let Some((mut result, gate)) = scripted {
+                if let Some(gate) = gate { gate.acquire().await.unwrap().forget(); }
+                if !scope.contains(Part::Balance) { result.balance = None; }
+                if !scope.contains(Part::Rewards) { result.rewards = None; }
+                if !scope.contains(Part::Models) { result.models = None; }
+                return result;
+            }
+            if std::env::var("AI_TOOLKIT_PROXY_DIAGNOSTIC").as_deref() != Ok("real-inference") {
+                return Inspection::failed(scope, ProviderError::new(502, "测试账户刷新响应未配置"));
+            }
+        }
+        let (balance, rewards, models) = tokio::join!(
+            async {
+                if !scope.contains(Part::Balance) { return None; }
+                Some(match a.platform {
+                    Platform::Workbuddy => workbuddy::balance(self, c).await,
+                    Platform::Traework => traework::balance(self, c).await,
+                    Platform::Qoder => qoder::balance(self, c).await,
+                })
+            },
+            async {
+                if !scope.contains(Part::Rewards) { return None; }
+                Some(match a.platform {
+                    Platform::Workbuddy => workbuddy::rewards(self, c).await,
+                    Platform::Traework => traework::rewards(self, c).await,
+                    Platform::Qoder => qoder::rewards(self, c).await,
+                })
+            },
+            async {
+                if !scope.contains(Part::Models) { return None; }
+                Some(match a.platform {
+                    Platform::Workbuddy => workbuddy::models(self, c).await,
+                    Platform::Traework => traework::models(self, c).await,
+                    Platform::Qoder => qoder::models(self, c).await,
+                })
+            },
+        );
+        Inspection { balance, rewards, models }
     }
     pub async fn claim(
         &self,
@@ -185,17 +285,27 @@ impl ProviderClient {
 
 pub(super) async fn json_response(r: Response) -> Result<Value, ProviderError> {
     let status = r.status().as_u16();
+    let retry_after_ms = r.headers().get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok()).and_then(retry_after);
     let text = r
         .text()
         .await
         .map_err(|_| ProviderError::new(502, "平台响应读取失败"))?;
     if !(200..300).contains(&status) {
-        return Err(upstream_body_error(status, &text));
+        let mut error = upstream_body_error(status, &text);
+        error.retry_after_ms = retry_after_ms;
+        return Err(error);
     }
     let v: Value = serde_json::from_str(&text)
         .map_err(|_| ProviderError::new(502, "平台返回了无法识别的数据"))?;
-    check_business(&v)?;
+    check_business(&v).map_err(|mut error| { error.retry_after_ms = retry_after_ms; error })?;
     Ok(v)
+}
+fn retry_after(value: &str) -> Option<i64> {
+    value.trim().parse::<i64>().ok().filter(|seconds| *seconds >= 0)
+        .map(|seconds| seconds.saturating_mul(1000))
+        .or_else(|| chrono::DateTime::parse_from_rfc2822(value).ok()
+            .map(|date| date.timestamp_millis().saturating_sub(now_ms()).max(0)))
 }
 // Volcengine-style rejections (ResponseMetadata.Error) carry the account- or
 // request-state reason; the HTTP status alone only says "4xx".
@@ -240,6 +350,8 @@ pub(super) fn http_error(status: u16) -> ProviderError {
             _ => format!("平台请求失败（HTTP {status}）"),
         },
         rejected: matches!(status, 401 | 402 | 403 | 429),
+        retry_after_ms: None,
+        pause_auto: false,
     }
 }
 pub(super) fn check_business(v: &Value) -> Result<(), ProviderError> {
@@ -250,6 +362,8 @@ pub(super) fn check_business(v: &Value) -> Result<(), ProviderError> {
                 status: if rejected { 429 } else { 502 },
                 message: format!("平台业务请求被拒绝（代码 {}）", code as i64),
                 rejected,
+                retry_after_ms: None,
+                pause_auto: false,
             });
         }
     }
@@ -267,6 +381,8 @@ pub(super) fn check_business(v: &Value) -> Result<(), ProviderError> {
                 format!("平台业务请求被拒绝（代码 {code}）：{message}")
             },
             rejected: authentication,
+            retry_after_ms: None,
+            pause_auto: false,
         });
     }
     if v.pointer("/Response/Error").is_some_and(|e| !e.is_null())
@@ -398,6 +514,7 @@ pub(super) fn snapshot(
         fetched_at: now_ms(),
         stale: false,
         diagnostic,
+        sync: SnapshotSync::default(),
     }
 }
 pub(super) fn model(id: String, name: String, context: Option<u64>) -> ModelInfo {
@@ -533,6 +650,30 @@ pub(super) fn empty_credentials() -> Credentials {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn retry_after_parses_seconds_and_http_dates() {
+        assert_eq!(retry_after("120"), Some(120_000));
+        assert_eq!(retry_after("-1"), None);
+        assert_eq!(retry_after("invalid"), None);
+        let date = (chrono::Utc::now() + chrono::Duration::minutes(10)).format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+        assert!((598_000..=600_000).contains(&retry_after(&date).unwrap()));
+    }
+    #[tokio::test]
+    async fn http_rate_limit_preserves_retry_after_for_scheduler() {
+        let socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = socket.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut stream, _) = socket.accept().await.unwrap();
+            let mut buffer = [0; 2048]; stream.read(&mut buffer).await.unwrap();
+            stream.write_all(b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 600\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await.unwrap();
+        });
+        let response = reqwest::Client::builder().no_proxy().build().unwrap()
+            .get(format!("http://{address}")).send().await.unwrap();
+        let error = json_response(response).await.unwrap_err();
+        assert_eq!(error.status, 429); assert_eq!(error.retry_after_ms, Some(600_000));
+        server.await.unwrap();
+    }
     #[test]
     fn model_identity_never_merges_versions() {
         let m = model("gmodel".into(), "GLM-5.3".into(), None);

@@ -1,15 +1,15 @@
 pub mod gateway;
 pub mod providers;
 mod secrets;
+mod refresh;
 pub mod store;
 pub mod types;
 
 use futures::StreamExt;
 use parking_lot::Mutex;
-#[cfg(not(test))]
-use std::collections::HashSet;
 use std::{collections::HashMap, sync::Arc, time::Duration};
-use tokio::sync::Mutex as AsyncMutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::{Mutex as AsyncMutex, Notify, Semaphore};
 use tokio_util::sync::CancellationToken;
 use types::*;
 
@@ -24,8 +24,11 @@ pub struct CreditManager {
     import_gate: AsyncMutex<()>,
     key_gate: Mutex<()>,
     cancellation: CancellationToken,
-    #[cfg(not(test))]
-    refresh_pending: Mutex<HashSet<String>>,
+    refresh_schedule: Mutex<refresh::RefreshSchedule>,
+    refresh_slots: Semaphore,
+    refresh_wake: Notify,
+    scheduler_started: AtomicBool,
+    event_sink: Mutex<Option<tauri::AppHandle>>,
 }
 
 impl CreditManager {
@@ -39,8 +42,11 @@ impl CreditManager {
             import_gate: AsyncMutex::new(()),
             key_gate: Mutex::new(()),
             cancellation: CancellationToken::new(),
-            #[cfg(not(test))]
-            refresh_pending: Mutex::new(HashSet::new()),
+            refresh_schedule: Mutex::new(refresh::RefreshSchedule::new(now_ms())),
+            refresh_slots: Semaphore::new(3),
+            refresh_wake: Notify::new(),
+            scheduler_started: AtomicBool::new(false),
+            event_sink: Mutex::new(None),
         }))
     }
 
@@ -58,6 +64,11 @@ impl CreditManager {
             import_gate: AsyncMutex::new(()),
             key_gate: Mutex::new(()),
             cancellation: CancellationToken::new(),
+            refresh_schedule: Mutex::new(refresh::RefreshSchedule::new(now_ms())),
+            refresh_slots: Semaphore::new(3),
+            refresh_wake: Notify::new(),
+            scheduler_started: AtomicBool::new(false),
+            event_sink: Mutex::new(None),
         })
     }
 
@@ -74,7 +85,9 @@ impl CreditManager {
     /// A user action may retry a cancelled/denied OS credential request.
     /// Background refreshes and proxy traffic must not clear this pause.
     pub fn retry_secret_access(&self) -> Result<(), String> {
-        self.secrets.retry_access()
+        self.secrets.retry_access()?;
+        self.refresh_schedule.lock().resume();
+        Ok(())
     }
     pub fn retry_gateway_key_access(&self) -> Result<(), String> {
         self.secrets
@@ -131,7 +144,11 @@ impl CreditManager {
     ) -> Result<Credentials, providers::ProviderError> {
         let credentials = self
             .credential(account)
-            .map_err(|message| providers::ProviderError::new(500, message))?;
+            .map_err(|message| {
+                let mut error = providers::ProviderError::new(500, message);
+                error.pause_auto = true;
+                error
+            })?;
         if force
             || credentials
                 .expires_at
@@ -140,9 +157,18 @@ impl CreditManager {
             let refreshed = self
                 .provider
                 .refresh_credentials(account.platform, &credentials)
-                .await?;
+                .await.map_err(|mut error| {
+                    // An expired token with no refresh token is also a terminal
+                    // credential failure, even without an upstream rejection.
+                    if matches!(error.status, 401 | 403) { error.pause_auto = true; }
+                    error
+                })?;
             self.save_credentials(&account.id, &refreshed)
-                .map_err(|message| providers::ProviderError::new(500, message))?;
+                .map_err(|message| {
+                    let mut error = providers::ProviderError::new(500, message);
+                    error.pause_auto = true;
+                    error
+                })?;
             Ok(refreshed)
         } else {
             Ok(credentials)
@@ -237,62 +263,11 @@ impl CreditManager {
         Ok(())
     }
 
-    pub async fn refresh_account(&self, id: &str) -> Result<Account, String> {
-        let gate = self.gate(id);
-        let _guard = gate.lock().await;
-        let mut account = self.store.account(id)?;
-        let result = match self.credentials_unlocked(&account, false).await {
-            Ok(credentials) => {
-                let mut result = self.provider.inspect(&account, &credentials).await;
-                if result
-                    .as_ref()
-                    .is_err_and(|e| e.rejected && matches!(e.status, 401 | 403))
-                {
-                    result = match self.credentials_unlocked(&account, true).await {
-                        Ok(refreshed) => self.provider.inspect(&account, &refreshed).await,
-                        Err(error) => Err(error),
-                    };
-                }
-                result.map_err(|e| (e.status, e.message))
-            }
-            Err(error) => Err((error.status, error.message)),
-        };
-        match result {
-            Ok(mut snapshot) => {
-                // Previously verified exact models remain verified only while the live catalog agrees.
-                if let Some(previous) = &account.snapshot {
-                    for model in &mut snapshot.models {
-                        if let Some(old) = previous.models.iter().find(|m| {
-                            m.id == model.id && m.canonical_id == model.canonical_id && m.verified
-                        }) {
-                            model.verified = old.verified;
-                            model.verification_note = old.verification_note.clone();
-                            model.supports_tools = old.supports_tools;
-                        }
-                    }
-                }
-                account.snapshot = Some(snapshot);
-                account.status = "ready".into();
-                account.last_error = None;
-            }
-            Err((status, message)) => {
-                if let Some(snapshot) = &mut account.snapshot {
-                    snapshot.stale = true;
-                }
-                account.status = if status == 401 || status == 403 {
-                    "expired"
-                } else {
-                    "error"
-                }
-                .into();
-                account.last_error = Some(message);
-            }
-        }
-        self.store.save_account(&account)?;
-        Ok(account)
+    pub async fn refresh_account(self: &Arc<Self>, id: &str) -> Result<Account, String> {
+        self.refresh_scope(id, refresh::Scope::FULL, true).await
     }
 
-    pub async fn refresh(&self, id: Option<&str>) -> Result<Vec<Account>, String> {
+    pub async fn refresh(self: &Arc<Self>, id: Option<&str>) -> Result<Vec<Account>, String> {
         let accounts = if let Some(id) = id {
             vec![self.store.account(id)?]
         } else {
@@ -306,7 +281,7 @@ impl CreditManager {
         results.into_iter().collect()
     }
 
-    pub async fn claim(&self, id: Option<&str>) -> Result<Vec<RewardOutcome>, String> {
+    pub async fn claim(self: &Arc<Self>, id: Option<&str>) -> Result<Vec<RewardOutcome>, String> {
         let accounts = if let Some(id) = id {
             vec![self.store.account(id)?]
         } else {
@@ -324,7 +299,7 @@ impl CreditManager {
         Ok(all)
     }
 
-    async fn claim_account(&self, id: &str) -> Result<Vec<RewardOutcome>, String> {
+    async fn claim_account(self: &Arc<Self>, id: &str) -> Result<Vec<RewardOutcome>, String> {
         let gate = self.gate(id);
         let guard = gate.lock().await;
         let account = self.store.account(id)?;
@@ -363,7 +338,16 @@ impl CreditManager {
             self.store.record_reward(outcome)?;
         }
         drop(guard);
-        self.refresh_account(id).await?;
+        // A delayed/rate-limited balance read must not turn a recorded claim into
+        // an apparent claim failure that invites the user to submit it again.
+        let updated = self.refresh_account(id).await.unwrap_or_else(|_| account.clone());
+        if outcomes.iter().any(|outcome| outcome.status == "pending"
+            || (matches!(outcome.status.as_str(), "claimed" | "success")
+                && account.snapshot.as_ref().and_then(|snapshot| snapshot.balance)
+                    == updated.snapshot.as_ref().and_then(|snapshot| snapshot.balance))) {
+            self.refresh_schedule.lock().account(&updated).recheck_claim(now_ms() + refresh::CLAIM_RECHECK_DELAY);
+            self.refresh_wake.notify_one();
+        }
         Ok(outcomes)
     }
 
@@ -407,40 +391,28 @@ impl CreditManager {
                 }
             }
         }
-        #[cfg(not(test))]
-        {
-            if !self.refresh_pending.lock().insert(id.into()) {
-                return;
-            }
-            let manager = self.clone();
-            let id = id.to_owned();
-            tokio::spawn(async move {
-                let refresh = async {
-                    let gate = manager.gate(&id);
-                    let guard = gate.lock().await;
-                    if let Ok(mut account) = manager.store.account(&id) {
-                        if let Some(snapshot) = &mut account.snapshot {
-                            snapshot.stale = true;
-                            let _ = manager.store.save_account(&account);
-                        }
-                    }
-                    drop(guard);
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    let _ = manager.refresh_account(&id).await;
-                };
-                tokio::select! { _ = manager.cancellation.cancelled() => {}, _ = refresh => {} }
-                manager.refresh_pending.lock().remove(&id);
-            });
-        }
+        self.refresh_schedule.lock().accounts.entry(id.into()).or_default()
+            .dirty(now_ms() + refresh::PROXY_DELAY);
+        self.refresh_wake.notify_one();
+        self.emit_credits_changed();
     }
     pub fn dashboard(&self) -> Result<Dashboard, String> {
         let settings = self.store.settings()?;
+        let mut accounts = self.accounts()?;
+        let schedule = self.refresh_schedule.lock();
+        for account in &mut accounts {
+            if schedule.accounts.get(&account.id).is_some_and(|state| state.has_pending_balance()) {
+                if let Some(snapshot) = &mut account.snapshot { snapshot.stale = true; }
+            }
+        }
         Ok(Dashboard {
-            accounts: self.accounts()?,
+            accounts,
             gateway: self.gateway.status(settings.port),
             settings,
             rewards: self.store.rewards()?,
             requests: self.store.requests()?,
+            refreshing_account_ids: schedule.accounts.iter()
+                .filter(|(_, state)| state.running.is_some()).map(|(id, _)| id.clone()).collect(),
         })
     }
     pub async fn save_settings(&self, settings: ProxySettings) -> Result<ProxySettings, String> {
@@ -450,6 +422,8 @@ impl CreditManager {
             return Err("请先停止代理再修改端口".into());
         }
         self.store.save_settings(&settings)?;
+        self.refresh_wake.notify_one();
+        self.emit_credits_changed();
         Ok(settings)
     }
 
@@ -481,11 +455,14 @@ impl CreditManager {
     }
 
     pub fn start_scheduler(self: &Arc<Self>) {
+        if self.scheduler_started.swap(true, Ordering::SeqCst) { return; }
+        self.start_refresh_scheduler();
         let manager = self.clone();
         tokio::spawn(async move {
             let mut last_day: Option<i64> = None;
             // The first tick is immediate, so startup catch-up follows the same schedule.
             let mut interval = tokio::time::interval(Duration::from_secs(30));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
                     _ = manager.cancellation.cancelled() => break,
@@ -493,7 +470,11 @@ impl CreditManager {
                         let now = now_ms();
                         let (day, due) = claim_schedule(now);
                         if due && last_day != Some(day) && manager.store.settings().is_ok_and(|s| s.auto_claim) {
-                            last_day = Some(day); let _ = manager.claim(None).await;
+                            last_day = Some(day);
+                            tokio::select! {
+                                _ = manager.cancellation.cancelled() => break,
+                                _ = manager.claim(None) => {},
+                            }
                         }
                     }
                 }
@@ -544,6 +525,7 @@ mod tests {
                 fetched_at: 1,
                 stale: false,
                 diagnostic: None,
+                sync: SnapshotSync::default(),
             }),
         }
     }
@@ -563,6 +545,8 @@ mod tests {
             let updated = manager.refresh_account(&account.id).await.unwrap();
             assert_eq!(updated.status, "error");
             assert_eq!(updated.last_error.as_deref(), Some(expected));
+            assert!(manager.refresh_schedule.lock().due(&updated, now_ms() + 86_400_000, true).is_empty());
+            assert!(manager.provider.test_inspection_calls().is_empty());
             let snapshot = updated.snapshot.unwrap();
             assert!(snapshot.stale);
             assert_eq!(snapshot.balance, Some(123.0));

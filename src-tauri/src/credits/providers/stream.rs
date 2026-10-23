@@ -170,6 +170,8 @@ impl State {
                 },
                 message: format!("平台流内错误（代码 {code}）"),
                 rejected: !self.answered && matches!(code, 1005 | 4008),
+                retry_after_ms: None,
+                pause_auto: false,
             });
             return;
         }

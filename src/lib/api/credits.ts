@@ -56,6 +56,12 @@ export interface CreditSnapshot {
   fetchedAt: number;
   stale: boolean;
   diagnostic: string | null;
+  sync?: {
+    rewardsFetchedAt: number | null;
+    modelsFetchedAt: number | null;
+    rewardsError: string | null;
+    modelsError: string | null;
+  };
 }
 
 export interface CreditAccount {
@@ -83,6 +89,7 @@ export interface RewardOutcome {
 export interface ProxySettings {
   port: number;
   autoClaim: boolean;
+  autoRefresh: boolean;
 }
 
 export interface GatewayStatus {
@@ -110,6 +117,7 @@ export interface CreditDashboard {
   gateway: GatewayStatus;
   rewards: RewardOutcome[];
   requests: ProxyRequest[];
+  refreshingAccountIds: string[];
 }
 
 export interface OAuthStart {
@@ -125,6 +133,8 @@ export type OAuthResult =
 
 export const creditsApi = {
   dashboard: () => invoke<CreditDashboard>("credits_dashboard"),
+  setViewActive: (active: boolean) => invoke<void>("credits_set_view_active", { active }),
+  networkRestored: () => invoke<void>("credits_network_restored"),
   importLocal: (platform: CreditPlatform) =>
     invoke<CreditAccount>("credits_import_local", { platform }),
   setAccountEnabled: (accountId: string, enabled: boolean) =>

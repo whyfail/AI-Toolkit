@@ -54,13 +54,13 @@ const { AccountCard, AccountsView } = module.exports;
 
 beforeEach(() => { state = { buttons: [], pending: [], launches: [], claims: [], opened: [] }; });
 
-function renderAccount(overrides = {}) {
+function renderAccount(overrides = {}, props = {}) {
   const account = {
     id: "test-account", platform: "qoder", userId: "test-user", label: "测试账户",
     enabled: true, status: "ready", lastError: null, snapshot: null,
     ...overrides,
   };
-  return renderToStaticMarkup(createElement(AccountCard, { account, onDelete() {} }));
+  return renderToStaticMarkup(createElement(AccountCard, { account, onDelete() {}, ...props }));
 }
 
 function snapshot(rewards = []) {
@@ -81,6 +81,22 @@ test("刷新失败保留凭据错误，不能假装拥有领取资格", () => {
   assert.doesNotMatch(html, /每日 100 积分|查看活动规则/);
   assert.match(html, /当前没有可领取的积分任务/);
   assert.equal(state.buttons.find((button) => button.label === "领取积分").disabled, true);
+});
+
+test("后台同步状态与历史余额同时可见，失败不会把余额显示为零", () => {
+  const html = renderAccount({ status: "error", lastError: "网络连接失败",
+    snapshot: { ...snapshot(), balance: 123.45, fetchedAt: 1792390604612, stale: true } }, { refreshing: true });
+  assert.match(html, /123\.45/);
+  assert.match(html, /同步中 · 上次成功同步/);
+  assert.match(html, /同步失败，显示历史余额/);
+});
+
+test("自动刷新默认开启，旧设置与显式关闭均能正确显示", () => {
+  const data = { accounts: [], rewards: [], settings: { autoClaim: false, port: 17860 } };
+  const render = () => renderToStaticMarkup(createElement(AccountsView, { data, onAdd() {} }));
+  assert.match(render(), /id="credits-auto-refresh"[^>]*checked/);
+  data.settings.autoRefresh = false;
+  assert.doesNotMatch(render(), /id="credits-auto-refresh"[^>]*checked/);
 });
 
 test("每日积分在工具内直接领取，不启动客户端或打开网页", async () => {

@@ -45,9 +45,12 @@ async fn campaign_json(request: RequestBuilder) -> Result<Value, ProviderError> 
         return json_response(response).await;
     }
     let status = response.status().as_u16();
-    let value: Value = response.json().await.map_err(|_| http_error(status))?;
+    let mut error = http_error(status);
+    error.retry_after_ms = response.headers().get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok()).and_then(retry_after);
+    let value: Value = response.json().await.map_err(|_| error.clone())?;
     let Some(code) = text(&value, &["errorCode"]) else {
-        return Err(http_error(status));
+        return Err(error);
     };
     let message = match code.as_str() {
         "RISK_BLOCKED" => "Qoder 未通过设备校验，积分未发放",
@@ -57,7 +60,6 @@ async fn campaign_json(request: RequestBuilder) -> Result<Value, ProviderError> 
         "GRANT_RESULT_UNKNOWN" => "Qoder 积分发放结果待确认",
         _ => "Qoder 活动请求被拒绝",
     };
-    let mut error = http_error(status);
     error.message = format!("{message}（{code}）");
     // A device rejection is not an expired OAuth token.
     if matches!(
@@ -279,7 +281,7 @@ fn display_slug(name: &str) -> Option<String> {
         .join("-");
     (!slug.is_empty()).then_some(slug)
 }
-async fn models(client: &ProviderClient, c: &Credentials) -> Result<Vec<ModelInfo>, ProviderError> {
+pub(super) async fn models(client: &ProviderClient, c: &Credentials) -> Result<Vec<ModelInfo>, ProviderError> {
     let url = format!("{GATEWAY}/algo/api/v2/model/list?Encode=1");
     let r = signed(client.http.get(&url), c, encode(b"{}"), &url, None)?;
     let v = client.json(r.header("Accept", "application/json")).await?;
@@ -420,7 +422,7 @@ fn parse_rewards(v: &Value) -> Vec<Reward> {
     }
     out
 }
-async fn rewards(client: &ProviderClient, c: &Credentials) -> Result<Vec<Reward>, ProviderError> {
+pub(super) async fn rewards(client: &ProviderClient, c: &Credentials) -> Result<Vec<Reward>, ProviderError> {
     rewards_at(client, c, API).await
 }
 async fn rewards_at(
@@ -437,6 +439,10 @@ async fn rewards_at(
         return Err(ProviderError::new(502, "Qoder 未返回有效的活动领取资格"));
     }
     Ok(parse_rewards(&v))
+}
+pub(super) async fn balance(client: &ProviderClient, c: &Credentials) -> Result<ProviderSnapshot, ProviderError> {
+    let usage = client.json(headers(client.http.get(format!("{API}/api/v2/quota/usage")), c)).await?;
+    Ok(snapshot(parse_packs(&usage), vec![], vec![], None))
 }
 pub(super) async fn inspect(
     client: &ProviderClient,

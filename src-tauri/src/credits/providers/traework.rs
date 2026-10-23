@@ -406,7 +406,7 @@ pub(super) fn parse_models(v: &Value) -> Vec<ModelInfo> {
         })
         .collect()
 }
-async fn models(client: &ProviderClient, c: &Credentials) -> Result<Vec<ModelInfo>, ProviderError> {
+pub(super) async fn models(client: &ProviderClient, c: &Credentials) -> Result<Vec<ModelInfo>, ProviderError> {
     let v=client.json(headers(client.http.post(format!("{}/api/ide/v1/get_detail_param", ai_api_base(c))),c,true).json(&json!({"function":"solo_work_lite","config_names":null,"need_prompt":false,"current_config_info":null,"poly_prompt":true,"mode_type":null}))).await?;
     let m = parse_models(&v);
     if m.is_empty() {
@@ -442,7 +442,7 @@ fn reward(v: &Value, c: &Credentials) -> Reward {
         action_url: None,
     }
 }
-async fn rewards(client: &ProviderClient, c: &Credentials) -> Result<Vec<Reward>, ProviderError> {
+pub(super) async fn rewards(client: &ProviderClient, c: &Credentials) -> Result<Vec<Reward>, ProviderError> {
     let v = client
         .json(
             headers(
@@ -457,6 +457,22 @@ async fn rewards(client: &ProviderClient, c: &Credentials) -> Result<Vec<Reward>
         )
         .await?;
     Ok(vec![reward(&v, c)])
+}
+pub(super) async fn balance(client: &ProviderClient, c: &Credentials) -> Result<ProviderSnapshot, ProviderError> {
+    let usage = client.json(headers(client.http.post(format!(
+        "{}/trae/api/v2/pay/ide_user_ent_usage", api_base(c))), c, false)
+        .json(&json!({"require_usage":true,"req_source":1}))).await?;
+    let (packs, quota) = parse_packs(&usage);
+    let mut value = snapshot(packs, vec![], vec![], None);
+    value.quota = quota;
+    if let Some(balance) = parse_credit_balance(&usage) {
+        value.balance = Some(balance);
+    } else if value.packs.is_empty()
+        && flag(data(&usage), &["is_credits_billing"]) == Some(true)
+        && flag(data(&usage), &["is_dollar_usage_billing"]) != Some(true) {
+        value.balance = Some(0.0);
+    }
+    Ok(value)
 }
 pub(super) async fn inspect(
     client: &ProviderClient,
