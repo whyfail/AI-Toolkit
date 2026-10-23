@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.1.5-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.1.6-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,10 +16,11 @@
 
 AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MCP 服务器、Skills 技能、平台积分与本地模型代理**。当前版本提供 Skills 管理、MCP 服务器、积分与代理、更新日志、设置、关于六个面板，支持 25 种工具的本地安装检测与配置适配。
 
-## 🆕 v2.1.5 更新
+## 🆕 v2.1.6 更新
 
-- **应用内更新日志**：左侧新增「更新日志」面板，内置完整变更记录并按版本分组展示，自动标注当前运行版本，离线可用。
-- **侧边栏入口**：移除「Agent 技能与 MCP」副标题，点击应用图标可直接打开官网。
+- **积分自动刷新**：默认开启，查看积分页时每 5 分钟同步余额，后台或托盘运行时每 15 分钟同步，代理调用后合并补刷；与自动领取分别控制。
+- **独立同步与缓存状态**：余额、领取资格和模型目录分别更新，单项失败保留旧数据；卡片实时显示同步中、上次成功时间与历史余额，余额刷新不再改变目录更新时间。
+- **限流与恢复**：同账户查询去重，最多并行刷新三个账户；异常自动退避，遵守平台限流，领取结果待确认时只补查、不重复领取。详见 [积分与模型代理](docs/credits-proxy.md)。
 
 完整变更见 [更新记录](CHANGELOG.md)，安全加固与验证边界见 [安全加固记录](docs/security-hardening.md)。
 
@@ -51,6 +52,7 @@ AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MC
 - **积分展示与领取**：分别显示平台原生额度、更新时间、额度包与领取资格；一键检查并领取可用积分，优惠券单独展示
 - **Qoder 每日活动**：直接调用官方每日积分活动接口完成领取，本机装有官方设备校验助手时无需打开 Qoder 界面
 - **可选自动领取**：默认关闭，开启后仅在应用运行期间按北京时间每天 10:30 检查并领取，当天 10:30 后启动可补做错过的检查
+- **自动刷新余额**：默认开启，前台每 5 分钟、后台每 15 分钟同步；领取资格与模型目录独立更新，失败保留历史数据，可在「同步与领取设置」关闭
 - **本地模型代理**：手动启动兼容 OpenAI Chat Completions 和 Anthropic Messages 的服务，默认地址 `http://127.0.0.1:17860/v1`；支持复制独立代理 API Key，关闭窗口后继续运行，从托盘退出应用后停止
 - **图片与工具截图**：两个协议均支持 base64 或 HTTP(S) 图片输入，保留工具返回的截图；实际图片理解能力取决于所选来源模型
 - **真实模型目录**：带平台前缀的 ID 指定账户目录模型，上游返回不同型号时拒绝响应；跨平台别名仅在已验证模型间路由，优先使用即将到期的积分

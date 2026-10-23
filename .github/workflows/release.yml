@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release Version (e.g., 2.1.5)'
+        description: 'Release Version (e.g., 2.1.6)'
         required: true
-        default: '2.1.5'
+        default: '2.1.6'
       publish:
         description: 'Publish the release after building both platforms'
         type: boolean
@@ -431,6 +431,10 @@ jobs:
 
             - MCP and Skills adapters for 25 AI programming tools, including DeepSeek Harness
             - Skills management panel with batch sync
+            - Offline in-app changelog with version cards and the running version highlighted
+            - Automatic credit balance refresh with foreground, background, and post-request scheduling
+            - Independent balance, reward eligibility, and model catalog sync with cached-data status
+            - Shared in-flight account queries, three-account concurrency, backoff, and Retry-After handling
             - Git repository installation for Skills
             - Online Skills search from skills.sh
             - Top 20 skills.sh recommendations by cumulative installs, with error details and retry

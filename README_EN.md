@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.1.5-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.1.6-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,10 +16,11 @@
 
 AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and a local model proxy**. The current version has six panels: Skills, MCP Servers, Credits & Proxy, Changelog, Settings, and About, with local installation detection and configuration adapters for 25 AI programming tools.
 
-## 🆕 What's New in v2.1.5
+## 🆕 What's New in v2.1.6
 
-- **In-app changelog**: A new Changelog panel in the sidebar bundles the full release history, groups it by version, marks the running version, and works offline.
-- **Sidebar entry**: The subtitle is gone, and clicking the app icon opens the official website.
+- **Automatic credit refresh**: Enabled by default, balances refresh every 5 minutes while viewing Credits & Proxy and every 15 minutes in the background or tray. Proxy requests trigger a coalesced refresh. Automatic claiming has its own setting.
+- **Independent sync and cache status**: Balances, reward eligibility, and model catalogs update separately, retaining cached data on partial failures. Cards show refresh activity, the last successful sync, and historical balances; balance updates preserve catalog timestamps.
+- **Rate limits and recovery**: Requests for the same account share ongoing work, with at most three accounts refreshing concurrently. Failures back off and honor platform rate limits; uncertain claim results trigger a balance recheck without claiming again. See [Credits & Model Proxy](docs/credits-proxy.md).
 
 See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/security-hardening.md) for security changes and validation scope.
 
@@ -51,6 +52,7 @@ See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/
 - **Credit Display & Claiming**: Shows platform-native balances, update times, credit packs, and claim eligibility; claim available credits in one click, with coupons listed separately
 - **Qoder Daily Event**: Claims credits directly through the official daily credit event API; if the official device-verification helper is installed, no need to open the Qoder app
 - **Optional Auto-Claim**: Off by default; when enabled, checks and claims daily at 10:30 Beijing time while the app is running, and makes up a missed check if the app starts after 10:30
+- **Automatic Balance Refresh**: On by default, every 5 minutes in the foreground and 15 minutes in the background; reward eligibility and model catalogs sync independently, failures retain cached data, and the setting can be disabled separately
 - **Local Model Proxy**: Manually start a service compatible with both OpenAI Chat Completions and Anthropic Messages, defaulting to `http://127.0.0.1:17860/v1`; copy a dedicated proxy API Key, keep it running after closing the window, and stop it by quitting from the tray
 - **Images & Tool Screenshots**: Both protocols accept base64 or HTTP(S) images and preserve screenshots returned by tools; image understanding depends on the selected upstream model
 - **Real Model Catalog**: Prefixed model IDs pin the account catalog model and are rejected when the upstream returns a different variant; cross-platform aliases route only between verified models, preferring credits that expire soonest
