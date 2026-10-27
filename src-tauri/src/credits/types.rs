@@ -172,6 +172,16 @@ pub struct GatewayStatus {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RequestDiagnostic {
+    pub http_status: u16,
+    pub upstream_code: Option<String>,
+    pub upstream_request_id: Option<String>,
+    pub stage: String,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RequestSummary {
     pub id: String,
     pub account_id: String,
@@ -182,6 +192,8 @@ pub struct RequestSummary {
     pub output_tokens: Option<u64>,
     pub status: String,
     pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<RequestDiagnostic>,
 }
 
 #[derive(Clone, Debug, Serialize)]

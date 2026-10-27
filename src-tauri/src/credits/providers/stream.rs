@@ -13,6 +13,7 @@ struct State {
     finished: bool,
     answered: bool,
     shape_logged: bool,
+    upstream_request_id: Option<String>,
 }
 pub(super) async fn response(
     r: RequestBuilder,
@@ -24,9 +25,13 @@ pub(super) async fn response(
         .map_err(ProviderError::transport)?;
     if !r.status().is_success() {
         let status = r.status();
+        let request_id = upstream_request_id(r.headers());
         let body = r.text().await.unwrap_or_default();
-        return Err(upstream_body_error(status.as_u16(), &body));
+        let mut error = upstream_body_error(status.as_u16(), &body);
+        error.upstream_request_id = request_id.or(error.upstream_request_id);
+        return Err(error);
     }
+    let request_id = upstream_request_id(r.headers());
     let state = State {
         input: Box::pin(r.bytes_stream()),
         buffer: vec![],
@@ -38,6 +43,7 @@ pub(super) async fn response(
         finished: false,
         answered: false,
         shape_logged: false,
+        upstream_request_id: request_id,
     };
     Ok(ProviderChat {
         stream: Box::pin(futures::stream::unfold(state, |mut s| async move {
@@ -56,7 +62,7 @@ pub(super) async fn response(
                         if s.buffer.len() > 4 * 1024 * 1024 {
                             s.ended = true;
                             return Some((
-                                Err(ProviderError::new(502, "平台 SSE 帧超过大小限制")),
+                                Err(s.error(ProviderError::new(502, "平台 SSE 帧超过大小限制"))),
                                 s,
                             ));
                         }
@@ -72,12 +78,12 @@ pub(super) async fn response(
                     Ok(None) => {
                         s.ended = true;
                         if !s.finished {
-                            return Some((Err(ProviderError::new(502, "平台流在完成前中断")), s));
+                            return Some((Err(s.error(ProviderError::new(502, "平台流在完成前中断"))), s));
                         }
                     }
                     _ => {
                         s.ended = true;
-                        return Some((Err(ProviderError::new(502, "平台响应流中断或超时")), s));
+                        return Some((Err(s.error(ProviderError::new(502, "平台响应流中断或超时"))), s));
                     }
                 }
             }
@@ -91,8 +97,16 @@ fn boundary(b: &[u8]) -> Option<(usize, usize)> {
         .or_else(|| b.windows(4).position(|w| w == b"\r\n\r\n").map(|n| (n, 4)))
 }
 impl State {
+    fn error(&self, mut error: ProviderError) -> ProviderError {
+        error.stage = "stream";
+        if error.upstream_request_id.is_none() {
+            error.upstream_request_id = self.upstream_request_id.clone();
+        }
+        error
+    }
+
     fn fail(&mut self, e: ProviderError) {
-        self.queue.push_back(Err(e));
+        self.queue.push_back(Err(self.error(e)));
         self.ended = true;
     }
     fn parse(&mut self, b: &[u8]) {
@@ -125,12 +139,9 @@ impl State {
         if self.platform == Platform::Qoder {
             if let Some(status) = v.get("statusCodeValue").and_then(Value::as_u64) {
                 if status >= 400 {
-                    // TODO: remove once the qoder chat failure is diagnosed live.
-                    eprintln!(
-                        "credits: Qoder 流错误 {status} → {}",
-                        v.get("body").map(|b| b.to_string()).unwrap_or_default().chars().take(300).collect::<String>()
-                    );
-                    let mut e = http_error(status as u16);
+                    let body = v.get("body").unwrap_or(&v);
+                    let raw = body.as_str().map(str::to_owned).unwrap_or_else(|| body.to_string());
+                    let mut e = upstream_body_error(status as u16, &raw);
                     e.rejected &= !self.answered;
                     self.fail(e);
                     return;
@@ -172,7 +183,8 @@ impl State {
                 rejected: !self.answered && matches!(code, 1005 | 4008),
                 retry_after_ms: None,
                 pause_auto: false,
-            });
+                ..ProviderError::new(502, "")
+            }.with_upstream_details(&v, None));
             return;
         }
         // TRAE's extra_info.model identifies a deployment endpoint (ep-...),
@@ -288,7 +300,9 @@ mod tests {
             ended: false,
             finished: false,
             answered: false,
-        shape_logged: false,}
+            shape_logged: false,
+            upstream_request_id: None,
+        }
     }
     #[test]
     fn trae_tools_and_identity_are_preserved() {
@@ -375,6 +389,27 @@ data: {"tool_calls":[{"index":0,"id":"c","function_call":{"name":"read","argumen
         s.parse(br#"data: {"statusCodeValue":429,"body":"{}"}"#);
         assert!(s.queue.pop_front().unwrap().unwrap_err().rejected);
     }
+
+    #[test]
+    fn stream_errors_preserve_safe_metadata_and_do_not_become_retryable_after_output() {
+        let mut s = state(Platform::Workbuddy);
+        s.upstream_request_id = Some("req_header_123".into());
+        s.answered = true;
+        s.parse(br#"data: {"code":1005,"error":{"message":"fixture-secret-body"}}"#);
+        let error = s.queue.pop_front().unwrap().unwrap_err();
+        assert_eq!(error.upstream_code.as_deref(), Some("1005"));
+        assert_eq!(error.upstream_request_id.as_deref(), Some("req_header_123"));
+        assert_eq!(error.stage, "stream");
+        assert!(!error.rejected);
+        assert!(!serde_json::to_string(&error.diagnostic()).unwrap().contains("fixture-secret"));
+
+        let mut s = state(Platform::Qoder);
+        s.parse(br#"data: {"statusCodeValue":400,"body":{"error":{"code":"invalid_schema","message":"fixture-secret"},"request_id":"req_body_456"}}"#);
+        let error = s.queue.pop_front().unwrap().unwrap_err();
+        assert_eq!(error.upstream_code.as_deref(), Some("invalid_schema"));
+        assert_eq!(error.upstream_request_id.as_deref(), Some("req_body_456"));
+        assert!(!error.rejected);
+    }
     #[test]
     fn byte_boundaries_accept_crlf() {
         assert_eq!(boundary(b"data: x\r\n\r\n"), Some((7, 4)));
@@ -392,7 +427,9 @@ data: {"tool_calls":[{"index":0,"id":"c","function_call":{"name":"read","argumen
                 listener,
                 Router::new().route(
                     "/",
-                    post(|Json(body): Json<Value>| async { (StatusCode::BAD_REQUEST, Json(body)) }),
+                    post(|Json(body): Json<Value>| async {
+                        (StatusCode::BAD_REQUEST, [("x-request-id", "req_upstream_header")], Json(body))
+                    }),
                 ),
             )
             .await
@@ -425,6 +462,8 @@ data: {"tool_calls":[{"index":0,"id":"c","function_call":{"name":"read","argumen
             assert_eq!(error.message, expected);
             assert!(!error.rejected);
             assert!(!error.message.contains("fixture-secret"));
+            assert_eq!(error.upstream_code.as_deref(), body["code"].as_i64().map(|v| v.to_string()).as_deref());
+            assert_eq!(error.upstream_request_id.as_deref(), Some("req_upstream_header"));
         }
         server.abort();
     }

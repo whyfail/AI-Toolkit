@@ -33,6 +33,9 @@ pub struct ProviderError {
     pub rejected: bool,
     pub retry_after_ms: Option<i64>,
     pub pause_auto: bool,
+    pub upstream_code: Option<String>,
+    pub upstream_request_id: Option<String>,
+    pub stage: &'static str,
 }
 impl std::fmt::Display for ProviderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -48,11 +51,75 @@ impl ProviderError {
             rejected: false,
             retry_after_ms: None,
             pause_auto: false,
+            upstream_code: None,
+            upstream_request_id: None,
+            stage: "response",
         }
     }
     fn transport(_: reqwest::Error) -> Self {
-        Self::new(502, "平台连接失败或请求超时")
+        let mut error = Self::new(502, "平台连接失败或请求超时");
+        error.stage = "request";
+        error
     }
+
+    fn with_upstream_details(mut self, value: &Value, headers: Option<&reqwest::header::HeaderMap>) -> Self {
+        // Only copy bounded identifiers from known metadata fields. Never copy error
+        // messages, request bodies or arbitrary headers into proxy diagnostics.
+        self.upstream_code = ["/code", "/biz_code", "/bizCode", "/error/code", "/ResponseMetadata/Error/Code"]
+            .iter().filter_map(|path| value.pointer(path))
+            .find_map(|value| value.as_i64().map(|v| v.to_string())
+                .or_else(|| value.as_str().and_then(safe_diagnostic_id)));
+        self.upstream_request_id = headers.and_then(upstream_request_id).or_else(|| {
+            ["/request_id", "/requestId", "/requestID", "/trace_id", "/traceId", "/error/request_id", "/ResponseMetadata/RequestId", "/Response/RequestId"]
+                .iter().filter_map(|path| value.pointer(path).and_then(Value::as_str))
+                .find_map(safe_diagnostic_id)
+        });
+        self
+    }
+
+    pub(super) fn diagnostic(&self) -> RequestDiagnostic {
+        let (stage, label) = match self.stage {
+            "request" => ("request", "发送请求"),
+            "stream" => ("stream", "读取响应流"),
+            _ => ("response", "接收上游响应"),
+        };
+        let upstream_code = self.upstream_code.as_deref().and_then(safe_diagnostic_id);
+        let upstream_request_id = self.upstream_request_id.as_deref().and_then(safe_diagnostic_id);
+        let base = if self.message == CHANNEL_VERIFICATION_ERROR {
+            CHANNEL_VERIFICATION_ERROR
+        } else {
+            "上游请求失败"
+        };
+        let mut message = format!("{base}（HTTP {}；阶段：{label}", self.status);
+        if let Some(code) = &upstream_code {
+            message.push_str(&format!("；上游错误码：{code}"));
+        }
+        if let Some(id) = &upstream_request_id {
+            message.push_str(&format!("；上游请求 ID：{id}"));
+        }
+        message.push('）');
+        RequestDiagnostic {
+            http_status: self.status,
+            upstream_code,
+            upstream_request_id,
+            stage: stage.into(),
+            message,
+        }
+    }
+}
+
+fn safe_diagnostic_id(value: &str) -> Option<String> {
+    let lower = value.to_ascii_lowercase();
+    (!value.is_empty() && value.len() <= 128
+        && value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+        && !["sk-", "sk_", "bearer", "eyj"].iter().any(|prefix| lower.starts_with(prefix)))
+        .then(|| value.to_owned())
+}
+
+fn upstream_request_id(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    ["x-request-id", "request-id", "x-tc-requestid", "x-amzn-requestid", "x-correlation-id"]
+        .iter().filter_map(|name| headers.get(*name).and_then(|v| v.to_str().ok()))
+        .find_map(safe_diagnostic_id)
 }
 
 #[derive(Clone)]
@@ -285,6 +352,7 @@ impl ProviderClient {
 
 pub(super) async fn json_response(r: Response) -> Result<Value, ProviderError> {
     let status = r.status().as_u16();
+    let headers = r.headers().clone();
     let retry_after_ms = r.headers().get(reqwest::header::RETRY_AFTER)
         .and_then(|value| value.to_str().ok()).and_then(retry_after);
     let text = r
@@ -293,12 +361,17 @@ pub(super) async fn json_response(r: Response) -> Result<Value, ProviderError> {
         .map_err(|_| ProviderError::new(502, "平台响应读取失败"))?;
     if !(200..300).contains(&status) {
         let mut error = upstream_body_error(status, &text);
+        error.upstream_request_id = upstream_request_id(&headers).or(error.upstream_request_id);
         error.retry_after_ms = retry_after_ms;
         return Err(error);
     }
     let v: Value = serde_json::from_str(&text)
         .map_err(|_| ProviderError::new(502, "平台返回了无法识别的数据"))?;
-    check_business(&v).map_err(|mut error| { error.retry_after_ms = retry_after_ms; error })?;
+    check_business(&v).map_err(|error| {
+        let mut error = error.with_upstream_details(&v, Some(&headers));
+        error.retry_after_ms = retry_after_ms;
+        error
+    })?;
     Ok(v)
 }
 fn retry_after(value: &str) -> Option<i64> {
@@ -332,11 +405,15 @@ fn upstream_body_error(status: u16, text: &str) -> ProviderError {
                 && value["msg"].as_str() == Some("Illegal API invocation from an unapproved channel")
         })
     {
-        return ProviderError::new(status, CHANNEL_VERIFICATION_ERROR);
+        return ProviderError::new(status, CHANNEL_VERIFICATION_ERROR)
+            .with_upstream_details(detail.as_ref().unwrap(), None);
     }
     let mut error = http_error(status);
     if let Some((code, message)) = detail.as_ref().and_then(upstream_error_detail) {
         error.message = format!("平台拒绝（代码 {code}）：{message}");
+    }
+    if let Some(detail) = &detail {
+        error = error.with_upstream_details(detail, None);
     }
     error
 }
@@ -352,6 +429,7 @@ pub(super) fn http_error(status: u16) -> ProviderError {
         rejected: matches!(status, 401 | 402 | 403 | 429),
         retry_after_ms: None,
         pause_auto: false,
+        ..ProviderError::new(status, "")
     }
 }
 pub(super) fn check_business(v: &Value) -> Result<(), ProviderError> {
@@ -364,6 +442,7 @@ pub(super) fn check_business(v: &Value) -> Result<(), ProviderError> {
                 rejected,
                 retry_after_ms: None,
                 pause_auto: false,
+                ..ProviderError::new(502, "")
             });
         }
     }
@@ -383,6 +462,7 @@ pub(super) fn check_business(v: &Value) -> Result<(), ProviderError> {
             rejected: authentication,
             retry_after_ms: None,
             pause_auto: false,
+            ..ProviderError::new(502, "")
         });
     }
     if v.pointer("/Response/Error").is_some_and(|e| !e.is_null())
@@ -650,6 +730,38 @@ pub(super) fn empty_credentials() -> Credentials {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn diagnostics_preserve_only_safe_upstream_identifiers() {
+        for body in [
+            json!({"code":11133,"request_id":"req_123","msg":"fixture-secret-prompt","token":"fixture-secret-key"}),
+            json!({"error":{"code":"11133","request_id":"req_123","message":"fixture-secret-prompt"}}),
+            json!({"ResponseMetadata":{"RequestId":"req_123","Error":{"Code":"11133","Message":"fixture-secret-prompt"}}}),
+        ] {
+            let error = upstream_body_error(400, &body.to_string());
+            assert_eq!(error.upstream_code.as_deref(), Some("11133"));
+            assert_eq!(error.upstream_request_id.as_deref(), Some("req_123"));
+            assert!(!error.rejected);
+            let diagnostic = serde_json::to_string(&error.diagnostic()).unwrap();
+            assert!(diagnostic.contains("11133"));
+            assert!(diagnostic.contains("req_123"));
+            assert!(!diagnostic.contains("fixture-secret"));
+        }
+        for unsafe_id in ["Bearer fixture-secret", "sk-fixture-secret", "eyJfixture.jwt.token", "line\nbreak", &"x".repeat(129)] {
+            let error = upstream_body_error(400, &json!({"code":unsafe_id,"request_id":unsafe_id}).to_string());
+            assert!(error.upstream_code.is_none());
+            assert!(error.upstream_request_id.is_none());
+        }
+        assert!(upstream_body_error(502, "<html>fixture-secret</html>").upstream_code.is_none());
+    }
+
+    #[test]
+    fn old_request_history_remains_readable_without_diagnostics() {
+        let summary: RequestSummary = serde_json::from_value(json!({
+            "id":"old","accountId":"a","platform":"workbuddy","model":"glm-5.3",
+            "elapsedMs":1,"inputTokens":null,"outputTokens":null,"status":"error","createdAt":0
+        })).unwrap();
+        assert!(summary.diagnostic.is_none());
+    }
     #[test]
     fn retry_after_parses_seconds_and_http_dates() {
         assert_eq!(retry_after("120"), Some(120_000));

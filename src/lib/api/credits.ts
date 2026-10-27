@@ -109,6 +109,13 @@ export interface ProxyRequest {
   outputTokens: number | null;
   status: string;
   createdAt: number;
+  diagnostic?: {
+    httpStatus: number;
+    upstreamCode: string | null;
+    upstreamRequestId: string | null;
+    stage: string;
+    message: string;
+  } | null;
 }
 
 export interface CreditDashboard {

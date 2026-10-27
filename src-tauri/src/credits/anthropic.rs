@@ -494,7 +494,7 @@ pub(super) fn request(data: Value) -> Result<Value, &'static str> {
     Ok(Value::Object(output))
 }
 
-fn error_value(status: StatusCode, message: &str) -> Value {
+pub(super) fn error_value(status: StatusCode, message: &str) -> Value {
     let kind = match status.as_u16() {
         401 => "authentication_error",
         402 => "billing_error",

@@ -1,5 +1,5 @@
 use super::providers::{ProviderChat, ProviderError};
-use super::types::{now_ms, Account, GatewayStatus, ModelInfo, Platform, RequestSummary};
+use super::types::{now_ms, Account, GatewayStatus, ModelInfo, Platform, RequestDiagnostic, RequestSummary};
 use super::CreditManager;
 use axum::{
     body::Body,
@@ -18,6 +18,8 @@ use tokio_util::sync::CancellationToken;
 
 #[path = "anthropic.rs"]
 mod anthropic;
+#[path = "tool_validation.rs"]
+mod tool_validation;
 
 const MAX_REQUEST_BYTES: usize = 32 * 1024 * 1024;
 
@@ -32,6 +34,58 @@ impl Protocol {
         match self {
             Self::Openai => api_error(status, code, message),
             Self::Messages => anthropic::error(status, message),
+        }
+    }
+
+    fn failure_value(self, error: &ProviderError, guard: &mut RequestGuard) -> Value {
+        let diagnostic = error.diagnostic();
+        let message = format!("{}；代理请求 ID：{}", diagnostic.message, guard.id);
+        let code = if error.message == super::providers::CHANNEL_VERIFICATION_ERROR {
+            "upstream_channel_rejected"
+        } else if diagnostic.stage == "stream" {
+            "upstream_stream_error"
+        } else {
+            "upstream_error"
+        };
+        let status = StatusCode::from_u16(error.status).unwrap_or(StatusCode::BAD_GATEWAY);
+        let mut value = match self {
+            Self::Openai => json!({"error":{"type":"invalid_request_error","message":message}}),
+            Self::Messages => anthropic::error_value(status, &message),
+        };
+        value["request_id"] = json!(guard.id);
+        value["error"]["code"] = json!(code);
+        value["error"]["stage"] = json!(diagnostic.stage);
+        if let Some(code) = &diagnostic.upstream_code {
+            value["error"]["upstream_code"] = json!(code);
+        }
+        if let Some(id) = &diagnostic.upstream_request_id {
+            value["error"]["upstream_request_id"] = json!(id);
+        }
+        guard.set_status("error");
+        guard.diagnostic = Some(diagnostic);
+        value
+    }
+
+    fn upstream_error(self, error: &ProviderError, guard: &mut RequestGuard) -> Response {
+        let value = self.failure_value(error, guard);
+        (
+            StatusCode::from_u16(error.status).unwrap_or(StatusCode::BAD_GATEWAY),
+            [("x-request-id", guard.id.clone()), ("request-id", guard.id.clone())],
+            Json(value),
+        ).into_response()
+    }
+
+    fn upstream_stream_error(self, mut error: ProviderError, guard: &mut RequestGuard) -> String {
+        error.stage = "stream";
+        let mut value = self.failure_value(&error, guard);
+        match self {
+            Self::Openai => format!("data: {value}\n\n"),
+            Self::Messages => {
+                // Content may already be committed. Keep the existing terminal
+                // stream error type instead of suggesting a fresh rate-limit retry.
+                value["error"]["type"] = json!("api_error");
+                format!("event: error\ndata: {value}\n\n")
+            }
         }
     }
 }
@@ -334,6 +388,7 @@ struct RequestGuard {
     status: &'static str,
     input_tokens: Option<u64>,
     output_tokens: Option<u64>,
+    diagnostic: Option<RequestDiagnostic>,
 }
 
 impl RequestGuard {
@@ -349,6 +404,7 @@ impl RequestGuard {
             status: "cancelled",
             input_tokens: None,
             output_tokens: None,
+            diagnostic: None,
         }
     }
 
@@ -393,6 +449,7 @@ impl Drop for RequestGuard {
                 output_tokens: self.output_tokens,
                 status: self.status.into(),
                 created_at: self.created_at,
+                diagnostic: self.diagnostic.clone(),
             });
         }
     }
@@ -689,6 +746,9 @@ async fn protocol_request(
             return protocol.error(status, code, message);
         }
     };
+    if let Err(message) = tool_validation::validate(&data, matches!(protocol, Protocol::Messages)) {
+        return protocol.error(StatusCode::BAD_REQUEST, "invalid_request", &message);
+    }
     let mut data = if matches!(protocol, Protocol::Messages) {
         match anthropic::request(data) {
             Ok(data) => data,
@@ -818,6 +878,7 @@ async fn protocol_request(
             }
             Err(error) => {
                 guard.set_status("error");
+                guard.diagnostic = Some(error.diagnostic());
                 last_status = StatusCode::from_u16(error.status).unwrap_or(StatusCode::BAD_GATEWAY);
                 if error.rejected && matches!(error.status, 401 | 402 | 403 | 429) {
                     context.routing.lock().cooldowns.insert(
@@ -826,19 +887,7 @@ async fn protocol_request(
                     );
                     continue;
                 }
-                // Expose only recognized fixed diagnostics, never arbitrary upstream bodies.
-                let (code, message) = match error.message.as_str() {
-                    super::providers::CHANNEL_VERIFICATION_ERROR => (
-                        "upstream_channel_rejected",
-                        super::providers::CHANNEL_VERIFICATION_ERROR,
-                    ),
-                    _ => ("upstream_error", "上游请求失败；未重试可能已被计费的请求"),
-                };
-                return protocol.error(
-                    StatusCode::from_u16(error.status).unwrap_or(StatusCode::BAD_GATEWAY),
-                    code,
-                    message,
-                );
+                return protocol.upstream_error(&error, &mut guard);
             }
         }
     }
@@ -907,6 +956,7 @@ fn stream_response_for(
     mut guard: RequestGuard,
     protocol: Protocol,
 ) -> Response {
+    let request_id = guard.id.clone();
     let stream = async_stream::stream! {
         let mut messages = anthropic::MessageStream::default();
         if matches!(protocol, Protocol::Messages) {
@@ -951,12 +1001,8 @@ fn stream_response_for(
                     });
                     break;
                 }
-                Some(Err(_)) => {
-                    guard.set_status("error");
-                    yield Ok(match protocol {
-                        Protocol::Openai => "data: {\"error\":{\"message\":\"上游流中断或模型不匹配\",\"code\":\"upstream_stream_error\"}}\n\n".to_string(),
-                        Protocol::Messages => anthropic::stream_error("上游流中断或模型不匹配"),
-                    });
+                Some(Err(error)) => {
+                    yield Ok(protocol.upstream_stream_error(error, &mut guard));
                     break;
                 }
                 None => {
@@ -986,6 +1032,8 @@ fn stream_response_for(
             (header::CONTENT_TYPE, "text/event-stream"),
             (header::CACHE_CONTROL, "no-cache"),
             (header::CONNECTION, "keep-alive"),
+            (header::HeaderName::from_static("x-request-id"), request_id.as_str()),
+            (header::HeaderName::from_static("request-id"), request_id.as_str()),
         ],
         Body::from_stream(stream),
     )
@@ -1135,13 +1183,9 @@ async fn collect_response_for(
                     "上游返回错误或模型版本不匹配",
                 );
             }
-            Some(Err(error)) => {
-                guard.set_status("error");
-                return protocol.error(
-                    StatusCode::from_u16(error.status).unwrap_or(StatusCode::BAD_GATEWAY),
-                    "upstream_error",
-                    "上游请求失败；未重试可能已被计费的请求",
-                );
+            Some(Err(mut error)) => {
+                error.stage = "stream";
+                return protocol.upstream_error(&error, &mut guard);
             }
             None => {
                 let output = match protocol {
@@ -1541,6 +1585,7 @@ mod tests {
                     rejected,
                     retry_after_ms: None,
                     pause_auto: false,
+                    ..ProviderError::new(502, "")
                 })])),
             };
             let error = match prime_response(upstream, &context, &candidate).await {
@@ -1637,6 +1682,123 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tool_preflight_reports_schema_paths_before_calling_any_provider() {
+        for endpoint in ["chat/completions", "messages"] {
+            let manager = routed_test_manager();
+            manager.provider.queue_test_chat("first", fixture_chunks(vec![json!({
+                "choices":[{"delta":{"content":"should not be called"},"finish_reason":"stop"}]
+            })]));
+            let gateway = GatewayManager::new();
+            let status = gateway.start(manager.clone(), 0).await.unwrap();
+            let mut body = messages_body(false);
+            let schema = json!({"type":"object","properties":{"query":{"type":"strng"}}});
+            let path = if endpoint == "messages" {
+                body["tools"] = json!([{"name":"search","input_schema":schema}]);
+                "tools[0].input_schema.properties.query.type"
+            } else {
+                body["tools"] = json!([{"type":"function","function":{"name":"search","parameters":schema}}]);
+                "tools[0].function.parameters.properties.query.type"
+            };
+            let response = local_http().post(format!("{}/{endpoint}", status.base_url))
+                .bearer_auth(manager.gateway_key().unwrap()).json(&body).send().await.unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let error = response.json::<Value>().await.unwrap();
+            assert!(error["error"]["message"].as_str().unwrap().contains(path), "{error}");
+            assert!(manager.provider.test_chat_calls().is_empty());
+            gateway.stop().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn upstream_diagnostics_correlate_client_errors_with_history_without_body_leaks() {
+        for endpoint in ["chat/completions", "messages"] {
+            let manager = routed_test_manager();
+            manager.provider.queue_test_chat("first", vec![Err(ProviderError {
+                upstream_code: Some("11133".into()),
+                upstream_request_id: Some("req_upstream_123".into()),
+                ..ProviderError::new(400, "fixture-secret-upstream-body")
+            })]);
+            let gateway = GatewayManager::new();
+            let status = gateway.start(manager.clone(), 0).await.unwrap();
+            let response = local_http().post(format!("{}/{endpoint}", status.base_url))
+                .bearer_auth(manager.gateway_key().unwrap()).json(&messages_body(true)).send().await.unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let id = response.headers().get("x-request-id").expect("correlation header").to_str().unwrap().to_owned();
+            let error = response.json::<Value>().await.unwrap();
+            assert_eq!(error["request_id"], id);
+            assert_eq!(error["error"]["stage"], "response");
+            assert_eq!(error["error"]["upstream_code"], "11133");
+            assert_eq!(error["error"]["upstream_request_id"], "req_upstream_123");
+            assert!(error["error"]["message"].as_str().unwrap().contains(&id));
+            assert!(!error.to_string().contains("fixture-secret"));
+            let history = serde_json::to_value(manager.store.requests().unwrap()).unwrap();
+            let record = history.as_array().unwrap().iter().find(|record| record["id"] == id).unwrap();
+            assert_eq!(record["diagnostic"]["httpStatus"], 400);
+            assert_eq!(record["diagnostic"]["stage"], "response");
+            assert_eq!(record["diagnostic"]["upstreamCode"], "11133");
+            assert_eq!(record["diagnostic"]["upstreamRequestId"], "req_upstream_123");
+            assert!(!history.to_string().contains("fixture-secret"));
+            assert_eq!(manager.provider.test_chat_calls(), vec!["first"]);
+            gateway.stop().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn late_diagnostics_survive_json_and_sse_without_retrying() {
+        for endpoint in ["chat/completions", "messages"] {
+            for stream in [false, true] {
+                let manager = routed_test_manager();
+                let mut chunks = fixture_chunks(vec![json!({"choices":[{"delta":{"content":"partial"}}]})]);
+                chunks.push(Err(ProviderError {
+                    upstream_code: Some("11148".into()),
+                    upstream_request_id: Some("req_late_123".into()),
+                    ..ProviderError::new(400, "fixture-secret-body")
+                }));
+                manager.provider.queue_test_chat("first", chunks);
+                let gateway = GatewayManager::new();
+                let status = gateway.start(manager.clone(), 0).await.unwrap();
+                let response = local_http().post(format!("{}/{endpoint}", status.base_url))
+                    .bearer_auth(manager.gateway_key().unwrap()).json(&messages_body(stream)).send().await.unwrap();
+                assert_eq!(response.status(), if stream { StatusCode::OK } else { StatusCode::BAD_REQUEST });
+                let id = response.headers()["x-request-id"].to_str().unwrap().to_owned();
+                let body = response.text().await.unwrap();
+                assert!(body.contains("11148") && body.contains("req_late_123") && body.contains(&id));
+                assert!(body.contains("\"stage\":\"stream\""));
+                assert!(!body.contains("fixture-secret") && !body.contains("message_stop") && !body.contains("[DONE]"));
+                if stream && endpoint == "messages" {
+                    assert!(body.contains("\"type\":\"api_error\""));
+                }
+                let history = manager.store.requests().unwrap();
+                let record = history.iter().find(|record| record.id == id).unwrap();
+                assert_eq!(record.diagnostic.as_ref().unwrap().stage, "stream");
+                assert_eq!(manager.provider.test_chat_calls(), vec!["first"]);
+                gateway.stop().await.unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn valid_combined_tool_schemas_are_forwarded_unchanged() {
+        let schema = json!({"type":"object","properties":{"query":{"type":["string","null"]}},
+            "oneOf":[{"required":["query"]},{"properties":{"filter":{"$ref":"#/$defs/filter"}}}],
+            "$defs":{"filter":{"type":"object","additionalProperties":true}},"x-extension":{"type":"custom"}});
+        for endpoint in ["chat/completions", "messages"] {
+            let manager = routed_test_manager();
+            manager.provider.queue_test_chat("first", fixture_chunks(vec![json!({"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]})]));
+            let mut body = messages_body(false);
+            body["tools"] = if endpoint == "messages" { json!([{"name":"search","input_schema":schema}]) }
+                else { json!([{"type":"function","function":{"name":"search","parameters":schema}}]) };
+            let gateway = GatewayManager::new();
+            let status = gateway.start(manager.clone(), 0).await.unwrap();
+            let response = local_http().post(format!("{}/{endpoint}", status.base_url))
+                .bearer_auth(manager.gateway_key().unwrap()).json(&body).send().await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(manager.provider.test_chat_bodies()[0]["tools"][0]["function"]["parameters"], schema);
+            gateway.stop().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
     async fn store_false_reaches_each_provider_without_requesting_storage() {
         for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder] {
             let manager = routed_test_manager();
@@ -1730,7 +1892,7 @@ mod tests {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
             let error = response.json::<Value>().await.unwrap();
-            assert_eq!(error["error"]["message"], "上游通道校验未通过（代码 11128），请使用官方客户端或平台授权的接口");
+            assert!(error["error"]["message"].as_str().unwrap().starts_with(super::super::providers::CHANNEL_VERIFICATION_ERROR));
             if endpoint == "chat/completions" {
                 assert_eq!(error["error"]["code"], "upstream_channel_rejected");
             }
@@ -2323,6 +2485,7 @@ mod tests {
             rejected: true,
             retry_after_ms: None,
             pause_auto: false,
+            ..ProviderError::new(502, "")
         }));
         manager.provider.queue_test_chat("first", chunks);
         let gateway = GatewayManager::new();
@@ -2359,6 +2522,7 @@ mod tests {
                     rejected,
                     retry_after_ms: None,
                     pause_auto: false,
+                    ..ProviderError::new(502, "")
                 })]
             };
             manager.provider.queue_test_chat("first", chunks);
@@ -2551,6 +2715,7 @@ mod tests {
                     rejected,
                     retry_after_ms: None,
                     pause_auto: false,
+                    ..ProviderError::new(502, "")
                 })],
             );
             let gateway = GatewayManager::new();
@@ -2604,6 +2769,7 @@ mod tests {
                     rejected: true,
                     retry_after_ms: None,
                     pause_auto: false,
+                    ..ProviderError::new(502, "")
                 }),
             ],
         );
