@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.1.6-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.1.7-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,11 +16,11 @@
 
 AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MCP 服务器、Skills 技能、平台积分与本地模型代理**。当前版本提供 Skills 管理、MCP 服务器、积分与代理、更新日志、设置、关于六个面板，支持 25 种工具的本地安装检测与配置适配。
 
-## 🆕 v2.1.6 更新
+## 🆕 v2.1.7 更新
 
-- **积分自动刷新**：默认开启，查看积分页时每 5 分钟同步余额，后台或托盘运行时每 15 分钟同步，代理调用后合并补刷；与自动领取分别控制。
-- **独立同步与缓存状态**：余额、领取资格和模型目录分别更新，单项失败保留旧数据；卡片实时显示同步中、上次成功时间与历史余额，余额刷新不再改变目录更新时间。
-- **限流与恢复**：同账户查询去重，最多并行刷新三个账户；异常自动退避，遵守平台限流，领取结果待确认时只补查、不重复领取。详见 [积分与模型代理](docs/credits-proxy.md)。
+- **代理错误详情**：展开最近请求中的诊断，查看 HTTP 状态、失败阶段、上游错误码与请求 ID，并关联客户端错误和本地记录；不保存原始错误正文或凭据。
+- **工具定义预检**：两种代理协议在转发前校验重复工具名、指定工具与常见 JSON Schema 结构，错误直接返回 HTTP 400 并指出原协议字段位置；合法定义保持原样。
+- **流式错误关联**：JSON 错误响应与 SSE 错误事件支持受限诊断和代理请求 ID，输出开始后的失败不重试，保留终止错误。详见 [积分与模型代理](docs/credits-proxy.md)。
 
 完整变更见 [更新记录](CHANGELOG.md)，安全加固与验证边界见 [安全加固记录](docs/security-hardening.md)。
 
