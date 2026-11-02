@@ -419,8 +419,8 @@ pub(super) async fn models(client: &ProviderClient, c: &Credentials) -> Result<V
 }
 fn reward(v: &Value, c: &Credentials) -> Reward {
     let d = data(v);
-    let claimed =
-        flag(d, &["checked_in"]) == Some(true) || flag(d, &["did_checked_in"]) == Some(true);
+    // did_checked_in is a device limit, not confirmation for this account.
+    let claimed = flag(d, &["checked_in"]) == Some(true);
     Reward {
         id: "daily-checkin".into(),
         name: "每日签到".into(),
@@ -429,7 +429,9 @@ fn reward(v: &Value, c: &Credentials) -> Reward {
             "claimed"
         } else if c.device_id.is_none() {
             "device_required"
-        } else if flag(d, &["enable"]) == Some(false) {
+        } else if flag(d, &["enable"]) == Some(false)
+            || flag(d, &["did_checked_in"]) == Some(true)
+        {
             "unavailable"
         } else if flag(d, &["checked_in"]) == Some(false) {
             "claimable"
@@ -437,7 +439,8 @@ fn reward(v: &Value, c: &Credentials) -> Reward {
             "unknown"
         }
         .into(),
-        amount: num(d, &["credits"]).map(|n| n + num(d, &["extra_credits"]).unwrap_or(0.0)),
+        // The official client uses extra_credits for the membership bonus hint.
+        amount: num(d, &["credits"]),
         next_available_at: None,
         action_url: None,
     }
@@ -736,7 +739,7 @@ mod tests {
                     assert_eq!(headers["authorization"], "Cloud-IDE-JWT session-test");
                     assert_eq!(headers["x-device-id"], "existing-device-with-keys");
                     assert_eq!(body["req_source"], 2);
-                    Json(json!({"enable":true,"checked_in":claims.load(Ordering::SeqCst) > 0,"credits":150}))
+                    Json(json!({"enable":true,"checked_in":claims.load(Ordering::SeqCst) > 0,"credits":100,"extra_credits":100}))
                 }
             }))
             .route("/trae/api/v2/ug/checkin_credits/claim", post(move |headers: HeaderMap, Json(body): Json<Value>| {
@@ -799,6 +802,7 @@ mod tests {
         assert_eq!(snapshot.models.len(), 1);
         assert!(snapshot.diagnostic.is_none());
         assert_eq!(snapshot.rewards[0].status, "claimable");
+        assert_eq!(snapshot.rewards[0].amount, Some(100.0));
         let account = Account {
             id: "test-trae".into(),
             platform: Platform::Traework,
@@ -811,7 +815,26 @@ mod tests {
         };
         let outcomes = claim(&client, &account, &authenticated).await.unwrap();
         assert_eq!(outcomes[0].status, "claimed");
+        assert_eq!(outcomes[0].amount, Some(100.0));
         assert_eq!(claims.load(Ordering::SeqCst), 1);
+        let outcomes = claim(&client, &account, &authenticated).await.unwrap();
+        assert_eq!(outcomes[0].status, "already_claimed");
+        assert_eq!(outcomes[0].amount, None);
+        assert_eq!(claims.load(Ordering::SeqCst), 1);
+        let device_only = reward(
+            &json!({"checked_in":false,"did_checked_in":true,"credits":100}),
+            &authenticated,
+        );
+        let mut rejected = ProviderError::new(403, "Device already checked in");
+        rejected.rejected = true;
+        let outcome = reconcile_claim(
+            &account,
+            &snapshot.rewards[0],
+            &Err(rejected),
+            Ok(vec![device_only]),
+        );
+        assert_eq!(outcome.status, "failed");
+        assert_eq!(outcome.amount, None);
         ug_server.abort();
         server.abort();
     }
@@ -926,13 +949,32 @@ mod tests {
     #[test]
     fn signin_reward_is_not_balance() {
         let c = empty_credentials();
-        let r = reward(
-            &json!({"checked_in":false,"credits":150,"extra_credits":50}),
-            &c,
-        );
-        assert_eq!(r.amount, Some(200.0));
+        for (credits, extra) in [(100, 100), (150, 50), (200, 100), (200, 0)] {
+            let r = reward(
+                &json!({"checked_in":false,"credits":credits,"extra_credits":extra}),
+                &c,
+            );
+            assert_eq!(r.amount, Some(credits as f64));
+        }
+        assert_eq!(reward(&json!({"extra_credits":100}), &c).amount, None);
         let (p, _) = parse_packs(&json!({"user_entitlement_pack_list":[]}));
         assert!(p.is_empty());
+    }
+    #[test]
+    fn checkin_requires_account_confirmation_and_respects_device_limits() {
+        let mut c = empty_credentials();
+        c.device_id = Some("test-device".into());
+        for (value, expected) in [
+            (json!({"enable":true,"checked_in":false,"did_checked_in":false}), "claimable"),
+            (json!({"enable":true,"checked_in":false,"did_checked_in":true}), "unavailable"),
+            (json!({"enable":true,"did_checked_in":true}), "unavailable"),
+            (json!({"checked_in":true,"did_checked_in":true}), "claimed"),
+            (json!({"checked_in":true,"did_checked_in":false}), "claimed"),
+            (json!({"enable":false,"checked_in":false}), "unavailable"),
+            (json!({"enable":true}), "unknown"),
+        ] {
+            assert_eq!(reward(&value, &c).status, expected, "{value}");
+        }
     }
     #[test]
     fn quota_units_are_separate() {
