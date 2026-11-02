@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release Version (e.g., 2.1.7)'
+        description: 'Release Version (e.g., 2.1.8)'
         required: true
-        default: '2.1.7'
+        default: '2.1.8'
       publish:
         description: 'Publish the release after building both platforms'
         type: boolean
@@ -452,6 +452,7 @@ jobs:
             - Specific upstream channel-rejection errors without automatic retries or account failover
             - Use the largest advertised context window, including Qoder context tier selection
             - Route TRAE CN check-in status and claims through the separate UG gateway
+            - Correct TRAE CN check-in amounts and distinguish account confirmation from device limits
             - Skill path validation, private caches, and desktop/OAuth hardening
 
             Full changelog: https://github.com/whyfail/AI-Toolkit/blob/main/CHANGELOG.md

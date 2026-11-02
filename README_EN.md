@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.1.7-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.1.8-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,11 +16,10 @@
 
 AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and a local model proxy**. The current version has six panels: Skills, MCP Servers, Credits & Proxy, Changelog, Settings, and About, with local installation detection and configuration adapters for 25 AI programming tools.
 
-## 🆕 What's New in v2.1.7
+## 🆕 What's New in v2.1.8
 
-- **Proxy error details**: Expand recent requests to inspect HTTP status, failure stage, upstream error codes, and request IDs, correlating client errors with local history without storing raw error bodies or credentials.
-- **Tool definition preflight**: Both proxy protocols check duplicate tool names, explicit tool selection, and common JSON Schema structures before forwarding. Invalid definitions return HTTP 400 with the original protocol field path; valid definitions are preserved.
-- **Stream error correlation**: JSON errors and SSE error events support bounded diagnostics and proxy request IDs. Failures after output begins remain terminal and are never retried. See [Credits & Model Proxy](docs/credits-proxy.md).
+- **TRAE CN check-in amounts**: Show the reward amount returned by the platform without adding the membership bonus hint a second time. Missing amounts remain unknown.
+- **TRAE CN check-in status**: Distinguish account confirmation from device limits to avoid false success reports. Repeating a check-in for an already confirmed account does not submit another claim or count another reward. See [Credits & Model Proxy](docs/credits-proxy.md).
 
 See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/security-hardening.md) for security changes and validation scope.
 

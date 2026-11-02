@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.1.7-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.1.8-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,11 +16,10 @@
 
 AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MCP 服务器、Skills 技能、平台积分与本地模型代理**。当前版本提供 Skills 管理、MCP 服务器、积分与代理、更新日志、设置、关于六个面板，支持 25 种工具的本地安装检测与配置适配。
 
-## 🆕 v2.1.7 更新
+## 🆕 v2.1.8 更新
 
-- **代理错误详情**：展开最近请求中的诊断，查看 HTTP 状态、失败阶段、上游错误码与请求 ID，并关联客户端错误和本地记录；不保存原始错误正文或凭据。
-- **工具定义预检**：两种代理协议在转发前校验重复工具名、指定工具与常见 JSON Schema 结构，错误直接返回 HTTP 400 并指出原协议字段位置；合法定义保持原样。
-- **流式错误关联**：JSON 错误响应与 SSE 错误事件支持受限诊断和代理请求 ID，输出开始后的失败不重试，保留终止错误。详见 [积分与模型代理](docs/credits-proxy.md)。
+- **TRAE CN 签到金额**：按平台返回的奖励金额展示，不再重复叠加会员奖励提示；缺少金额时保持未知。
+- **TRAE CN 签到状态**：区分账号已签到与设备领取限制，避免误报领取成功；已签到账号重复操作不会再次提交或累计奖励。详见 [积分与模型代理](docs/credits-proxy.md)。
 
 完整变更见 [更新记录](CHANGELOG.md)，安全加固与验证边界见 [安全加固记录](docs/security-hardening.md)。
 
