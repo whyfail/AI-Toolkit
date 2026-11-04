@@ -16,12 +16,34 @@ impl Platform {
             Self::Qoder => "qoder",
         }
     }
+
+    pub fn route_key(self, region: CreditRegion) -> String {
+        match region {
+            CreditRegion::Cn => self.key().into(),
+            CreditRegion::Intl => format!("{}-intl", self.key()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum CreditRegion {
+    #[default]
+    Cn,
+    Intl,
+}
+impl CreditRegion {
+    pub fn key(self) -> &'static str {
+        match self { Self::Cn => "cn", Self::Intl => "intl" }
+    }
 }
 
 // Secrets are persisted only in the operating system credential store.
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Credentials {
+    #[serde(default)]
+    pub region: CreditRegion,
     pub access_token: String,
     #[serde(default)]
     pub refresh_token: Option<String>,
@@ -38,11 +60,14 @@ pub struct Credentials {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreditPack {
+    #[serde(default = "credits_unit")]
+    pub unit: String,
     pub id: String,
     pub name: String,
     pub remaining: Option<f64>,
     pub expires_at: Option<i64>,
 }
+fn credits_unit() -> String { "credits".into() }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,7 +84,7 @@ pub struct ModelInfo {
     pub canonical_id: Option<String>,
     pub supports_tools: bool,
     pub context_window: Option<u64>,
-    /// Selectable context tiers advertised by the channel. The proxy uses the largest.
+    /// Context tiers advertised by the channel; context_window is the active selection.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_window_options: Vec<u64>,
     #[serde(default)]
@@ -121,6 +146,8 @@ pub struct SnapshotSync {
 pub struct Account {
     pub id: String,
     pub platform: Platform,
+    #[serde(default)]
+    pub region: CreditRegion,
     pub user_id: String,
     pub label: String,
     pub enabled: bool,
@@ -186,6 +213,8 @@ pub struct RequestSummary {
     pub id: String,
     pub account_id: String,
     pub platform: Platform,
+    #[serde(default)]
+    pub region: CreditRegion,
     pub model: String,
     pub elapsed_ms: u64,
     pub input_tokens: Option<u64>,

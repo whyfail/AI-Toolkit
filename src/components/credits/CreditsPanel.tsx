@@ -13,12 +13,12 @@ import { ModelInfoPopover } from "./ModelInfoPopover";
 import { creditsQueryKey, useCreditsAction, useCreditsDashboard } from "@/hooks/useCredits";
 import {
   creditsApi, type CreditAccount, type CreditDashboard,
-  type CreditModel, type CreditPlatform, type OAuthStart, type RewardOutcome,
+  type CreditModel, type CreditPlatform, type CreditRegion, type OAuthStart, type RewardOutcome,
 } from "@/lib/api/credits";
 
 const platforms: Array<{ id: CreditPlatform; name: string }> = [
   { id: "workbuddy", name: "WorkBuddy" },
-  { id: "traework", name: "TRAE CN" },
+  { id: "traework", name: "TRAE" },
   { id: "qoder", name: "Qoder" },
 ];
 const sections = [
@@ -27,6 +27,9 @@ const sections = [
 ] as const;
 type PanelTab = typeof sections[number]["id"];
 const platformName = (platform: CreditPlatform) => platforms.find((item) => item.id === platform)?.name ?? platform;
+const regionName = (region?: CreditRegion) => region === "intl" ? "国际版" : "国内版";
+const unitName = (unit?: string) => ({ credits: "积分", usd: "USD", requests: "次", mixed: "分项额度", unknown: "单位未知" })[unit ?? "credits"] ?? unit;
+const amount = (value: number, unit?: string) => new Intl.NumberFormat("zh-CN", { maximumFractionDigits: unit?.toLowerCase() === "usd" ? 6 : 2 }).format(value);
 const number = (value: number) => new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(value);
 const time = (value?: number | null) => value ? new Date(value).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "尚未同步";
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -102,7 +105,7 @@ interface ModelRowProps extends ModelEntry {
 
 function ModelRow({ account, model, infoId, onPreview, onToggle, onLeave, onBlur }: ModelRowProps) {
   const row = useRef<HTMLDivElement>(null);
-  const id = `${account.platform}/${model.id}`;
+  const id = `${account.platform}${account.region === "intl" ? "-intl" : ""}/${model.id}`;
   return <div ref={row} className={`rounded-xl px-3 py-2.5 transition-colors ${infoId ? "bg-blue-500/10" : "bg-slate-500/5 hover:bg-slate-500/10"}`}
     onPointerEnter={(event) => onPreview({ account, model }, event.currentTarget)} onPointerLeave={onLeave} onBlur={onBlur}>
     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -166,6 +169,8 @@ function AccountCard({ account, onDelete, refreshing = false }: { account: Credi
   const claim = useCreditsAction(() => creditsApi.claim(account.id));
   const toggle = useCreditsAction((enabled: boolean) => creditsApi.setAccountEnabled(account.id, enabled));
   const snapshot = account.snapshot;
+  const automaticReward = account.platform === "workbuddy" && account.region === "intl";
+  const noDailyReward = account.platform === "traework" && account.region === "intl";
   const models = accountModels(account);
   const credits = snapshot?.rewards.filter((reward) => isCredits(reward.kind)) ?? [];
   const activities = snapshot?.rewards.filter((reward) => reward.kind === "activity") ?? [];
@@ -174,26 +179,27 @@ function AccountCard({ account, onDelete, refreshing = false }: { account: Credi
   const [showingModels, setShowingModels] = useState(false);
   return <article className={`glass-card min-w-0 p-5 ${account.enabled ? "" : "opacity-70"}`}>
     <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0"><h3 className="truncate text-sm font-semibold">{account.label || platformName(account.platform)}</h3><p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{platformName(account.platform)} · {account.userId || "账户"}</p></div>
+      <div className="min-w-0"><h3 className="truncate text-sm font-semibold">{account.label || platformName(account.platform)}</h3><p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{platformName(account.platform)} · {regionName(account.region)} · {account.userId || "账户"}</p></div>
       <Pressable type="button" className="glass-icon-button shrink-0" aria-label={`移除账户 ${account.label}`} onClick={onDelete} disabled={busy}><Trash2 size={14} /></Pressable>
     </div>
     <div className="mt-5 flex items-end justify-between gap-2">
-      <div><p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">剩余额度</p><p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">{snapshot?.balance != null ? number(snapshot.balance) : "—"}<span className="ml-2 text-xs font-normal text-slate-500 dark:text-slate-400">{snapshot?.unit === "credits" ? "积分" : snapshot?.unit ?? "积分"}</span></p></div>
+      <div><p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">剩余额度</p><p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">{snapshot?.balance != null ? amount(snapshot.balance, snapshot.unit) : "—"}<span className="ml-2 text-xs font-normal text-slate-500 dark:text-slate-400">{unitName(snapshot?.unit)}</span></p></div>
       <Badge success={account.enabled && ["active", "ready", "connected", "authenticated"].includes(account.status)}>{!account.enabled ? "已停用" : labels[account.status] ?? account.status}</Badge>
     </div>
     <p role="status" className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">{refreshing || refresh.isPending ? "同步中 · " : ""}{snapshot?.fetchedAt ? `上次成功同步 ${time(snapshot.fetchedAt)}` : "余额待同步"}{snapshot?.stale ? account.lastError ? " · 同步失败，显示历史余额" : " · 余额待更新" : ""}{snapshot?.quota ? ` · ${snapshot.quota}` : ""}</p>
     {account.lastError || snapshot?.diagnostic ? <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:text-amber-200">{account.lastError || snapshot?.diagnostic}</p> : null}
     <div className="mt-4 flex flex-wrap gap-2">
-      <Pressable type="button" className="glass-primary-button min-h-8 px-3 py-2 text-xs" disabled={busy || !isClaimable(account)} onClick={() => claim.mutate(undefined, { onSuccess: reportClaims })}>{claim.isPending ? <Loader2 size={13} className="animate-spin" /> : <Coins size={13} />}领取积分</Pressable>
+      {!automaticReward && !noDailyReward ? <Pressable type="button" className="glass-primary-button min-h-8 px-3 py-2 text-xs" disabled={busy || !isClaimable(account)} onClick={() => claim.mutate(undefined, { onSuccess: reportClaims })}>{claim.isPending ? <Loader2 size={13} className="animate-spin" /> : <Coins size={13} />}领取积分</Pressable> : null}
       <Pressable type="button" className="glass-secondary-button min-h-8 px-3 py-2 text-xs" disabled={busy} onClick={() => refresh.mutate(undefined)}><RefreshCw size={13} className={refresh.isPending || refreshing ? "animate-spin" : ""} />刷新</Pressable>
       <Pressable type="button" className="glass-secondary-button min-h-8 px-3 py-2 text-xs" disabled={busy} onClick={() => toggle.mutate(!account.enabled)}>{account.enabled ? "停用" : "启用"}</Pressable>
     </div>
     <div className="mt-4 border-t border-slate-500/10 pt-4">
-      <p className="mb-2 text-xs font-medium">积分领取</p>
-      {credits.length ? <div className="space-y-2">{credits.map((reward) => <div key={reward.id} className="flex items-start justify-between gap-3 text-xs"><span className="min-w-0 flex-1 break-words">{reward.name}{reward.amount != null ? ` · ${number(reward.amount)}` : ""}</span><span className="shrink-0 whitespace-nowrap text-slate-500 dark:text-slate-400">{labels[reward.status] ?? reward.status}</span></div>)}</div> : <p className="text-xs text-slate-500 dark:text-slate-400">{snapshot ? "当前没有可领取的积分任务。" : "刷新后查看领取资格。"}</p>}
+      <p className="mb-2 text-xs font-medium">{automaticReward ? "奖励发放" : "积分领取"}</p>
+      {credits.length ? <div className="space-y-2">{credits.map((reward) => <div key={reward.id} className="flex items-start justify-between gap-3 text-xs"><span className="min-w-0 flex-1 break-words">{reward.name}{reward.amount != null ? ` · ${number(reward.amount)}` : ""}</span><span className="shrink-0 whitespace-nowrap text-slate-500 dark:text-slate-400">{labels[reward.status] ?? reward.status}</span></div>)}</div> : <p className="text-xs text-slate-500 dark:text-slate-400">{automaticReward ? "符合条件的活跃奖励由平台自动发放，无需手动领取。" : noDailyReward ? "国际版未提供每日签到任务。" : snapshot ? "当前没有可领取的积分任务。" : "刷新后查看领取资格。"}</p>}
       {account.platform !== "qoder" && activities.length ? <div className="mt-3 rounded-lg bg-sky-500/5 p-2.5"><p className="mb-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">平台活动</p>{activities.map((reward) => <div key={reward.id} className="flex flex-wrap items-center justify-between gap-1 py-0.5"><span className="min-w-0 flex-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">{reward.name} · {labels[reward.status] ?? reward.status}</span>{reward.actionUrl ? <Pressable type="button" className="glass-secondary-button min-h-6 shrink-0 px-2 py-0.5 text-[11px]" onClick={() => void open(reward.actionUrl!).catch(() => toast.error("无法打开活动页"))}>活动详情<ExternalLink size={11} /></Pressable> : null}</div>)}</div> : null}
       {account.platform !== "qoder" && otherRewards.length ? <div className="mt-3 rounded-lg bg-slate-500/5 p-2.5"><p className="mb-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">优惠券及其他奖励</p>{otherRewards.map((reward) => <div key={reward.id} className="flex flex-wrap items-center justify-between gap-1 py-0.5"><span className="min-w-0 flex-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">{reward.name} · {labels[reward.status] ?? reward.status}</span>{reward.actionUrl ? <Pressable type="button" className="glass-secondary-button min-h-6 shrink-0 px-2 py-0.5 text-[11px]" onClick={() => void open(reward.actionUrl!).catch(() => toast.error("无法打开活动页"))}>打开活动页<ExternalLink size={11} /></Pressable> : null}</div>)}</div> : null}
     </div>
+    {account.region === "intl" && snapshot?.packs.length ? <div className="mt-4 space-y-2 border-t border-slate-500/10 pt-3" aria-label="额度明细">{snapshot.packs.map((pack) => <div key={pack.id} className="flex justify-between gap-3 text-xs"><span className="min-w-0 break-words text-slate-500 dark:text-slate-400">{pack.name}</span><span className="shrink-0 tabular-nums">{pack.remaining == null ? "未知" : amount(pack.remaining, pack.unit ?? snapshot.unit)} {unitName(pack.unit ?? snapshot.unit)}</span></div>)}</div> : null}
     <div className="mt-4 border-t border-slate-500/10 pt-3"><Pressable type="button" className="glass-secondary-button min-h-8 px-3 py-2 text-xs" onClick={() => setShowingModels(true)}>可用模型 · {models.length}</Pressable></div>
     {showingModels ? <ModelsModal title="可用模型" groups={[{ title: account.label || platformName(account.platform), entries: models.map((model) => ({ account, model })) }]} onClose={() => setShowingModels(false)} /> : null}
   </article>;
@@ -209,7 +215,7 @@ function AccountStack({ accounts, onDelete, refreshingAccountIds = [] }: { accou
       const depth = active ? 0 : index < selectedIndex ? index + 1 : index;
       const name = account.label || platformName(account.platform);
       const balance = account.snapshot?.balance;
-      const unit = account.snapshot?.unit === "credits" ? "积分" : account.snapshot?.unit ?? "积分";
+      const unit = unitName(account.snapshot?.unit);
       return <div
         key={account.id}
         className="relative grid min-w-0 origin-top transition-transform duration-300 ease-[var(--motion-spring)] motion-reduce:transition-none [grid-area:1/1]"
@@ -236,8 +242,8 @@ function AccountStack({ accounts, onDelete, refreshingAccountIds = [] }: { accou
           }}
           className="absolute inset-x-0 top-0 flex h-14 items-start gap-2 rounded-[var(--radius-card,12px)] border border-slate-200/80 bg-slate-100 px-4 pt-3 text-left text-xs text-slate-600 transition-colors hover:bg-slate-200/80 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
         >
-          <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
-          <span className="shrink-0 text-[11px] tabular-nums text-slate-500 dark:text-slate-400">{!account.enabled ? "已停用" : balance != null ? `${number(balance)} ${unit}` : "切换账户"}</span>
+          <span className="min-w-0 flex-1 truncate font-medium">{name} · {regionName(account.region)}</span>
+          <span className="shrink-0 text-[11px] tabular-nums text-slate-500 dark:text-slate-400">{!account.enabled ? "已停用" : balance != null ? `${amount(balance, account.snapshot?.unit)} ${unit}` : "切换账户"}</span>
           <ArrowUpRight size={13} className="mt-0.5 shrink-0 text-slate-400" aria-hidden="true" />
         </Pressable> : null}
       </div>;
@@ -256,6 +262,7 @@ function reportClaims(results: RewardOutcome[]) {
 
 function AddAccountModal({ platform: initialPlatform, onClose }: { platform: CreditPlatform; onClose: () => void }) {
   const [platform, setPlatform] = useState<CreditPlatform>(initialPlatform);
+  const [region, setRegion] = useState<CreditRegion>("cn");
   const [flow, setFlow] = useState<OAuthStart | null>(null);
   const [flowError, setFlowError] = useState("");
   const [importError, setImportError] = useState("");
@@ -267,7 +274,7 @@ function AddAccountModal({ platform: initialPlatform, onClose }: { platform: Cre
     setImporting(true);
     setImportError("");
     try {
-      const account = await creditsApi.importLocal(platform);
+      const account = await creditsApi.importLocal(platform, region);
       await queryClient.invalidateQueries({ queryKey: creditsQueryKey });
       if (account.status !== "ready") {
         setImportError(`账户已保存，但积分同步失败：${account.lastError || account.snapshot?.diagnostic || "平台暂未返回可用积分信息"}`);
@@ -309,7 +316,7 @@ function AddAccountModal({ platform: initialPlatform, onClose }: { platform: Cre
   const login = async () => {
     setAuthorizing(true); setFlowError("");
     try {
-      const result = await creditsApi.oauthStart(platform);
+      const result = await creditsApi.oauthStart(platform, region);
       await open(result.authorizationUrl);
       setFlow(result);
     } catch (error) { setFlowError(errorMessage(error)); }
@@ -339,8 +346,10 @@ function AddAccountModal({ platform: initialPlatform, onClose }: { platform: Cre
           })}
         </div>
       </fieldset>
-      <div className="rounded-xl bg-blue-500/5 p-4"><p className="text-sm font-medium">在浏览器中完成授权</p><p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">授权完成后自动连接账户。</p>{flow ? <div className="mt-4 flex flex-wrap items-center gap-3"><Loader2 size={16} className="animate-spin text-blue-500" /><span className="text-xs">等待授权 · {time(flow.expiresAt)} 到期</span><Pressable type="button" className="glass-secondary-button min-h-7 px-2 py-1 text-xs" onClick={() => { setFlow(null); setFlowError(""); }}>取消</Pressable></div> : <Pressable type="button" className="glass-primary-button mt-4 text-xs" onClick={() => void login()} disabled={authorizing}>{authorizing ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}前往 {platformName(platform)} 登录</Pressable>}{flowError ? <p role="alert" className="mt-3 break-words text-xs text-amber-700 dark:text-amber-200">{flowError}</p> : null}</div>
-      {platform === "traework" ? <div className="rounded-xl bg-blue-500/5 p-4"><p className="text-sm font-medium">从本机 TRAE CN 应用一键导入</p><p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">优先读取本机 TRAE CN 桌面登录信息，兼容 CLI 凭据；无需复制 Token。</p><Pressable type="button" className="glass-secondary-button mt-4 text-xs" disabled={importing || authorizing} onClick={() => void importLocal()}>{importing ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}一键导入本机凭据</Pressable>{importError ? <p role="alert" className="mt-3 break-words text-xs text-amber-700 dark:text-amber-200">{importError}</p> : null}</div> : null}
+      <fieldset><legend className="mb-2 text-xs font-medium">账号区域</legend><div className="flex gap-2">{(["cn", "intl"] as const).map((value) => <Pressable key={value} type="button" aria-pressed={region === value} disabled={Boolean(flow) || authorizing || importing} className={region === value ? "glass-primary-button text-xs" : "glass-secondary-button text-xs"} onClick={() => { setRegion(value); setFlowError(""); setImportError(""); }}>{regionName(value)}</Pressable>)}</div></fieldset>
+      {platform === "traework" && region === "intl" ? <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">国际版支持身份与额度查询；模型目录和代理待新版协议验证后开放。</p> : null}
+      <div className="rounded-xl bg-blue-500/5 p-4"><p className="text-sm font-medium">在浏览器中完成授权</p><p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">授权完成后自动连接账户。</p>{flow ? <div className="mt-4 flex flex-wrap items-center gap-3"><Loader2 size={16} className="animate-spin text-blue-500" /><span className="text-xs">等待授权 · {time(flow.expiresAt)} 到期</span><Pressable type="button" className="glass-secondary-button min-h-7 px-2 py-1 text-xs" onClick={() => { setFlow(null); setFlowError(""); }}>取消</Pressable></div> : <Pressable type="button" className="glass-primary-button mt-4 text-xs" onClick={() => void login()} disabled={authorizing}>{authorizing ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}前往 {platformName(platform)} {regionName(region)} 登录</Pressable>}{flowError ? <p role="alert" className="mt-3 break-words text-xs text-amber-700 dark:text-amber-200">{flowError}</p> : null}</div>
+      {platform === "traework" ? <div className="rounded-xl bg-blue-500/5 p-4"><p className="text-sm font-medium">从本机 TRAE {regionName(region)} 应用一键导入</p><p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">读取本机 TRAE {regionName(region)}桌面登录信息{region === "cn" ? "，兼容国内 CLI 凭据" : ""}；无需复制 Token。</p><Pressable type="button" className="glass-secondary-button mt-4 text-xs" disabled={importing || authorizing} onClick={() => void importLocal()}>{importing ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}一键导入本机凭据</Pressable>{importError ? <p role="alert" className="mt-3 break-words text-xs text-amber-700 dark:text-amber-200">{importError}</p> : null}</div> : null}
     </div>
   </Modal>;
 }
@@ -384,7 +393,7 @@ function ProxyView({ data }: { data: CreditDashboard }) {
   const models = availableModels(data);
   const [showingCatalog, setShowingCatalog] = useState(false);
   const catalogGroups: ModelGroup[] = platforms
-    .map((platform) => ({ title: platform.name, entries: models.filter(({ account }) => account.platform === platform.id) }))
+    .flatMap((platform) => (["cn", "intl"] as const).map((region) => ({ title: `${platform.name} · ${regionName(region)}`, entries: models.filter(({ account }) => account.platform === platform.id && (account.region ?? "cn") === region) })))
     .filter((group) => group.entries.length);
   return <div className="space-y-5">
     <section className="glass-card p-6"><div className="flex flex-wrap items-center justify-between gap-4"><div className="flex items-center gap-3"><span className={`flex h-11 w-11 items-center justify-center rounded-xl ${data.gateway.running ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300" : "bg-slate-500/10 text-slate-500"}`}><Server size={22} /></span><div><h2 className="text-base font-semibold">本地模型代理</h2><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{data.gateway.running ? "正在运行 · 关闭窗口后继续运行" : "已停止 · 手动开启后供其他工具使用"}</p></div></div><Pressable type="button" className={data.gateway.running ? "glass-secondary-button text-sm" : "glass-primary-button text-sm"} disabled={start.isPending || stop.isPending} onClick={() => data.gateway.running ? stop.mutate(undefined) : start.mutate(undefined)}>{start.isPending || stop.isPending ? <Loader2 size={15} className="animate-spin" /> : <Power size={15} />}{data.gateway.running ? "停止代理" : "一键开启代理"}</Pressable></div>
@@ -395,8 +404,8 @@ function ProxyView({ data }: { data: CreditDashboard }) {
       <div className="mt-5 grid gap-5 md:grid-cols-2"><div className="space-y-2"><p className="text-xs font-medium text-slate-500 dark:text-slate-400">协议</p><div className="glass-code space-y-2 rounded-xl px-3 py-2.5 text-xs"><p>OpenAI Chat Completions <code className="block break-all text-[11px] text-slate-500 dark:text-slate-400">/v1/chat/completions</code></p><p>Anthropic Messages <code className="block break-all text-[11px] text-slate-500 dark:text-slate-400">/v1/messages</code></p></div><p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">两种协议使用同一 Base URL，在客户端选择对应协议。</p></div><div className="space-y-2"><p className="text-xs font-medium text-slate-500 dark:text-slate-400">API Key</p><div className="glass-code flex min-h-[44px] items-center justify-between gap-3 rounded-xl px-3 py-2.5"><span className="text-xs text-slate-500 dark:text-slate-400">使用本地代理密钥</span><CopyProxyKey /></div></div></div>
       <div className="mt-4 flex flex-wrap gap-2"><Pressable type="button" className="glass-secondary-button text-xs" disabled={!data.gateway.running || probe.isPending} onClick={() => probe.mutate(undefined, { onSuccess: (message) => toast.success(message) })}>{probe.isPending ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}检测连接</Pressable></div>
     </section>
-    <section className="glass-card p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0"><h2 className="text-sm font-semibold">目录模型 ID</h2><p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">平台模型 ID 来自已连接账户的目录，可以指定对应平台调用；上游推理的可用性以实际请求结果为准。</p></div><Pressable type="button" className="glass-secondary-button shrink-0 text-xs" onClick={() => setShowingCatalog(true)}>查看模型 · {models.length}</Pressable></div><p className="mt-4 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">带平台前缀的 ID 指定对应平台，弹窗内按应用分组展示，可逐个复制。</p>{showingCatalog ? <ModelsModal title="目录模型 ID" groups={catalogGroups} onClose={() => setShowingCatalog(false)} /> : null}</section>
-    <section className="glass-card p-6"><h2 className="text-sm font-semibold">最近请求</h2>{data.requests.length ? <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs"><thead className="text-[11px] text-slate-500 dark:text-slate-400"><tr><th className="py-2 pr-4 font-medium">模型 / 平台</th><th className="py-2 pr-4 font-medium">耗时</th><th className="py-2 pr-4 font-medium">Tokens 输入 / 输出</th><th className="py-2 pr-4 font-medium">状态</th><th className="py-2 font-medium">时间</th></tr></thead><tbody>{data.requests.slice(0, 15).map((request) => <tr key={request.id} className="border-t border-slate-500/10"><td className="max-w-[260px] py-3 pr-4"><p className="break-all font-medium">{request.model}</p><p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{platformName(request.platform)} · {data.accounts.find((account) => account.id === request.accountId)?.label || request.accountId}</p></td><td className="whitespace-nowrap py-3 pr-4 tabular-nums">{number(request.elapsedMs)} ms</td><td className="whitespace-nowrap py-3 pr-4 tabular-nums">{request.inputTokens == null ? "—" : number(request.inputTokens)} / {request.outputTokens == null ? "—" : number(request.outputTokens)}</td><td className="py-3 pr-4"><Badge success={["success", "completed"].includes(request.status)}>{labels[request.status] ?? request.status}</Badge>{request.diagnostic ? <details className="mt-2 min-w-[180px] max-w-[340px] text-[11px]"><summary className="cursor-pointer text-blue-600 dark:text-blue-300">错误详情</summary><p className="mt-2 break-words leading-relaxed text-slate-600 dark:text-slate-300">{request.diagnostic.message}</p><p className="mt-2 break-all text-slate-500 dark:text-slate-400">代理请求 ID：{request.id}</p></details> : null}</td><td className="whitespace-nowrap py-3 text-[11px] text-slate-500 dark:text-slate-400">{time(request.createdAt)}</td></tr>)}</tbody></table></div> : <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">开启代理并从客户端调用后，显示平台、耗时和用量。</p>}</section>
+    <section className="glass-card p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0"><h2 className="text-sm font-semibold">目录模型 ID</h2><p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">平台模型 ID 来自已连接账户的目录，可以指定对应平台调用；上游推理的可用性以实际请求结果为准。</p></div><Pressable type="button" className="glass-secondary-button shrink-0 text-xs" onClick={() => setShowingCatalog(true)}>查看模型 · {models.length}</Pressable></div><p className="mt-4 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">模型 ID 固定平台与区域，国际版使用 -intl 前缀；失败不会切换到国内账号。</p>{showingCatalog ? <ModelsModal title="目录模型 ID" groups={catalogGroups} onClose={() => setShowingCatalog(false)} /> : null}</section>
+    <section className="glass-card p-6"><h2 className="text-sm font-semibold">最近请求</h2>{data.requests.length ? <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs"><thead className="text-[11px] text-slate-500 dark:text-slate-400"><tr><th className="py-2 pr-4 font-medium">模型 / 平台</th><th className="py-2 pr-4 font-medium">耗时</th><th className="py-2 pr-4 font-medium">Tokens 输入 / 输出</th><th className="py-2 pr-4 font-medium">状态</th><th className="py-2 font-medium">时间</th></tr></thead><tbody>{data.requests.slice(0, 15).map((request) => <tr key={request.id} className="border-t border-slate-500/10"><td className="max-w-[260px] py-3 pr-4"><p className="break-all font-medium">{request.model}</p><p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{platformName(request.platform)} · {regionName(request.region)} · {data.accounts.find((account) => account.id === request.accountId)?.label || request.accountId}</p></td><td className="whitespace-nowrap py-3 pr-4 tabular-nums">{number(request.elapsedMs)} ms</td><td className="whitespace-nowrap py-3 pr-4 tabular-nums">{request.inputTokens == null ? "—" : number(request.inputTokens)} / {request.outputTokens == null ? "—" : number(request.outputTokens)}</td><td className="py-3 pr-4"><Badge success={["success", "completed"].includes(request.status)}>{labels[request.status] ?? request.status}</Badge>{request.diagnostic ? <details className="mt-2 min-w-[180px] max-w-[340px] text-[11px]"><summary className="cursor-pointer text-blue-600 dark:text-blue-300">错误详情</summary><p className="mt-2 break-words leading-relaxed text-slate-600 dark:text-slate-300">{request.diagnostic.message}</p><p className="mt-2 break-all text-slate-500 dark:text-slate-400">代理请求 ID：{request.id}</p></details> : null}</td><td className="whitespace-nowrap py-3 text-[11px] text-slate-500 dark:text-slate-400">{time(request.createdAt)}</td></tr>)}</tbody></table></div> : <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">开启代理并从客户端调用后，显示平台、耗时和用量。</p>}</section>
   </div>;
 }
 

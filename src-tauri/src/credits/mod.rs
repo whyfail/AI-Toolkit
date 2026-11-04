@@ -104,7 +104,12 @@ impl CreditManager {
             .secrets
             .get(&account.id)?
             .ok_or_else(|| "账号凭据不存在，请重新授权".to_string())?;
-        serde_json::from_str(&raw).map_err(|_| "账号凭据格式无效，请重新授权".into())
+        let credentials: Credentials = serde_json::from_str(&raw)
+            .map_err(|_| "账号凭据格式无效，请重新授权".to_string())?;
+        if credentials.region != account.region {
+            return Err("账号与凭据区域不一致，请重新授权".into());
+        }
+        Ok(credentials)
     }
     fn save_credentials(&self, id: &str, credentials: &Credentials) -> Result<(), String> {
         self.secrets.set(
@@ -163,6 +168,9 @@ impl CreditManager {
                     if matches!(error.status, 401 | 403) { error.pause_auto = true; }
                     error
                 })?;
+            if refreshed.region != account.region {
+                return Err(providers::ProviderError::new(502, "平台刷新返回了不匹配的账号区域"));
+            }
             self.save_credentials(&account.id, &refreshed)
                 .map_err(|message| {
                     let mut error = providers::ProviderError::new(500, message);
@@ -184,6 +192,7 @@ impl CreditManager {
         if credentials.access_token.trim().is_empty() || credentials.access_token.len() > 65536 {
             return Err("请输入有效的账号凭据".into());
         }
+        let requested_region = credentials.region;
         let authentication = self.provider.authenticate(platform, &credentials).await;
         let (user_id, default_label, credentials) = match authentication {
             Err(error)
@@ -205,10 +214,13 @@ impl CreditManager {
             result => result.map_err(|error| error.message)?,
         };
         let _import = self.import_gate.lock().await;
+        if credentials.region != requested_region {
+            return Err("平台认证返回了不匹配的账号区域".into());
+        }
         let existing = self
             .accounts()?
             .into_iter()
-            .find(|a| a.platform == platform && a.user_id == user_id);
+            .find(|a| a.platform == platform && a.region == credentials.region && a.user_id == user_id);
         let id = existing
             .as_ref()
             .map(|a| a.id.clone())
@@ -220,6 +232,7 @@ impl CreditManager {
         let account = Account {
             id: id.clone(),
             platform,
+            region: credentials.region,
             user_id,
             label: if label.trim().is_empty() {
                 default_label
@@ -510,6 +523,7 @@ mod tests {
         Account {
             id: id.into(),
             platform: Platform::Workbuddy,
+            region: CreditRegion::Cn,
             user_id: "test-user".into(),
             label: "test".into(),
             enabled: true,
@@ -564,6 +578,7 @@ mod tests {
             .save_credentials(
                 &account.id,
                 &Credentials {
+            region: CreditRegion::Cn,
                     access_token: "synthetic-expired-token".into(),
                     refresh_token: None,
                     user_id: None,
@@ -688,6 +703,7 @@ mod tests {
         let account = Account {
             id: "restore-test".into(),
             platform: Platform::Qoder,
+            region: CreditRegion::Cn,
             user_id: "test".into(),
             label: "test".into(),
             enabled: true,

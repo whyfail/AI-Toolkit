@@ -1,0 +1,68 @@
+{
+  "provenance": {
+    "synthetic": true,
+    "description": "Synthetic billing amounts from official international 3.6.13 billing field contracts. This fixture contains no model or chat protocol sample.",
+    "version": "3.6.13",
+    "build": "2.3.99397",
+    "source": "https://icube-normal.trae.ai/icube/api/v1/native/version/trae/latest",
+    "protocolCapture": "catalog and tool-loop responses captured separately; authentication headers and request bodies remain unverified"
+  },
+  "dollars": {
+    "is_dollar_usage_billing": true,
+    "user_entitlement_pack_list": [
+      {
+        "entitlement_base_info": {
+          "id": "basic",
+          "quota": {
+            "basic_usage_limit": 20.0,
+            "bonus_usage_limit": 5.0
+          },
+          "end_time": 4102444800
+        },
+        "usage": {
+          "basic_usage_amount": 2.125,
+          "bonus_usage_amount": 1.25
+        }
+      },
+      {
+        "entitlement_base_info": {
+          "id": "unknown",
+          "quota": {
+            "basic_usage_limit": 3.0
+          }
+        },
+        "usage": {}
+      },
+      {
+        "entitlement_base_info": {
+          "id": "disabled-bonus",
+          "quota": {
+            "basic_usage_limit": -1,
+            "bonus_usage_limit": 8,
+            "no_bonus_quota": true
+          }
+        },
+        "usage": {
+          "basic_usage_amount": 9
+        }
+      }
+    ]
+  },
+  "requests": {
+    "is_dollar_usage_billing": false,
+    "user_entitlement_pack_list": [
+      {
+        "entitlement_base_info": {
+          "quota": {
+            "premium_model_fast_request_limit": 600,
+            "basic_usage_limit": 20
+          }
+        },
+        "usage": {
+          "premium_model_fast_amount": 123,
+          "basic_usage_amount": 7
+        }
+      }
+    ]
+  }
+}

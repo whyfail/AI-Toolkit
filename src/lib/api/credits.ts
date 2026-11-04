@@ -1,8 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export type CreditPlatform = "workbuddy" | "traework" | "qoder";
+export type CreditRegion = "cn" | "intl";
 
 export interface Credentials {
+  region?: CreditRegion;
   accessToken: string;
   refreshToken?: string | null;
   userId?: string | null;
@@ -12,6 +14,7 @@ export interface Credentials {
 }
 
 export interface CreditPack {
+  unit?: string;
   id: string;
   name: string;
   remaining: number | null;
@@ -67,6 +70,7 @@ export interface CreditSnapshot {
 export interface CreditAccount {
   id: string;
   platform: CreditPlatform;
+  region: CreditRegion;
   userId: string;
   label: string;
   enabled: boolean;
@@ -103,6 +107,7 @@ export interface ProxyRequest {
   id: string;
   accountId: string;
   platform: CreditPlatform;
+  region: CreditRegion;
   model: string;
   elapsedMs: number;
   inputTokens: number | null;
@@ -142,8 +147,8 @@ export const creditsApi = {
   dashboard: () => invoke<CreditDashboard>("credits_dashboard"),
   setViewActive: (active: boolean) => invoke<void>("credits_set_view_active", { active }),
   networkRestored: () => invoke<void>("credits_network_restored"),
-  importLocal: (platform: CreditPlatform) =>
-    invoke<CreditAccount>("credits_import_local", { platform }),
+  importLocal: (platform: CreditPlatform, region: CreditRegion = "cn") =>
+    invoke<CreditAccount>("credits_import_local", { platform, region }),
   setAccountEnabled: (accountId: string, enabled: boolean) =>
     invoke<void>("credits_set_account_enabled", { accountId, enabled }),
   deleteAccount: (accountId: string) => invoke<void>("credits_delete_account", { accountId }),
@@ -157,6 +162,6 @@ export const creditsApi = {
   probeProxy: () => invoke<string>("credits_probe_proxy"),
   verifyModel: (accountId: string, modelId: string) =>
     invoke<CreditModel>("credits_verify_model", { accountId, modelId }),
-  oauthStart: (platform: CreditPlatform) => invoke<OAuthStart>("credits_oauth_start", { platform }),
+  oauthStart: (platform: CreditPlatform, region: CreditRegion = "cn") => invoke<OAuthStart>("credits_oauth_start", { platform, region }),
   oauthPoll: (flowId: string) => invoke<OAuthResult>("credits_oauth_poll", { flowId }),
 };

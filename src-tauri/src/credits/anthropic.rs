@@ -581,6 +581,11 @@ pub(super) fn response(
     guard: &RequestGuard,
 ) -> Result<Value, &'static str> {
     let mut content = Vec::new();
+    // OpenAI-shaped channels supply unsigned reasoning. An empty signature
+    // preserves its round trip through this adapter without forging a Claude proof.
+    if guard.expose_thinking && !completion.reasoning.is_empty() {
+        content.push(json!({"type":"thinking","thinking":completion.reasoning,"signature":""}));
+    }
     if !completion.content.is_empty() {
         content.push(json!({"type":"text","text":completion.content}));
     }
@@ -588,8 +593,7 @@ pub(super) fn response(
     if content.is_empty() {
         content.push(json!({"type":"text","text":""}));
     }
-    // reasoning_content is a provider extension, not an Anthropic signed thinking
-    // block. Ordinary Messages requests expose final text/tool outputs only.
+    // Ordinary Messages requests expose final text/tool outputs only.
     Ok(
         json!({"id":message_id(guard),"type":"message","role":"assistant","model":guard.model,"content":content,"stop_reason":stop_reason(&completion)?,"stop_sequence":null,"usage":usage(&completion)}),
     )
@@ -598,11 +602,18 @@ pub(super) fn response(
 #[derive(Default)]
 pub(super) struct MessageStream {
     completion: Completion,
+    expose_thinking: bool,
+    thinking_started: bool,
+    thinking_stopped: bool,
     text_started: bool,
     received_bytes: usize,
 }
 
 impl MessageStream {
+    pub(super) fn new(expose_thinking: bool) -> Self {
+        Self { expose_thinking, ..Self::default() }
+    }
+
     pub(super) fn start(&self, guard: &RequestGuard) -> String {
         event(
             json!({"type":"message_start","message":{"id":message_id(guard),"type":"message","role":"assistant","model":guard.model,"content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}),
@@ -620,25 +631,45 @@ impl MessageStream {
             .as_array()
             .and_then(|choices| choices.first())
             .and_then(|choice| choice.get("delta").or_else(|| choice.get("message")));
+        if let Some(reasoning) = delta
+            .and_then(|delta| delta["reasoning_content"].as_str())
+            .filter(|text| self.expose_thinking && !text.is_empty())
+        {
+            if self.text_started || self.thinking_stopped {
+                return Err("上游思考内容出现在最终文本之后，无法转换为 Messages");
+            }
+            if !self.thinking_started {
+                self.thinking_started = true;
+                events.push(event(json!({"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}})));
+            }
+            events.push(event(json!({"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":reasoning}})));
+        }
         if let Some(text) = delta
             .and_then(|delta| delta["content"].as_str())
             .filter(|text| !text.is_empty())
         {
             if !self.text_started {
+                if self.thinking_started && !self.thinking_stopped {
+                    events.push(event(json!({"type":"content_block_stop","index":0})));
+                    self.thinking_stopped = true;
+                }
                 self.text_started = true;
-                events.push(event(json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}})));
+                events.push(event(json!({"type":"content_block_start","index":usize::from(self.thinking_started),"content_block":{"type":"text","text":""}})));
             }
-            events.push(event(json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":text}})));
+            events.push(event(json!({"type":"content_block_delta","index":usize::from(self.thinking_started),"delta":{"type":"text_delta","text":text}})));
         }
         Ok(events)
     }
 
     pub(super) fn finish(self) -> Result<Vec<String>, &'static str> {
         let mut events = Vec::new();
-        let mut index = 0;
-        if self.text_started {
+        let mut index = usize::from(self.thinking_started);
+        if self.thinking_started && !self.thinking_stopped {
             events.push(event(json!({"type":"content_block_stop","index":0})));
-            index = 1;
+        }
+        if self.text_started {
+            events.push(event(json!({"type":"content_block_stop","index":index})));
+            index += 1;
         }
         // Buffer tool metadata/JSON until complete: OpenAI may split the function
         // name, while Anthropic requires its final name in content_block_start.
@@ -841,6 +872,41 @@ mod tests {
             let converted = request(json!({"model":"test","max_tokens":32,"messages":[{"role":"user","content":"hello"}],"tools":[{"name":"read","input_schema":{"type":"object"}}],"tool_choice":{"type":kind}})).unwrap();
             assert_eq!(converted["tool_choice"], expected);
         }
+    }
+
+    #[test]
+    fn unsigned_thinking_stream_closes_blocks_in_order_before_text_and_tools() {
+        for with_text in [false, true] {
+            let mut stream = MessageStream::new(true);
+            let mut events = stream.push(&json!({"choices":[{"delta":{"reasoning_content":"checking"}}]})).unwrap();
+            if with_text {
+                events.extend(stream.push(&json!({"choices":[{"delta":{"content":"result"}}]})).unwrap());
+            }
+            events.extend(stream.push(&json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read","arguments":"{}"}}]},"finish_reason":"tool_calls"}]})).unwrap());
+            events.extend(stream.finish().unwrap());
+            let values: Vec<Value> = events.iter().map(|event| serde_json::from_str(event.lines().find_map(|line| line.strip_prefix("data: ")).unwrap()).unwrap()).collect();
+            let starts: Vec<_> = values.iter().filter(|v| v["type"] == "content_block_start").collect();
+            let stops: Vec<_> = values.iter().filter(|v| v["type"] == "content_block_stop").collect();
+            assert_eq!(starts[0]["content_block"]["type"], "thinking");
+            assert_eq!(starts[0]["content_block"]["signature"], "");
+            assert_eq!(starts.last().unwrap()["content_block"]["type"], "tool_use");
+            assert_eq!(starts.len(), 2 + usize::from(with_text));
+            assert_eq!(stops.len(), starts.len());
+            for (index, (start, stop)) in starts.iter().zip(stops).enumerate() {
+                assert_eq!(start["index"], index);
+                assert_eq!(stop["index"], index);
+            }
+            assert_eq!(values.last().unwrap()["type"], "message_stop");
+        }
+    }
+
+    #[test]
+    fn thinking_output_requires_opt_in_and_cannot_follow_final_text() {
+        let mut default = MessageStream::default();
+        assert!(default.push(&json!({"choices":[{"delta":{"reasoning_content":"private"}}]})).unwrap().is_empty());
+        let mut stream = MessageStream::new(true);
+        stream.push(&json!({"choices":[{"delta":{"content":"final"}}]})).unwrap();
+        assert!(stream.push(&json!({"choices":[{"delta":{"reasoning_content":"late"}}]})).is_err());
     }
 
     #[test]

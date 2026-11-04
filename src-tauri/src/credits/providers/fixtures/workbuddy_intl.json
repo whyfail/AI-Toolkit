@@ -1,0 +1,59 @@
+{
+  "provenance": {
+    "synthetic": true,
+    "description": "Invented identities and amounts using official public response field contracts; contains no captured account data.",
+    "productVersion": "WorkBuddy AI 5.9.4.42593613",
+    "productCommit": "fa0a0901906addaa1a4259f6df347388a5563ded",
+    "runtimeReference": "Official WorkBuddy 5.7.6 main/code-cache.js, main/tar.js and main/log-acl-guard.js",
+    "rewardPolicy": "https://www.codebuddy.ai/docs/workbuddy/Subscription"
+  },
+  "accounts": {
+    "code": 0,
+    "data": {
+      "accounts": [
+        { "uid": "fixture-user", "type": "personal", "nickname": "Fixture account" },
+        { "uid": "fixture-user", "type": "ultimate", "enterpriseId": "fixture-team", "nickname": "Fixture team" }
+      ]
+    }
+  },
+  "summary": {
+    "code": 0,
+    "data": {
+      "Packages": [
+        { "PackageCode": "fixture-pro", "CycleTotalCapacity": "3000.5", "CycleRemainCapacity": "2000.25", "CycleUsedCapacity": "1000.25" },
+        { "PackageCode": "fixture-bonus", "CycleTotalCapacity": 100, "CycleRemainCapacity": 50.5, "CycleUsedCapacity": 49.5 }
+      ],
+      "SubscriptionPackageCode": "fixture-pro",
+      "IsPaidUser": true
+    }
+  },
+  "paid": [
+    { "ResourceId": "fixture-paid", "PackageName": "Fixture monthly credits", "PackageCode": "fixture-pro", "CycleCapacitySizePrecise": "3000.5", "CycleCapacityRemainPrecise": "2000.25", "DeductionEndTime": "2099-01-31T00:00:00Z" }
+  ],
+  "free": [
+    { "ResourceId": "fixture-paid", "PackageName": "Duplicate fixture resource", "PackageCode": "fixture-pro", "CycleCapacityRemainPrecise": "2000.25" },
+    { "ResourceId": "fixture-daily", "PackageName": "Fixture daily credits", "PackageCode": "fixture-bonus", "CapacityType": 4, "CycleCapacityRemainPrecise": 99999, "SlicePeriodUsageDetails": [{ "SlicePeriodCapacitySizePrecise": 100, "SlicePeriodCapacityRemainPrecise": 50.5 }], "CycleEndTime": "2099-01-30T00:00:00Z" }
+  ],
+  "catalog": {
+    "code": 0,
+    "data": {
+      "agents": [{ "name": "cli", "models": ["gpt-fixture", "claude-fixture", "blocked-fixture"] }],
+      "models": [
+        { "id": "gpt-fixture", "name": "GPT fixture", "modelId": "gpt-fixture-version", "maxInputTokens": 120000, "maxOutputTokens": 32000, "supportsToolCall": true, "supportsImages": true, "supportsReasoning": true, "contextWindow": { "supportedLengths": [128000, "1000000", 128000, 0], "defaultLength": 128000 }, "reasoning": { "defaultEffort": "high", "supportedEfforts": ["low", "high", "max"] } },
+        { "id": "claude-fixture", "name": "Claude fixture", "maxInputTokens": 200000, "maxOutputTokens": 32000, "supportsToolCall": false, "supportsImages": true, "disabledMultimodal": true },
+        { "id": "blocked-fixture", "name": "Blocked fixture", "disabled": true, "supportsToolCall": true },
+        { "id": "agent-excluded-fixture", "name": "Agent excluded fixture", "supportsToolCall": true }
+      ]
+    }
+  },
+  "config": {
+    "code": 0,
+    "data": {
+      "models": [
+        { "id": "gpt-fixture", "name": "GPT fixture", "supportsToolCall": true },
+        { "id": "blocked-fixture", "name": "Blocked fixture", "supportsToolCall": true },
+        { "id": "agent-excluded-fixture", "name": "Agent excluded fixture", "supportsToolCall": true }
+      ]
+    }
+  }
+}

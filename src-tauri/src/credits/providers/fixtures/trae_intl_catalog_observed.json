@@ -1,0 +1,53 @@
+{
+  "provenance": {
+    "synthetic": false,
+    "version": "3.6.13",
+    "build": "2.3.99397",
+    "source": "official isolated international client; native NetLog responses captured in memory",
+    "capturedAt": "2026-11-03",
+    "scope": "Projected response fields only. Authentication headers and request bodies were not captured; this is not a complete chat contract.",
+    "redaction": "Prompts, identifiers, account metadata and token limits omitted. Tool ID and file path replaced in stream sample; path fragment boundaries adjusted."
+  },
+  "endpoint": "/api/ide/v1/batch_get_detail_param",
+  "response": {
+    "data": {
+      "function_configs": [
+        {
+          "function": "solo_agent",
+          "config_info_list": [
+            {
+              "config_name": "deepseek-v4-flash-0731",
+              "config_source": 1,
+              "config_switch": true,
+              "display_config": {
+                "can_use_super_model": false,
+                "commercial_info": {
+                  "info": "",
+                  "manual_usage": 0
+                },
+                "display_name": "DeepSeek-V4-Flash",
+                "fee_model_level": 2,
+                "is_custom_model": false,
+                "is_dollar_max": true,
+                "is_new": false,
+                "max_mode": true,
+                "memory_display_config": {},
+                "model_capability": "reasoning_model",
+                "multimodal": false,
+                "tags": []
+              },
+              "model_detail_list": [
+                {
+                  "model_name": "deepseek-v4-flash-0731__max"
+                },
+                {
+                  "model_name": "deepseek-v4-flash-0731__dev"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

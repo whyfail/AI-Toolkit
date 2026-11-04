@@ -293,9 +293,9 @@ async fn models(State(context): State<Arc<GatewayContext>>, headers: HeaderMap) 
     for account in accounts.into_iter().filter(account_eligible) {
         if let Some(snapshot) = &account.snapshot {
             for model in &snapshot.models {
-                let alias = format!("{}/{}", account.platform.key(), model.id);
-                entries.insert(alias.clone(), json!({"id": alias, "object": "model", "created": 0, "owned_by": account.platform.key()}));
-                if let Some(canonical) = model.canonical_id.as_ref().filter(|_| model.verified) {
+                let alias = format!("{}/{}", account.platform.route_key(account.region), model.id);
+                entries.insert(alias.clone(), json!({"id": alias, "object": "model", "created": 0, "owned_by": account.platform.route_key(account.region)}));
+                if let Some(canonical) = model.canonical_id.as_ref().filter(|_| model.verified && account.region == super::types::CreditRegion::Cn) {
                     entries.insert(canonical.clone(), json!({"id": canonical, "object": "model", "created": 0, "owned_by": "auto"}));
                 }
             }
@@ -315,8 +315,8 @@ fn account_eligible(account: &Account) -> bool {
 }
 
 fn model_matches(account: &Account, model: &ModelInfo, requested: &str) -> bool {
-    requested == format!("{}/{}", account.platform.key(), model.id)
-        || (model.verified && model.canonical_id.as_deref() == Some(requested))
+    requested == format!("{}/{}", account.platform.route_key(account.region), model.id)
+        || (account.region == super::types::CreditRegion::Cn && model.verified && model.canonical_id.as_deref() == Some(requested))
 }
 
 fn candidates(accounts: Vec<Account>, requested: &str, tools: bool, now: i64) -> Vec<Candidate> {
@@ -385,6 +385,7 @@ struct RequestGuard {
     started: Instant,
     created_at: i64,
     attempted: bool,
+    expose_thinking: bool,
     status: &'static str,
     input_tokens: Option<u64>,
     output_tokens: Option<u64>,
@@ -401,6 +402,7 @@ impl RequestGuard {
             started: Instant::now(),
             created_at: now_ms(),
             attempted: false,
+            expose_thinking: false,
             status: "cancelled",
             input_tokens: None,
             output_tokens: None,
@@ -443,6 +445,7 @@ impl Drop for RequestGuard {
                 id: self.id.clone(),
                 account_id: self.account.id.clone(),
                 platform: self.account.platform,
+                region: self.account.region,
                 model: self.model.clone(),
                 elapsed_ms: self.started.elapsed().as_millis() as u64,
                 input_tokens: self.input_tokens,
@@ -749,6 +752,9 @@ async fn protocol_request(
     if let Err(message) = tool_validation::validate(&data, matches!(protocol, Protocol::Messages)) {
         return protocol.error(StatusCode::BAD_REQUEST, "invalid_request", &message);
     }
+    let expose_thinking = matches!(protocol, Protocol::Messages)
+        && matches!(data.pointer("/thinking/type").and_then(Value::as_str), Some("enabled" | "adaptive"))
+        && data.pointer("/thinking/display").and_then(Value::as_str) != Some("omitted");
     let mut data = if matches!(protocol, Protocol::Messages) {
         match anthropic::request(data) {
             Ok(data) => data,
@@ -825,6 +831,7 @@ async fn protocol_request(
         remaining.retain(|v| v.account.id != candidate.account.id);
         guard.context = Some(context.clone());
         guard.model = requested.clone();
+        guard.expose_thinking = expose_thinking;
         let credentials = tokio::select! {
             _ = context.cancellation.cancelled() => return protocol.error(StatusCode::SERVICE_UNAVAILABLE, "gateway_stopped", "本地代理已停止"),
             result = context.manager.credentials_for(&candidate.account) => match result { Ok(v) => v, Err(_) => { guard.set_status("error"); continue; } },
@@ -958,7 +965,7 @@ fn stream_response_for(
 ) -> Response {
     let request_id = guard.id.clone();
     let stream = async_stream::stream! {
-        let mut messages = anthropic::MessageStream::default();
+        let mut messages = anthropic::MessageStream::new(guard.expose_thinking);
         if matches!(protocol, Protocol::Messages) {
             yield Ok::<_, std::convert::Infallible>(messages.start(&guard));
         }
@@ -1211,13 +1218,14 @@ async fn collect_response_for(
 
 #[cfg(test)]
 mod tests {
-    use super::super::types::{CreditPack, Platform, ProviderSnapshot};
+    use super::super::types::{CreditPack, CreditRegion, Platform, ProviderSnapshot};
     use super::*;
 
     fn account(id: &str, canonical: &str, expiry: i64) -> Account {
         Account {
             id: id.into(),
             platform: Platform::Workbuddy,
+            region: CreditRegion::Cn,
             user_id: id.into(),
             label: id.into(),
             enabled: true,
@@ -1228,6 +1236,7 @@ mod tests {
                 unit: "credits".into(),
                 quota: None,
                 packs: vec![CreditPack {
+                    unit: "credits".into(),
                     id: "pack".into(),
                     name: "pack".into(),
                     remaining: Some(100.0),
@@ -1352,6 +1361,28 @@ mod tests {
             candidates(vec![first], "workbuddy/glm-5.3", true, now_ms()).len(),
             1
         );
+    }
+
+    #[test]
+    fn model_prefixes_select_one_platform_and_region_and_bare_aliases_stay_domestic() {
+        let mut accounts = Vec::new();
+        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder] {
+            for region in [CreditRegion::Cn, CreditRegion::Intl] {
+                let mut a = account(&platform.route_key(region), "glm-5.3", now_ms() + 10000);
+                a.platform = platform;
+                a.region = region;
+                accounts.push(a);
+            }
+        }
+        for a in &accounts {
+            let model = format!("{}/glm-5.3", a.platform.route_key(a.region));
+            let found = candidates(accounts.clone(), &model, true, now_ms());
+            assert_eq!(found.len(), 1);
+            assert_eq!(found[0].account.id, a.id);
+        }
+        let bare = candidates(accounts, "glm-5.3", false, now_ms());
+        assert_eq!(bare.len(), 3);
+        assert!(bare.iter().all(|entry| entry.account.region == CreditRegion::Cn));
     }
 
     #[test]
@@ -1631,11 +1662,18 @@ mod tests {
     }
 
     fn routed_test_manager() -> Arc<CreditManager> {
+        routed_test_manager_for(Platform::Workbuddy, CreditRegion::Cn)
+    }
+
+    fn routed_test_manager_for(platform: Platform, region: CreditRegion) -> Arc<CreditManager> {
         let manager = CreditManager::test();
         for (id, expiry) in [("first", 5000), ("second", 10000)] {
-            let account = account(id, "glm-5.3", now_ms() + expiry);
+            let mut account = account(id, "glm-5.3", now_ms() + expiry);
+            account.platform = platform;
+            account.region = region;
             manager.store.save_account(&account).unwrap();
             let credentials = super::super::types::Credentials {
+                region,
                 access_token: "fixture-secret-only-in-memory".into(),
                 refresh_token: None,
                 user_id: Some(id.into()),
@@ -1679,6 +1717,127 @@ mod tests {
             .timeout(std::time::Duration::from_secs(3))
             .build()
             .unwrap()
+    }
+
+    fn regional_test_manager() -> Arc<CreditManager> {
+        let manager = CreditManager::test();
+        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder] {
+            for region in [CreditRegion::Cn, CreditRegion::Intl] {
+                let id = platform.route_key(region);
+                let mut a = account(&id, "glm-5.3", now_ms() + 10000);
+                a.platform = platform;
+                a.region = region;
+                a.user_id = "same-user-across-regions".into();
+                let model = &mut a.snapshot.as_mut().unwrap().models[0];
+                model.supports_images = Some(true);
+                model.supports_reasoning = Some(true);
+                manager.store.save_account(&a).unwrap();
+                let credentials = super::super::types::Credentials {
+                    region,
+                    access_token: format!("synthetic-{id}"),
+                    refresh_token: None,
+                    user_id: Some(a.user_id.clone()),
+                    device_id: None,
+                    expires_at: None,
+                    extra: json!({}),
+                };
+                manager.secrets.set(&id, &serde_json::to_string(&credentials).unwrap()).unwrap();
+            }
+        }
+        manager
+    }
+
+    #[tokio::test]
+    async fn six_region_routes_preserve_protocol_tools_images_thinking_and_history() {
+        let manager = regional_test_manager();
+        let gateway = GatewayManager::new();
+        let status = gateway.start(manager.clone(), 0).await.unwrap();
+        let http = local_http();
+        let key = manager.gateway_key().unwrap();
+        let listed: Value = http.get(format!("{}/models", status.base_url)).bearer_auth(&key)
+            .send().await.unwrap().json().await.unwrap();
+        assert_eq!(listed["data"].as_array().unwrap().len(), 7);
+        let image = "data:image/png;base64,iVBORw0KGgo=";
+        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder] {
+            for region in [CreditRegion::Cn, CreditRegion::Intl] {
+                let id = platform.route_key(region);
+                let requested = format!("{id}/glm-5.3");
+                assert!(listed["data"].as_array().unwrap().iter().any(|m| m["id"] == requested));
+                for endpoint in ["chat/completions", "messages"] {
+                    for streaming in [false, true] {
+                        manager.provider.queue_test_chat(&id, fixture_chunks(vec![
+                            json!({"choices":[{"delta":{"reasoning_content":"fixture thinking"}}]}),
+                            json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_read","type":"function","function":{"name":"read","arguments":"{\"path\":\"sample.txt\"}"}}]},"finish_reason":"tool_calls"}]}),
+                        ]));
+                        let messages_protocol = endpoint == "messages";
+                        let mut body = if messages_protocol {
+                            json!({"max_tokens":64,"messages":[{"role":"user","content":[{"type":"text","text":"read sample"},{"type":"image","source":{"type":"url","url":image}}]}],
+                                "tools":[{"name":"read","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}]})
+                        } else {
+                            json!({"messages":[{"role":"user","content":[{"type":"text","text":"read sample"},{"type":"image_url","image_url":{"url":image}}]}],
+                                "tools":[{"type":"function","function":{"name":"read","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}}]})
+                        };
+                        body["model"] = json!(requested);
+                        body["stream"] = json!(streaming);
+                        if messages_protocol {
+                            body["thinking"] = json!({"type":"enabled"});
+                        }
+                        let response = http.post(format!("{}/{endpoint}", status.base_url)).bearer_auth(&key)
+                            .json(&body).send().await.unwrap();
+                        assert_eq!(response.status(), StatusCode::OK, "{requested} {endpoint}");
+                        let text = response.text().await.unwrap();
+                        assert!(text.contains("call_read"), "{text}");
+                        assert!(text.contains("fixture thinking"), "{text}");
+                        assert_eq!(manager.provider.test_chat_calls().last(), Some(&id));
+                        let forwarded = manager.provider.test_chat_bodies().pop().unwrap();
+                        assert_eq!(forwarded["messages"][0]["content"][1]["image_url"]["url"], image);
+                        assert_eq!(forwarded["tools"][0]["function"]["name"], "read");
+
+                        // Send the matching tool result through the same platform/region route.
+                        manager.provider.queue_test_chat(&id, fixture_chunks(vec![json!({"choices":[{"delta":{"content":"toolkit-ok"},"finish_reason":"stop"}]})]));
+                        let followup = if messages_protocol {
+                            json!([{"role":"user","content":"read sample"},{"role":"assistant","content":[{"type":"tool_use","id":"call_read","name":"read","input":{"path":"sample.txt"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_read","content":"toolkit-ok"}]}])
+                        } else {
+                            json!([{"role":"user","content":"read sample"},{"role":"assistant","content":null,"tool_calls":[{"id":"call_read","type":"function","function":{"name":"read","arguments":"{\"path\":\"sample.txt\"}"}}]},{"role":"tool","tool_call_id":"call_read","content":"toolkit-ok"}])
+                        };
+                        body["messages"] = followup;
+                        let response = http.post(format!("{}/{endpoint}", status.base_url)).bearer_auth(&key)
+                            .json(&body).send().await.unwrap();
+                        assert_eq!(response.status(), StatusCode::OK);
+                        assert!(response.text().await.unwrap().contains("toolkit-ok"));
+                        assert_eq!(manager.provider.test_chat_calls().last(), Some(&id));
+                    }
+                }
+            }
+        }
+        let history = manager.store.requests().unwrap();
+        assert_eq!(history.len(), 48);
+        for row in history {
+            assert!(row.model.starts_with(&format!("{}/", row.platform.route_key(row.region))));
+        }
+        gateway.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn international_rejections_never_retry_domestic_accounts_in_either_protocol() {
+        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder] {
+            for endpoint in ["chat/completions", "messages"] {
+                let manager = regional_test_manager();
+                let id = platform.route_key(CreditRegion::Intl);
+                let mut rejection = ProviderError::new(429, "fixture quota rejected");
+                rejection.rejected = true;
+                manager.provider.queue_test_chat(&id, vec![Err(rejection)]);
+                let gateway = GatewayManager::new();
+                let status = gateway.start(manager.clone(), 0).await.unwrap();
+                let response = local_http().post(format!("{}/{endpoint}", status.base_url))
+                    .bearer_auth(manager.gateway_key().unwrap())
+                    .json(&json!({"model":format!("{id}/glm-5.3"),"max_tokens":64,"messages":[{"role":"user","content":"hello"}]}))
+                    .send().await.unwrap();
+                assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+                assert_eq!(manager.provider.test_chat_calls(), vec![id]);
+                gateway.stop().await.unwrap();
+            }
+        }
     }
 
     #[tokio::test]
@@ -1801,11 +1960,7 @@ mod tests {
     #[tokio::test]
     async fn store_false_reaches_each_provider_without_requesting_storage() {
         for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder] {
-            let manager = routed_test_manager();
-            for mut account in manager.accounts().unwrap() {
-                account.platform = platform;
-                manager.store.save_account(&account).unwrap();
-            }
+            let manager = routed_test_manager_for(platform, CreditRegion::Cn);
             let gateway = GatewayManager::new();
             let status = gateway.start(manager.clone(), 0).await.unwrap();
             let http = local_http();
@@ -2037,11 +2192,7 @@ mod tests {
             ]}));
         }
         for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder] {
-            let manager = routed_test_manager();
-            for mut account in manager.accounts().unwrap() {
-                account.platform = platform;
-                manager.store.save_account(&account).unwrap();
-            }
+            let manager = routed_test_manager_for(platform, CreditRegion::Cn);
             let gateway = GatewayManager::new();
             let status = gateway.start(manager.clone(), 0).await.unwrap();
             let http = reqwest::Client::builder()
@@ -2186,11 +2337,7 @@ mod tests {
     #[tokio::test]
     async fn messages_images_reach_the_provider_in_user_messages_and_tool_results() {
         for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder] {
-            let manager = routed_test_manager();
-            for mut account in manager.accounts().unwrap() {
-                account.platform = platform;
-                manager.store.save_account(&account).unwrap();
-            }
+            let manager = routed_test_manager_for(platform, CreditRegion::Cn);
             let requested = format!("{}/glm-5.3", platform.key());
             for _ in 0..2 {
                 manager.provider.queue_test_chat(

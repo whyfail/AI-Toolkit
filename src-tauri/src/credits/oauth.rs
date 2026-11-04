@@ -62,7 +62,7 @@ fn local_identity() -> (String, String) {
     )
 }
 impl ProviderClient {
-    pub async fn start_login(&self, platform: Platform) -> Result<OAuthStart, ProviderError> {
+    pub async fn start_login(&self, platform: Platform, region: CreditRegion) -> Result<OAuthStart, ProviderError> {
         let flow_id = uuid::Uuid::new_v4().to_string();
         let expires_at = now_ms() + 5 * 60 * 1000;
         let client = reqwest::Client::builder()
@@ -77,6 +77,7 @@ impl ProviderClient {
         let callback = Arc::new(tokio::sync::Mutex::new(None));
         let callback_done = tokio_util::sync::CancellationToken::new();
         let mut base = empty_credentials();
+        base.region = region;
         base.device_id = Some(device);
         base.extra = json!({"machineId":machine});
         let mut nonce = flow_id.clone();
@@ -85,7 +86,8 @@ impl ProviderClient {
                 let v = json_response(
                     workbuddy::headers(
                         client
-                            .post("https://copilot.tencent.com/v2/plugin/auth/state?platform=CLI"),
+                            .post(format!("{}/v2/plugin/auth/state", workbuddy::api_base(&base)))
+                            .query(&[("platform", if region == CreditRegion::Intl { "workbuddy-ai" } else { "CLI" })]),
                         &base,
                     )
                     .json(&json!({}))
@@ -98,20 +100,20 @@ impl ProviderClient {
                     .ok_or_else(|| ProviderError::new(502, "WorkBuddy 登录未返回状态"))?;
                 let url = text(data(&v), &["authUrl", "authURL"])
                     .ok_or_else(|| ProviderError::new(502, "WorkBuddy 登录未返回授权地址"))?;
-                validate_browser_url(&url, &["codebuddy.cn", "copilot.tencent.com"])?;
+                validate_browser_url(&url, if region == CreditRegion::Intl { &["workbuddy.ai", "codebuddy.ai"] } else { &["codebuddy.cn", "copilot.tencent.com"] })?;
                 url
             }
             Platform::Qoder => {
                 let mut inner =
-                    reqwest::Url::parse("https://qoder.cn/device/selectAccounts").unwrap();
+                    reqwest::Url::parse(&format!("{}/device/selectAccounts", qoder::auth_base(region))).unwrap();
                 inner
                     .query_pairs_mut()
                     .append_pair("challenge", &challenge)
                     .append_pair("challenge_method", "S256")
                     .append_pair("nonce", &nonce)
                     .append_pair("machine_id", &machine)
-                    .append_pair("client_id", qoder::CLIENT_ID);
-                let mut url = reqwest::Url::parse("https://qoder.cn/users/sign-in").unwrap();
+                    .append_pair("client_id", qoder::client_id(region));
+                let mut url = reqwest::Url::parse(&format!("{}/users/sign-in", qoder::auth_base(region))).unwrap();
                 url.query_pairs_mut()
                     .append_pair("biz_variant", "qoder")
                     .append_pair("oauth_callback", inner.as_str());
@@ -129,6 +131,10 @@ impl ProviderClient {
                 base.extra["devicePublicKey"] = json!(public);
                 base.extra["devicePrivateKey"] = json!(private);
                 base.extra["clientId"] = json!(traework::WORK_CLIENT_ID);
+                if region == CreditRegion::Intl {
+                    base.extra["apiBase"] = json!("https://growsg-normal.trae.ai");
+                    base.extra["ideVersion"] = json!("3.6.13");
+                }
                 // Real-IDE login shape (TraeWorkAssistant packet capture, MIT):
                 // the SOLO client id stalls the authorization page after the
                 // billing step, so the IDE client id and page snapshot versions
@@ -146,7 +152,8 @@ impl ProviderClient {
                 let callback_url = format!("http://127.0.0.1:{port}/authorize");
                 let (hostname, device_type, os_version) = local_device_fingerprint();
                 let url = trae_authorization_url(
-                    "https://www.trae.cn",
+                    traework::authorization_origin(region),
+                    region,
                     traework::WORK_CLIENT_ID,
                     &flow_id,
                     &callback_url,
@@ -204,10 +211,10 @@ impl ProviderClient {
             .get(id)
             .cloned()
             .ok_or_else(|| ProviderError::new(404, "登录流程不存在，请重新登录"))?;
-        let _poll = flow.poll_lock.lock().await;
-        if !self.flows.lock().await.contains_key(id) {
-            return Err(ProviderError::new(404, "此登录已结束，请重新登录"));
-        }
+        let poll_lock = flow.poll_lock.clone();
+        let _poll = poll_lock.lock().await;
+        let flow = self.flows.lock().await.get(id).cloned()
+            .ok_or_else(|| ProviderError::new(404, "此登录已结束，请重新登录"))?;
         if flow.expires_at < now_ms() {
             flow.callback_done.cancel();
             self.flows.lock().await.remove(id);
@@ -216,7 +223,7 @@ impl ProviderClient {
             });
         }
         let platform = flow.platform;
-        let result = self.poll_flow(flow.clone()).await;
+        let result = self.poll_flow(id, flow.clone()).await;
         match result {
             Ok(Some(c)) => {
                 flow.callback_done.cancel();
@@ -227,7 +234,7 @@ impl ProviderClient {
                 if echoed {
                     self.flows.lock().await.remove(id);
                     let label = text(&c.extra, &["label"]).unwrap_or_else(|| {
-                        format!("TRAE CN {}", c.user_id.as_deref().unwrap_or(""))
+                        format!("TRAE {} {}", if c.region == CreditRegion::Cn { "CN" } else { "国际版" }, c.user_id.as_deref().unwrap_or(""))
                     });
                     return Ok(OAuthPoll::Completed {
                         platform,
@@ -266,43 +273,102 @@ impl ProviderClient {
             }
         }
     }
-    async fn poll_flow(&self, f: LoginFlow) -> Result<Option<Credentials>, ProviderError> {
-        match f.platform {
-            Platform::Workbuddy => {
-                let r = workbuddy::headers(
-                    f.client
-                        .get("https://copilot.tencent.com/v2/plugin/auth/token")
-                        .query(&[("state", f.nonce.as_str())]),
-                    &f.base,
-                )
-                .send()
-                .await
-                .map_err(ProviderError::transport)?;
-                if !r.status().is_success() {
-                    return Err(http_error(r.status().as_u16()));
-                }
-                let v: Value = r
-                    .json()
-                    .await
-                    .map_err(|_| ProviderError::new(502, "WorkBuddy 登录响应无效"))?;
-                if num(&v, &["code"]) == Some(11217.0) {
-                    return Ok(None);
-                }
-                check_business(&v)?;
-                if text(data(&v), &["accessToken"]).is_none() {
-                    return Ok(None);
-                }
-                Ok(Some(credentials(
-                    data(&v),
-                    &f.base,
-                    &["accessToken"],
-                    &["refreshToken"],
-                )?))
+    async fn poll_workbuddy_at(
+        &self,
+        id: &str,
+        f: &LoginFlow,
+        origin: &str,
+    ) -> Result<Option<Credentials>, ProviderError> {
+        let mut c = if f.base.access_token.is_empty() {
+            let r = workbuddy::headers(
+                f.client
+                    .get(format!("{}/v2/plugin/auth/token", origin))
+                    .query(&[("state", f.nonce.as_str())]),
+                &f.base,
+            )
+            .send()
+            .await
+            .map_err(ProviderError::transport)?;
+            if !r.status().is_success() {
+                return Err(http_error(r.status().as_u16()));
             }
+            let v: Value = r
+                .json()
+                .await
+                .map_err(|_| ProviderError::new(502, "WorkBuddy 登录响应无效"))?;
+            if num(&v, &["code"]) == Some(11217.0) {
+                return Ok(None);
+            }
+            check_business(&v)?;
+            if text(data(&v), &["accessToken"]).is_none() {
+                return Ok(None);
+            }
+            let mut c = credentials(data(&v), &f.base, &["accessToken"], &["refreshToken"])?;
+            if c.region == CreditRegion::Intl {
+                if let Some(domain) = text(data(&v), &["domain"]) {
+                    let host = domain.trim_start_matches("https://").trim_end_matches('/');
+                    if !matches!(host, "www.workbuddy.ai" | "www.codebuddy.ai") {
+                        return Err(ProviderError::new(
+                            502,
+                            "WorkBuddy 登录返回了不匹配的账号区域",
+                        ));
+                    }
+                    c.extra["authDomain"] = json!(host);
+                }
+            }
+            if let Some(flow) = self.flows.lock().await.get_mut(id) {
+                flow.base = c.clone();
+            }
+            c
+        } else {
+            f.base.clone()
+        };
+        if c.region == CreditRegion::Intl {
+            let response = workbuddy::headers(
+                f.client
+                    .get(format!("{}/v2/plugin/login/account", origin))
+                    .query(&[("state", f.nonce.as_str())]),
+                &c,
+            )
+            .send()
+            .await
+            .map_err(ProviderError::transport)?;
+            let status = response.status().as_u16();
+            let selected: Value = response
+                .json()
+                .await
+                .map_err(|_| ProviderError::new(502, "WorkBuddy 账号选择响应无效"))?;
+            if num(&selected, &["code"]) == Some(12151.0) {
+                return Ok(None);
+            }
+            if !(200..300).contains(&status) {
+                return Err(http_error(status));
+            }
+            check_business(&selected)?;
+            let account = data(&selected);
+            c.user_id = text(account, &["uid", "userId", "user_id"]);
+            if c.user_id.is_none() {
+                return Err(ProviderError::new(502, "WorkBuddy 未返回所选账号身份"));
+            }
+            for (source, target) in [
+                ("type", "accountType"),
+                ("enterpriseId", "enterpriseId"),
+                ("nickname", "nickname"),
+            ] {
+                if let Some(value) = account.get(source) {
+                    c.extra[target] = value.clone();
+                }
+            }
+        }
+        Ok(Some(c))
+    }
+    async fn poll_flow(&self, id: &str, f: LoginFlow) -> Result<Option<Credentials>, ProviderError> {
+        match f.platform {
+            Platform::Workbuddy => self.poll_workbuddy_at(id, &f, workbuddy::api_base(&f.base)).await,
             Platform::Qoder => {
                 let r = f
                     .client
-                    .get(format!("{}/api/v1/deviceToken/poll", qoder::API))
+                    .get(format!("{}/api/v1/deviceToken/poll", qoder::api_base(&f.base)))
                     .query(&[
                         ("nonce", f.nonce.as_str()),
                         ("verifier", f.verifier.as_str()),
@@ -315,15 +381,7 @@ impl ProviderClient {
                     return Ok(None);
                 }
                 let v = json_response(r).await?;
-                let mut c = credentials(
-                    data(&v),
-                    &f.base,
-                    &["token", "device_token"],
-                    &["refresh_token"],
-                )?;
-                if let Some(ms) = num(data(&v), &["expires_in"]) {
-                    c.expires_at = Some(now_ms() + ms as i64)
-                }
+                let c = qoder::token_credentials(data(&v), &f.base)?;
                 Ok(Some(c))
             }
             Platform::Traework => {
@@ -377,44 +435,23 @@ impl ProviderClient {
                 // api.trae.com.cn for accounts registered there) — exchange
                 // against it first. Keep the origin that actually exchanges
                 // successfully for this account's identity and billing APIs.
-                let mut origins = vec![
-                    traework::API.to_string(),
-                    "https://api.trae.com.cn".into(),
-                    "https://www.trae.cn".into(),
-                ];
-                if let Some(host) = [
-                    "host",
-                    "loginHost",
-                    "login_host",
-                    "LoginHost",
-                    "consoleHost",
-                ]
-                .iter()
-                .find_map(|key| text(&cb, &[key]))
-                {
-                    let origin = if host.starts_with("https://") {
-                        host
+                let mut origins: Vec<String> = if f.base.region == CreditRegion::Intl {
+                    vec!["https://growsg-normal.trae.ai".into()]
+                } else {
+                    vec![traework::API.into(), "https://api.trae.com.cn".into(), "https://www.trae.cn".into()]
+                };
+                if let Some(host) = ["host", "loginHost", "login_host", "LoginHost", "consoleHost"]
+                    .iter().find_map(|key| text(&cb, &[key])) {
+                    let origin = if host.starts_with("https://") { host } else { format!("https://{host}") };
+                    if let Some(origin) = traework::allowed_account_origin(f.base.region, &origin) {
+                        origins.insert(0, origin.to_owned());
                     } else {
-                        format!("https://{host}")
-                    };
-                    if let Ok(url) = reqwest::Url::parse(&origin) {
-                        let official = url.host_str().is_some_and(|h| {
-                            h == "trae.cn"
-                                || h == "trae.com.cn"
-                                || h.ends_with(".trae.cn")
-                                || h.ends_with(".trae.com.cn")
-                        });
-                        if official {
-                            let origin = origin.trim_end_matches('/').to_string();
-                            origins.insert(0, origin);
-                        }
+                        return Err(ProviderError::new(400, "TRAE 登录回调的账号区域不匹配"));
                     }
                 }
-                let mut seen = std::collections::HashSet::new();
-                origins.retain(|origin| seen.insert(origin.clone()));
-                // The .com.cn realm serves the exchange under the /cloudide
-                // prefix (TraeWorkAssistant packet capture, MIT).
-                origins.push("https://api.trae.com.cn/cloudide".into());
+                if f.base.region == CreditRegion::Cn {
+                    origins.push("https://api.trae.com.cn/cloudide".into());
+                }
                 let mut seen = std::collections::HashSet::new();
                 origins.retain(|origin| seen.insert(origin.clone()));
                 let mut exchange = Err(ProviderError::new(502, "未发起 Token 交换"));
@@ -430,8 +467,8 @@ impl ProviderClient {
                         // page app version. The x-cloudide-token header must be
                         // present as an EMPTY string — its absence rejects the
                         // exchange with 20403.
-                        let device = json!({"DeviceID":base.device_id,"MachineID":base.extra["machineId"],"PlatformCode":"IDE_PC","DeviceType":"PC","DeviceName":"","DeviceModel":"","ClientVersion":traework::PAGE_APP_VERSION,"DevicePublicKey":base.extra["devicePublicKey"],"DeviceBrand":"","DeviceCPU":"","OSInfo":"","OSVersion":""});
-                        let exchange_body = json!({"ClientID":base.extra["clientId"],"AuthCode":code,"CodeVerifier":f.verifier,"DeviceInfo":device,"IDEVersion":traework::PAGE_APP_VERSION});
+                        let device = json!({"DeviceID":base.device_id,"MachineID":base.extra["machineId"],"PlatformCode":"IDE_PC","DeviceType":"PC","DeviceName":"","DeviceModel":"","ClientVersion":traework::page_app_version(base.region),"DevicePublicKey":base.extra["devicePublicKey"],"DeviceBrand":"","DeviceCPU":"","OSInfo":"","OSVersion":""});
+                        let exchange_body = json!({"ClientID":base.extra["clientId"],"AuthCode":code,"CodeVerifier":f.verifier,"DeviceInfo":device,"IDEVersion":traework::page_app_version(base.region)});
                         exchange = self
                             .json(
                                 f.client
@@ -443,12 +480,6 @@ impl ProviderClient {
                         if exchange.is_ok() {
                             used = Some((base.clone(), origin.clone()));
                         }
-                        eprintln!(
-                            "credits: TRAE 交换 origin={origin} 设备 {}/{} → {:?}",
-                            base.device_id.as_deref().unwrap_or(""),
-                            base.extra["machineId"],
-                            exchange.as_ref().err().map(|e| e.message.clone()),
-                        );
                         let retry = match &exchange {
                             Err(error) => matches!(error.status, 404 | 500..=599),
                             Ok(_) => false,
@@ -582,6 +613,7 @@ fn local_device_fingerprint() -> (String, String, String) {
 // page validates it client-side; everything else follows per-value encoding.
 fn trae_authorization_url(
     host: &str,
+    region: CreditRegion,
     client_id: &str,
     flow_id: &str,
     callback_url: &str,
@@ -596,7 +628,7 @@ fn trae_authorization_url(
         ("login_version", "1".into(), false),
         ("auth_from", "trae".into(), false),
         ("login_channel", "native_ide".into(), false),
-        ("plugin_version", traework::PAGE_PLUGIN_VERSION.into(), true),
+        ("plugin_version", traework::page_plugin_version(region).into(), true),
         ("auth_type", "local".into(), false),
         ("client_id", client_id.into(), false),
         ("redirect", "0".into(), false),
@@ -611,7 +643,7 @@ fn trae_authorization_url(
         ("x_device_type", device_type.into(), true),
         ("x_os_version", os_version.into(), true),
         ("x_env", String::new(), false),
-        ("x_app_version", traework::PAGE_APP_VERSION.into(), true),
+        ("x_app_version", traework::page_app_version(region).into(), true),
         ("x_app_type", "stable".into(), false),
         ("code_challenge", challenge.into(), true),
         ("code_challenge_method", "S256".into(), false),
@@ -939,6 +971,74 @@ async fn listen_callback(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn workbuddy_international_polls_selected_account_without_reusing_one_time_token() {
+        use axum::{extract::State, http::HeaderMap, routing::get, Json, Router};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let counts = Arc::new((AtomicUsize::new(0), AtomicUsize::new(0)));
+        async fn token(State(counts): State<Arc<(AtomicUsize, AtomicUsize)>>) -> Json<Value> {
+            let call = counts.0.fetch_add(1, Ordering::SeqCst);
+            Json(if call == 0 { json!({"code":11217}) } else {
+                json!({"code":0,"data":{"accessToken":"opaque-session","refreshToken":"synthetic-refresh","domain":"www.codebuddy.ai"}})
+            })
+        }
+        async fn selected(State(counts): State<Arc<(AtomicUsize, AtomicUsize)>>, headers: HeaderMap) -> Json<Value> {
+            assert_eq!(headers["authorization"], "Bearer opaque-session");
+            assert_eq!(headers["x-domain"], "www.codebuddy.ai");
+            let call = counts.1.fetch_add(1, Ordering::SeqCst);
+            Json(if call == 0 { json!({"code":12151}) } else {
+                json!({"code":0,"data":{"uid":"selected-user","type":"enterprise","enterpriseId":"fixture-team","nickname":"Fixture"}})
+            })
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let router = Router::new().route("/v2/plugin/auth/token", get(token))
+            .route("/v2/plugin/login/account", get(selected)).with_state(counts.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap(); });
+        let provider = ProviderClient::new();
+        let mut base = empty_credentials();
+        base.region = CreditRegion::Intl;
+        let flow = LoginFlow {
+            platform: Platform::Workbuddy,
+            client: reqwest::Client::builder().no_proxy().build().unwrap(),
+            expires_at: now_ms() + 60_000,
+            nonce: "fixture-state".into(), verifier: "fixture-verifier".into(), base,
+            callback: Arc::default(), poll_lock: Arc::default(), callback_done: Default::default(),
+        };
+        provider.flows.lock().await.insert("fixture".into(), flow);
+        for expected_pending in [true, true, false] {
+            let current = provider.flows.lock().await["fixture"].clone();
+            let result = provider.poll_workbuddy_at("fixture", &current, &origin).await.unwrap();
+            assert_eq!(result.is_none(), expected_pending);
+            if let Some(c) = result {
+                assert_eq!(c.region, CreditRegion::Intl);
+                assert_eq!(c.user_id.as_deref(), Some("selected-user"));
+                assert_eq!(c.extra["enterpriseId"], "fixture-team");
+                assert_eq!(c.extra["accountType"], "enterprise");
+                assert_eq!(c.extra["authDomain"], "www.codebuddy.ai");
+            }
+        }
+        assert_eq!(counts.0.load(Ordering::SeqCst), 2);
+        assert_eq!(counts.1.load(Ordering::SeqCst), 2);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn qoder_oauth_uses_production_client_and_never_crosses_editions() {
+        let provider = ProviderClient::new();
+        for region in [CreditRegion::Cn, CreditRegion::Intl] {
+            let started = provider.start_login(Platform::Qoder, region).await.unwrap();
+            let url = reqwest::Url::parse(&started.authorization_url).unwrap();
+            assert_eq!(url.origin().ascii_serialization(), qoder::auth_base(region));
+            let callback = url.query_pairs().find(|(key, _)| key == "oauth_callback").unwrap().1.into_owned();
+            let callback = reqwest::Url::parse(&callback).unwrap();
+            assert_eq!(callback.origin().ascii_serialization(), qoder::auth_base(region));
+            assert_eq!(callback.path(), "/device/selectAccounts");
+            assert!(callback.query_pairs().any(|(key, value)| key == "client_id" && value == qoder::client_id(region)));
+            assert_eq!(provider.flows.lock().await[&started.flow_id].base.region, region);
+        }
+    }
     #[test]
     fn trae_exchange_credentials_keep_successful_origin_and_distinct_tokens() {
         for (exchange_origin, previous_realm, expected_realm) in [
@@ -990,6 +1090,7 @@ mod tests {
     fn trae_authorization_url_keeps_loopback_callback_raw_and_ordered() {
         let url = trae_authorization_url(
             "https://www.trae.cn/",
+            CreditRegion::Cn,
             "ono9krqynydwx5",
             "flow-1",
             "http://127.0.0.1:51724/authorize",
@@ -1011,6 +1112,17 @@ mod tests {
         assert!(url.contains("x_env=&x_app_version=3.3.100&x_app_type=stable&"));
         assert!(url.ends_with("&code_challenge_method=S256&channel_name=common"));
     }
+    #[test]
+    fn international_login_uses_official_3613_versions_without_changing_cn() {
+        let url = trae_authorization_url("https://www.trae.ai", CreditRegion::Intl,
+            traework::WORK_CLIENT_ID, "fixture", "http://127.0.0.1:12345/authorize",
+            "machine", "device", "challenge", "host", "mac", "15");
+        assert!(url.contains("plugin_version=2.3.99397&"));
+        assert!(url.contains("x_app_version=3.6.13&"));
+        assert!(!url.contains("3.3.100"));
+        assert_eq!(traework::page_app_version(CreditRegion::Cn), "3.3.100");
+    }
+
     #[test]
     fn auth_code_is_extracted_from_info_payload() {
         let info = r#"{"AuthCode":"67kxTwHtVFLAoPuEDWmkDsCmGAqdObVTguECE-03LQ4","State":"s1"}"#;

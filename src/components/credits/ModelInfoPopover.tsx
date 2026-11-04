@@ -46,9 +46,9 @@ export function ModelInfoContent({ account, model, platformName }: ModelInfoProp
   const updated = modelsFetchedAt ? new Date(modelsFetchedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "尚未同步";
   const modelsStale = snapshot?.sync?.modelsFetchedAt != null ? !!snapshot.sync.modelsError : snapshot?.stale;
   return <>
-    <div className="flex items-center justify-between gap-3 text-[10px] font-medium text-slate-500 dark:text-slate-400"><span>{platformName} · 通道参数</span>{modelsStale ? <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-amber-700 dark:text-amber-300">缓存数据</span> : null}</div>
+    <div className="flex items-center justify-between gap-3 text-[10px] font-medium text-slate-500 dark:text-slate-400"><span>{platformName}{account.region === "intl" ? " · 国际版" : ""} · 通道参数</span>{modelsStale ? <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-amber-700 dark:text-amber-300">缓存数据</span> : null}</div>
     <h3 className="mt-2 break-words text-base font-semibold leading-snug">{model.name || model.id}</h3>
-    <p className="mt-1 break-all font-mono text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">{account.platform}/{model.id}</p>
+    <p className="mt-1 break-all font-mono text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">{account.platform}{account.region === "intl" ? "-intl" : ""}/{model.id}</p>
 
     <dl className="mt-3 space-y-2 rounded-xl border border-slate-500/10 px-3 py-2.5 text-[10px]">
       <div>
@@ -64,7 +64,7 @@ export function ModelInfoContent({ account, model, platformName }: ModelInfoProp
     </dl>
 
     <dl className="mt-4 grid grid-cols-2 gap-2">
-      <TokenLimit label="上下文窗口（默认最大）" value={model.contextWindow} />
+      <TokenLimit label="上下文窗口" value={model.contextWindow} />
       <TokenLimit label="最大输出" value={model.maxOutputTokens} />
     </dl>
 

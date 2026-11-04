@@ -1,0 +1,476 @@
+{
+  "data": {
+    "agents": [
+      {
+        "models": [
+          "default-model",
+          "max-model",
+          "hy4-preview",
+          "hy3",
+          "deepseek-v4.1-flash-sg",
+          "gpt-6-astra",
+          "gpt-6.1-sol",
+          "gpt-6-sol",
+          "gpt-6-luna",
+          "gpt-5.6-sol",
+          "gpt-5.6-terra",
+          "gpt-5.6-luna",
+          "grok-4.7",
+          "gemini-3.8-flash",
+          "glm-5.3",
+          "glm-5.3-flash",
+          "kimi-k3.1-pro",
+          "kimi-k3.1-pro-highspeed",
+          "kimi-k3",
+          "minimax-m3.1-flash"
+        ],
+        "name": "cli"
+      }
+    ],
+    "models": [
+      {
+        "id": "default-model",
+        "maxOutputTokens": 24000,
+        "name": "Auto",
+        "supportsImages": true,
+        "supportsToolCall": true
+      },
+      {
+        "id": "max-model",
+        "maxOutputTokens": 72000,
+        "name": "Max",
+        "reasoning": {
+          "effort": "high",
+          "summary": "auto"
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true
+      },
+      {
+        "contextWindow": {
+          "defaultLength": 300000,
+          "supportedLengths": [
+            300000,
+            1000000
+          ]
+        },
+        "id": "deepseek-v4.1-flash-sg",
+        "maxOutputTokens": 128000,
+        "name": "Deepseek-V4.1-Flash",
+        "reasoning": {
+          "defaultEffort": "high",
+          "summary": "auto",
+          "supportedEfforts": [
+            "low",
+            "high",
+            "max"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true
+      },
+      {
+        "contextWindow": {
+          "defaultLength": 300000,
+          "supportedLengths": [
+            300000,
+            1000000
+          ]
+        },
+        "id": "glm-5.3-flash",
+        "maxOutputTokens": 32000,
+        "name": "GLM-5.3-Flash",
+        "reasoning": {
+          "canDisableThinking": true,
+          "defaultEffort": "high",
+          "summary": "auto",
+          "supportedEfforts": [
+            "low",
+            "high",
+            "max"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true
+      },
+      {
+        "contextWindow": {
+          "defaultLength": 400000,
+          "supportedLengths": [
+            400000,
+            1000000
+          ]
+        },
+        "id": "gpt-6-astra",
+        "maxOutputTokens": 128000,
+        "name": "GPT-6-Astra",
+        "reasoning": {
+          "canDisableThinking": true,
+          "defaultEffort": "high",
+          "summary": "auto",
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true
+      },
+      {
+        "contextWindow": {
+          "defaultLength": 200000,
+          "supportedLengths": [
+            200000,
+            1000000
+          ]
+        },
+        "disabledMultimodal": false,
+        "id": "hy4-preview",
+        "maxOutputTokens": 64000,
+        "name": "Hy4 Preview",
+        "reasoning": {
+          "canDisableThinking": false,
+          "defaultEffort": "high",
+          "summary": "auto",
+          "supportedEfforts": [
+            "high"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true
+      },
+      {
+        "disabledMultimodal": false,
+        "id": "hy3",
+        "maxOutputTokens": 64000,
+        "name": "Hy3",
+        "reasoning": {
+          "canDisableThinking": false,
+          "defaultEffort": "high",
+          "summary": "auto",
+          "supportedEfforts": [
+            "low",
+            "high"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true,
+        "tags": [
+          "craft"
+        ]
+      },
+      {
+        "id": "gpt-5.6-sol",
+        "maxOutputTokens": 128000,
+        "name": "GPT-5.6-Sol",
+        "reasoning": {
+          "canDisableThinking": true,
+          "defaultEffort": "high",
+          "summary": "auto",
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true,
+        "tags": []
+      },
+      {
+        "id": "gpt-5.6-terra",
+        "maxOutputTokens": 128000,
+        "name": "GPT-5.6-Terra",
+        "reasoning": {
+          "canDisableThinking": true,
+          "defaultEffort": "high",
+          "summary": "auto",
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true,
+        "tags": []
+      },
+      {
+        "id": "gpt-5.6-luna",
+        "maxOutputTokens": 128000,
+        "name": "GPT-5.6-Luna",
+        "reasoning": {
+          "canDisableThinking": true,
+          "defaultEffort": "high",
+          "summary": "auto",
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true,
+        "tags": []
+      },
+      {
+        "id": "glm-5.3",
+        "maxOutputTokens": 48000,
+        "name": "GLM-5.3",
+        "reasoning": {
+          "canDisableThinking": true,
+          "defaultEffort": "high",
+          "summary": "auto",
+          "supportedEfforts": [
+            "low",
+            "high",
+            "max"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true,
+        "tags": [
+          "craft"
+        ]
+      },
+      {
+        "contextWindow": {
+          "defaultLength": 300000,
+          "supportedLengths": [
+            300000,
+            600000,
+            1000000
+          ]
+        },
+        "id": "minimax-m3.1-flash",
+        "maxOutputTokens": 128000,
+        "name": "MiniMax-M3.1-Flash",
+        "reasoning": {
+          "canDisableThinking": false,
+          "defaultEffort": "max",
+          "summary": "auto",
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true
+      },
+      {
+        "contextWindow": {
+          "defaultLength": 300000,
+          "supportedLengths": [
+            300000,
+            600000,
+            1000000
+          ]
+        },
+        "id": "kimi-k3.1-pro",
+        "maxOutputTokens": 32000,
+        "name": "Kimi-K3.1-Pro",
+        "reasoning": {
+          "canDisableThinking": false,
+          "defaultEffort": "high",
+          "summary": "auto",
+          "supportedEfforts": [
+            "low",
+            "high",
+            "max"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true
+      },
+      {
+        "contextWindow": {
+          "defaultLength": 300000,
+          "supportedLengths": [
+            300000,
+            600000,
+            1000000
+          ]
+        },
+        "id": "kimi-k3.1-pro-highspeed",
+        "maxOutputTokens": 32000,
+        "name": "Kimi-K3.1-Pro-Highspeed",
+        "reasoning": {
+          "canDisableThinking": false,
+          "defaultEffort": "high",
+          "summary": "auto",
+          "supportedEfforts": [
+            "low",
+            "high",
+            "max"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true
+      },
+      {
+        "id": "kimi-k3",
+        "maxOutputTokens": 32000,
+        "name": "Kimi-K3",
+        "reasoning": {
+          "effort": "medium",
+          "summary": "auto"
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true
+      },
+      {
+        "contextWindow": {
+          "defaultLength": 200000,
+          "supportedLengths": [
+            200000,
+            500000
+          ]
+        },
+        "id": "grok-4.7",
+        "maxOutputTokens": 128000,
+        "name": "Grok-4.7",
+        "reasoning": {
+          "defaultEffort": "high",
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true
+      },
+      {
+        "contextWindow": {
+          "defaultLength": 300000,
+          "supportedLengths": [
+            300000,
+            1000000
+          ]
+        },
+        "id": "gemini-3.8-flash",
+        "maxOutputTokens": 65536,
+        "name": "Gemini-3.8-Flash",
+        "reasoning": {
+          "defaultEffort": "medium",
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true
+      },
+      {
+        "id": "gpt-6-sol",
+        "maxOutputTokens": 128000,
+        "name": "GPT-6-Sol",
+        "reasoning": {
+          "defaultEffort": "high",
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true
+      },
+      {
+        "id": "gpt-6-luna",
+        "maxOutputTokens": 128000,
+        "name": "GPT-6-Luna",
+        "reasoning": {
+          "defaultEffort": "high",
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true
+      },
+      {
+        "contextWindow": {
+          "defaultLength": 272000,
+          "supportedLengths": [
+            272000,
+            600000,
+            1000000
+          ]
+        },
+        "id": "gpt-6.1-sol",
+        "maxOutputTokens": 128000,
+        "name": "GPT-6.1-Sol",
+        "reasoning": {
+          "defaultEffort": "high",
+          "supportedEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
+        },
+        "supportsImages": true,
+        "supportsReasoning": true,
+        "supportsToolCall": true
+      },
+      {
+        "id": "hy-image-3.5",
+        "name": "HY-Image-3.5",
+        "tags": [
+          "text-to-image",
+          "image-to-image"
+        ]
+      },
+      {
+        "id": "kling-video-v3",
+        "name": "Kling-Video-V3",
+        "tags": [
+          "text-to-video",
+          "image-to-video"
+        ]
+      }
+    ],
+    "endpoint": "https://www.codebuddy.ai"
+  },
+  "provenance": {
+    "source": "authenticated official WorkBuddy 5.9.4 v3 product configuration; model and agent fields projected only; account identifiers and credentials omitted",
+    "synthetic": false
+  }
+}

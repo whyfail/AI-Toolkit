@@ -27,10 +27,18 @@ test("模型信息分别显示通道上下文、输出上限与输入能力", ()
   const text = render();
   assert.match(text, /Qoder · 通道参数/);
   assert.match(text, /qoder\/glm-5.3-flash/);
-  assert.match(text, /上下文窗口（默认最大）1M1,000,000 Token/);
+  assert.match(text, /上下文窗口1M1,000,000 Token/);
   assert.match(text, /最大输出128K128,000 Token/);
   assert.match(text, /文本支持图片支持视频代理未开放PDF代理未开放/);
   assert.match(text, /工具调用支持思考输出不支持/);
+});
+
+test("国际目录保留国际代理 ID 与显式版本，默认区域仍为国内", () => {
+  const text = render({ id: "gpt-fixture", upstreamModelIds: ["gpt-fixture-2026"] }, { ...account, region: "intl" });
+  assert.match(text, /Qoder · 国际版 · 通道参数/);
+  assert.match(text, /qoder-intl\/gpt-fixture/);
+  assert.match(text, /目录声明gpt-fixture-2026/);
+  assert.doesNotMatch(render(), /-intl\//);
 });
 
 test("旧快照缺失的能力显示未知，不按模型名称或上下文补出输出上限", () => {
@@ -64,7 +72,7 @@ test("明确不支持与未知分开，缓存数据保持可辨认", () => {
   assert.match(text, /更新于 尚未同步/);
   for (const invalid of [0, -1, 128.5, Infinity, NaN]) {
     const invalidText = render({ contextWindow: invalid, maxOutputTokens: invalid });
-    assert.match(invalidText, /上下文窗口（默认最大）未知通道未提供最大输出未知通道未提供/);
+    assert.match(invalidText, /上下文窗口未知通道未提供最大输出未知通道未提供/);
   }
 });
 

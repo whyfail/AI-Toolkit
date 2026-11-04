@@ -11,14 +11,15 @@ pub struct CreditStore {
 impl CreditStore {
     pub fn new(conn: Arc<Mutex<Connection>>) -> Result<Self, String> {
         let store = Self { conn };
+        migrate_account_regions(&mut store.conn.lock())?;
         store
             .conn
             .lock()
             .execute_batch(
                 "
             CREATE TABLE IF NOT EXISTS credit_accounts (
-                id TEXT PRIMARY KEY, platform TEXT NOT NULL, user_id TEXT NOT NULL,
-                metadata TEXT NOT NULL, UNIQUE(platform, user_id)
+                id TEXT PRIMARY KEY, platform TEXT NOT NULL, region TEXT NOT NULL DEFAULT 'cn',
+                user_id TEXT NOT NULL, metadata TEXT NOT NULL, UNIQUE(platform, region, user_id)
             );
             CREATE TABLE IF NOT EXISTS credit_snapshots (
                 account_id TEXT PRIMARY KEY, snapshot TEXT NOT NULL, updated_at INTEGER NOT NULL
@@ -42,7 +43,7 @@ impl CreditStore {
 
     pub fn accounts(&self) -> Result<Vec<Account>, String> {
         let conn = self.conn.lock();
-        let mut query = conn.prepare("SELECT a.metadata,s.snapshot FROM credit_accounts a LEFT JOIN credit_snapshots s ON s.account_id=a.id ORDER BY a.platform,a.user_id").map_err(db_error)?;
+        let mut query = conn.prepare("SELECT a.metadata,s.snapshot FROM credit_accounts a LEFT JOIN credit_snapshots s ON s.account_id=a.id ORDER BY a.platform,a.region,a.user_id").map_err(db_error)?;
         let rows = query
             .query_map([], |r| {
                 Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
@@ -74,7 +75,8 @@ impl CreditStore {
         let metadata = serde_json::to_string(&meta).map_err(json_error)?;
         let mut conn = self.conn.lock();
         let tx = conn.transaction().map_err(db_error)?;
-        tx.execute("INSERT INTO credit_accounts(id,platform,user_id,metadata) VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET metadata=excluded.metadata", params![account.id, account.platform.key(), account.user_id, metadata]).map_err(db_error)?;
+        tx.execute("INSERT INTO credit_accounts(id,platform,region,user_id,metadata) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET metadata=excluded.metadata WHERE credit_accounts.platform=excluded.platform AND credit_accounts.region=excluded.region AND credit_accounts.user_id=excluded.user_id", params![account.id, account.platform.key(), account.region.key(), account.user_id, metadata]).map_err(db_error)?;
+        if tx.changes() != 1 { return Err("不能更改已保存账号的身份或区域".into()); }
         if let Some(snapshot) = &account.snapshot {
             tx.execute("INSERT INTO credit_snapshots(account_id,snapshot,updated_at) VALUES(?1,?2,?3) ON CONFLICT(account_id) DO UPDATE SET snapshot=excluded.snapshot,updated_at=excluded.updated_at", params![account.id, serde_json::to_string(snapshot).map_err(json_error)?, snapshot.fetched_at]).map_err(db_error)?;
         }
@@ -173,6 +175,43 @@ impl CreditStore {
     }
 }
 
+fn migrate_account_regions(conn: &mut Connection) -> Result<(), String> {
+    let has_accounts: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='credit_accounts')",
+        [], |row| row.get(0),
+    ).map_err(db_error)?;
+    if !has_accounts { return Ok(()); }
+    let has_region = conn.prepare("PRAGMA table_info(credit_accounts)").map_err(db_error)?
+        .query_map([], |row| row.get::<_, String>(1)).map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>().map_err(db_error)?.iter().any(|name| name == "region");
+    if has_region { return Ok(()); }
+
+    // VACUUM INTO includes WAL contents; copying the database file would not.
+    if let Some(db_path) = conn.path().filter(|path| !path.is_empty() && *path != ":memory:") {
+        let directory = std::path::Path::new(db_path).parent()
+            .ok_or_else(|| "积分数据库路径无效".to_string())?.join("backups");
+        let backup = directory.join(format!("credit-regions-v1-{}.db", uuid::Uuid::new_v4()));
+        crate::core::private_fs::prepare_private_file(&backup)
+            .map_err(|_| "无法创建积分区域迁移备份".to_string())?;
+        if let Err(error) = conn.execute("VACUUM INTO ?1", [backup.to_string_lossy().as_ref()]) {
+            let _ = std::fs::remove_file(&backup);
+            return Err(db_error(error));
+        }
+        crate::core::private_fs::secure_file(&backup)
+            .map_err(|_| "无法保护积分区域迁移备份".to_string())?;
+    }
+    let tx = conn.transaction().map_err(db_error)?;
+    tx.execute_batch("CREATE TABLE credit_accounts_regions_v1 (
+        id TEXT PRIMARY KEY, platform TEXT NOT NULL, region TEXT NOT NULL DEFAULT 'cn',
+        user_id TEXT NOT NULL, metadata TEXT NOT NULL, UNIQUE(platform,region,user_id)
+    );
+    INSERT INTO credit_accounts_regions_v1(id,platform,region,user_id,metadata)
+        SELECT id,platform,'cn',user_id,metadata FROM credit_accounts;
+    DROP TABLE credit_accounts;
+    ALTER TABLE credit_accounts_regions_v1 RENAME TO credit_accounts;").map_err(db_error)?;
+    tx.commit().map_err(db_error)
+}
+
 fn db_error(_: rusqlite::Error) -> String {
     "积分数据库操作失败".into()
 }
@@ -190,6 +229,7 @@ mod tests {
         Account {
             id: "one".into(),
             platform: Platform::Workbuddy,
+            region: CreditRegion::Cn,
             user_id: "u1".into(),
             label: "测试".into(),
             enabled: true,
@@ -232,6 +272,60 @@ mod tests {
         assert!(s.save_account(&duplicate).is_err());
         s.delete_account("one").unwrap();
         assert!(s.accounts().unwrap().is_empty());
+    }
+    #[test]
+    fn legacy_accounts_keep_ids_and_regions_are_independent() {
+        let conn = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+        conn.lock().execute_batch("CREATE TABLE credit_accounts(id TEXT PRIMARY KEY,platform TEXT NOT NULL,user_id TEXT NOT NULL,metadata TEXT NOT NULL,UNIQUE(platform,user_id));").unwrap();
+        let mut legacy = serde_json::to_value(account()).unwrap();
+        legacy.as_object_mut().unwrap().remove("region");
+        conn.lock().execute("INSERT INTO credit_accounts VALUES(?1,?2,?3,?4)",
+            params!["one", "workbuddy", "u1", legacy.to_string()]).unwrap();
+        conn.lock().execute_batch("CREATE TABLE credit_snapshots(account_id TEXT PRIMARY KEY,snapshot TEXT NOT NULL,updated_at INTEGER NOT NULL); CREATE TABLE credit_requests(id TEXT PRIMARY KEY,account_id TEXT NOT NULL,summary TEXT NOT NULL,created_at INTEGER NOT NULL);").unwrap();
+        let old_snapshot = serde_json::json!({"balance":123.5,"unit":"credits","quota":null,"packs":[{"id":"original-pack","name":"Original","remaining":123.5,"expiresAt":null}],"rewards":[],"models":[],"fetchedAt":42,"stale":false,"diagnostic":null});
+        let old_request = serde_json::json!({"id":"original-request","accountId":"one","platform":"workbuddy","model":"workbuddy/fixture","elapsedMs":10,"inputTokens":3,"outputTokens":4,"status":"success","createdAt":42});
+        conn.lock().execute("INSERT INTO credit_snapshots VALUES('one',?1,42)", [old_snapshot.to_string()]).unwrap();
+        conn.lock().execute("INSERT INTO credit_requests VALUES('original-request','one',?1,42)", [old_request.to_string()]).unwrap();
+        let s = CreditStore::new(conn.clone()).unwrap();
+        assert_eq!(s.account("one").unwrap().region, CreditRegion::Cn);
+        assert_eq!(s.account("one").unwrap().snapshot.unwrap().balance, Some(123.5));
+        assert_eq!(s.account("one").unwrap().snapshot.unwrap().packs[0].unit, "credits");
+        assert_eq!(s.requests().unwrap()[0].id, "original-request");
+        assert_eq!(s.requests().unwrap()[0].region, CreditRegion::Cn);
+        let mut intl = account();
+        intl.id = "international".into(); intl.region = CreditRegion::Intl;
+        s.save_account(&intl).unwrap();
+        assert_eq!(s.accounts().unwrap().len(), 2);
+        intl.id = "duplicate-international".into();
+        assert!(s.save_account(&intl).is_err());
+        let repeated = CreditStore::new(conn).unwrap();
+        assert_eq!(repeated.accounts().unwrap().len(), 2);
+        let mut changed_identity = account(); changed_identity.region = CreditRegion::Intl;
+        assert!(repeated.save_account(&changed_identity).is_err());
+        assert_eq!(repeated.account("one").unwrap().region, CreditRegion::Cn);
+    }
+
+    #[test]
+    fn file_migration_keeps_a_private_consistent_pre_migration_backup() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("credits.db");
+        let conn = Arc::new(Mutex::new(Connection::open(&path).unwrap()));
+        conn.lock().execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE credit_accounts(id TEXT PRIMARY KEY,platform TEXT NOT NULL,user_id TEXT NOT NULL,metadata TEXT NOT NULL,UNIQUE(platform,user_id)); CREATE TABLE unrelated(value TEXT); INSERT INTO unrelated VALUES('keep');").unwrap();
+        conn.lock().execute("INSERT INTO credit_accounts VALUES(?1,?2,?3,?4)",
+            params!["one", "workbuddy", "u1", serde_json::to_string(&account()).unwrap()]).unwrap();
+        let s = CreditStore::new(conn.clone()).unwrap();
+        CreditStore::new(conn).unwrap();
+        let backups: Vec<_> = std::fs::read_dir(directory.path().join("backups")).unwrap().map(Result::unwrap).collect();
+        assert_eq!(backups.len(), 1);
+        let backup = Connection::open(backups[0].path()).unwrap();
+        assert_eq!(backup.query_row("SELECT value FROM unrelated", [], |r| r.get::<_, String>(0)).unwrap(), "keep");
+        assert_eq!(backup.query_row("SELECT id FROM credit_accounts", [], |r| r.get::<_, String>(0)).unwrap(), "one");
+        assert!(backup.prepare("SELECT region FROM credit_accounts").is_err());
+        assert_eq!(s.account("one").unwrap().id, "one");
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(backups[0].metadata().unwrap().permissions().mode() & 0o777, 0o600);
+        }
     }
     #[test]
     fn settings_reject_zero_port() {

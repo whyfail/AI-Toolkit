@@ -603,6 +603,7 @@ mod tests {
         Account {
             id: "a".into(),
             platform: Platform::Qoder,
+            region: CreditRegion::Cn,
             user_id: "test".into(),
             label: "test".into(),
             enabled: true,
@@ -747,6 +748,7 @@ mod tests {
             .save_credentials(
                 id,
                 &Credentials {
+                    region: CreditRegion::Cn,
                     access_token: "synthetic-test-token".into(),
                     refresh_token: None,
                     user_id: None,

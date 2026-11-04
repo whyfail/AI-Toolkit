@@ -1,4 +1,4 @@
-use crate::credits::types::Credentials;
+use crate::credits::types::{Credentials, CreditRegion};
 use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
 use base64::Engine;
 use serde_json::{json, Value};
@@ -11,6 +11,7 @@ const DEVICE_PREFIX: &str = "iCubeAuthInfo://icube-dc:";
 // Public byteCrypto format constants from TRAE CN 3.4.2's packaged
 // out/main.js, vs/base/common/byteCrypto.js (line 1192). These are the XORs
 // of the bundled ule/dle and cle/lle tables, not user credentials or keys.
+// The international 3.6.13 Hue/Vue and zue/que tables produce the same bytes.
 const AES_HEADER: [u8; 6] = [116, 99, 5, 16, 0, 0];
 const PRIVATE_HEADER: [u8; 6] = [18, 57, 32, 32, 2, 3];
 const AES_FORMAT: [u8; 64] = [
@@ -29,16 +30,16 @@ const PRIVATE_FORMAT: [u8; 64] = [
 fn decode_blob(encoded: &str) -> Result<Vec<u8>, String> {
     let mut bytes = base64::engine::general_purpose::STANDARD
         .decode(encoded)
-        .map_err(|_| "TRAE CN 桌面凭据不是有效的 Base64".to_string())?;
+        .map_err(|_| "TRAE 桌面凭据不是有效的 Base64".to_string())?;
     if bytes.len() < 54 || (bytes.len() - 38) % 16 != 0 {
-        return Err("TRAE CN 桌面凭据长度无效".into());
+        return Err("TRAE 桌面凭据长度无效".into());
     }
     let format = if bytes.starts_with(&AES_HEADER) {
         &AES_FORMAT
     } else if bytes.starts_with(&PRIVATE_HEADER) {
         &PRIVATE_FORMAT
     } else {
-        return Err("TRAE CN 桌面凭据加密格式不支持".into());
+        return Err("TRAE 桌面凭据加密格式不支持".into());
     };
     // SHA512(SHA512(seed32) || format64), then AES-128-CBC/PKCS7.
     let seed_hash = Sha512::digest(&bytes[6..38]);
@@ -48,22 +49,22 @@ fn decode_blob(encoded: &str) -> Result<Vec<u8>, String> {
     let derived = derivation.finalize();
     let plaintext =
         cbc::Decryptor::<aes::Aes128>::new_from_slices(&derived[..16], &derived[16..32])
-            .map_err(|_| "TRAE CN 桌面凭据密钥格式无效".to_string())?
+            .map_err(|_| "TRAE 桌面凭据密钥格式无效".to_string())?
             .decrypt_padded_mut::<Pkcs7>(&mut bytes[38..])
-            .map_err(|_| "TRAE CN 桌面凭据解密失败".to_string())?;
+            .map_err(|_| "TRAE 桌面凭据解密失败".to_string())?;
     if plaintext.len() < 64 {
-        return Err("TRAE CN 桌面凭据校验信息缺失".into());
+        return Err("TRAE 桌面凭据校验信息缺失".into());
     }
     let (checksum, body) = plaintext.split_at(64);
     if checksum != Sha512::digest(body).as_slice() {
-        return Err("TRAE CN 桌面凭据完整性校验失败".into());
+        return Err("TRAE 桌面凭据完整性校验失败".into());
     }
     Ok(body.to_vec())
 }
 
 fn decode_json(encoded: &str) -> Result<Value, String> {
     serde_json::from_slice(&decode_blob(encoded)?)
-        .map_err(|_| "TRAE CN 桌面凭据内容不是有效 JSON".into())
+        .map_err(|_| "TRAE 桌面凭据内容不是有效 JSON".into())
 }
 
 fn string(value: &Value, key: &str) -> Option<String> {
@@ -80,36 +81,32 @@ fn expiration(value: &Value, key: &str) -> Result<Option<i64>, String> {
     };
     let date = raw
         .as_str()
-        .ok_or_else(|| "TRAE CN 桌面凭据有效期格式无效".to_string())?;
+        .ok_or_else(|| "TRAE 桌面凭据有效期格式无效".to_string())?;
     chrono::DateTime::parse_from_rfc3339(date)
         .map(|date| Some(date.timestamp_millis()))
-        .map_err(|_| "TRAE CN 桌面凭据有效期格式无效".to_string())
+        .map_err(|_| "TRAE 桌面凭据有效期格式无效".to_string())
 }
 
+#[cfg(test)]
 fn personal_api_base(host: &str) -> Result<&'static str, String> {
-    let url = reqwest::Url::parse(host).map_err(|_| "TRAE CN 桌面凭据账号区域无效".to_string())?;
-    if url.scheme() != "https"
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.port().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-        || url.path() != "/"
-    {
-        return Err("TRAE CN 桌面凭据账号区域无效".into());
-    }
-    match url.host_str() {
-        Some("api.trae.cn" | "www.trae.cn" | "trae.cn") => Ok("https://api.trae.cn"),
-        Some("api.trae.com.cn" | "www.trae.com.cn" | "trae.com.cn") => {
-            Ok("https://api.trae.com.cn")
-        }
-        _ => Err("TRAE CN 桌面凭据不属于支持的国内官方账号区域".into()),
-    }
+    personal_api_base_for_region(host, CreditRegion::Cn)
+}
+fn personal_api_base_for_region(host: &str, region: CreditRegion) -> Result<&'static str, String> {
+    super::traework::allowed_account_origin(region, host)
+        .ok_or_else(|| "TRAE 桌面凭据不属于所选版本的官方账号区域".to_string())
 }
 
+#[cfg(test)]
 fn credentials_from_storage(
     storage: &Value,
     metadata: Option<&Value>,
+) -> Result<Option<Credentials>, String> {
+    credentials_from_storage_for_region(storage, metadata, CreditRegion::Cn)
+}
+fn credentials_from_storage_for_region(
+    storage: &Value,
+    metadata: Option<&Value>,
+    region: CreditRegion,
 ) -> Result<Option<Credentials>, String> {
     let Some(encoded) = storage.get(AUTH_KEY) else {
         return Ok(None);
@@ -117,32 +114,41 @@ fn credentials_from_storage(
     let encoded = encoded
         .as_str()
         .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| "TRAE CN 桌面登录凭据为空或格式无效".to_string())?;
+        .ok_or_else(|| "TRAE 桌面登录凭据为空或格式无效".to_string())?;
     let info = decode_json(encoded)?;
-    credentials_from_info(&info, storage, metadata).map(Some)
+    credentials_from_info_for_region(&info, storage, metadata, region).map(Some)
 }
 
+#[cfg(test)]
 fn credentials_from_info(
     info: &Value,
     storage: &Value,
     metadata: Option<&Value>,
 ) -> Result<Credentials, String> {
+    credentials_from_info_for_region(info, storage, metadata, CreditRegion::Cn)
+}
+fn credentials_from_info_for_region(
+    info: &Value,
+    storage: &Value,
+    metadata: Option<&Value>,
+    region: CreditRegion,
+) -> Result<Credentials, String> {
     let account = info
         .get("account")
         .filter(|account| account.is_object())
-        .ok_or_else(|| "TRAE CN 桌面凭据缺少账号信息".to_string())?;
+        .ok_or_else(|| "TRAE 桌面凭据缺少账号信息".to_string())?;
     if string(account, "scope").as_deref() != Some("marscode") {
-        return Err("TRAE CN 当前桌面账号不是受支持的个人账号".into());
+        return Err("TRAE 当前桌面账号不是受支持的个人账号".into());
     }
     let access_token =
-        string(&info, "token").ok_or_else(|| "TRAE CN 桌面凭据缺少访问令牌".to_string())?;
+        string(&info, "token").ok_or_else(|| "TRAE 桌面凭据缺少访问令牌".to_string())?;
     let user_id =
-        string(&info, "userId").ok_or_else(|| "TRAE CN 桌面凭据缺少账号身份".to_string())?;
-    let host = string(&info, "host").ok_or_else(|| "TRAE CN 桌面凭据缺少账号区域".to_string())?;
+        string(&info, "userId").ok_or_else(|| "TRAE 桌面凭据缺少账号身份".to_string())?;
+    let host = string(&info, "host").ok_or_else(|| "TRAE 桌面凭据缺少账号区域".to_string())?;
     let expires_at = expiration(&info, "expiredAt")?;
     let mut extra = json!({
-        "credentialSource": "desktop", "scope": "marscode", "apiBase": personal_api_base(&host)?,
-        "account": account, "label": string(account, "username").unwrap_or_else(|| format!("TRAE CN {user_id}")),
+        "credentialSource": "desktop", "scope": "marscode", "apiBase": personal_api_base_for_region(&host, region)?,
+        "account": account, "label": string(account, "username").unwrap_or_else(|| format!("TRAE {user_id}")),
         "platformCode": "IDE_PC"
     });
     if let Some(region) = info.get("userRegion") {
@@ -200,43 +206,67 @@ fn credentials_from_info(
             }
         }
     }
-    Ok(Credentials {
+    let mut credentials = Credentials {
+        region,
         access_token,
         refresh_token: string(&info, "refreshToken"),
         user_id: Some(user_id),
         device_id,
         expires_at,
         extra,
-    })
+    };
+    super::traework::apply_user_region(&mut credentials, info);
+    Ok(credentials)
 }
 
 fn cn_storage_path() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or_else(|| "无法获取 TRAE CN 用户目录".to_string())?;
+    storage_path(CreditRegion::Cn)
+}
+fn storage_path(region: CreditRegion) -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or_else(|| "无法获取 TRAE 用户目录".to_string())?;
+    let application = if region == CreditRegion::Cn {
+        "Trae CN"
+    } else {
+        "Trae"
+    };
     #[cfg(target_os = "macos")]
-    let root = home.join("Library/Application Support/Trae CN");
+    let root = home.join("Library/Application Support").join(application);
     #[cfg(target_os = "windows")]
     let root = std::env::var("APPDATA")
         .ok()
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join("AppData/Roaming"))
-        .join("Trae CN");
+        .join(application);
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let root = std::env::var("XDG_CONFIG_HOME")
         .ok()
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".config"))
-        .join("Trae CN");
+        .join(application);
     Ok(root.join("User/globalStorage/storage.json"))
 }
 
 fn cn_product_metadata() -> Option<Value> {
+    product_metadata(CreditRegion::Cn)
+}
+fn product_metadata(region: CreditRegion) -> Option<Value> {
     #[cfg(target_os = "macos")]
-    let path = PathBuf::from("/Applications/Trae CN.app/Contents/Resources/app/product.json");
+    let path = PathBuf::from(if region == CreditRegion::Cn {
+        "/Applications/Trae CN.app"
+    } else {
+        "/Applications/Trae.app"
+    })
+    .join("Contents/Resources/app/product.json");
     #[cfg(target_os = "windows")]
-    let path =
-        crate::services::local_detection::find_app_executable_windows(&crate::mcp::AppType::TraeCn)?
-            .parent()?
-            .join("resources/app/product.json");
+    let path = crate::services::local_detection::find_app_executable_windows(&if region
+        == CreditRegion::Cn
+    {
+        crate::mcp::AppType::TraeCn
+    } else {
+        crate::mcp::AppType::Trae
+    })?
+    .parent()?
+    .join("resources/app/product.json");
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     return None;
     #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -244,18 +274,37 @@ fn cn_product_metadata() -> Option<Value> {
 }
 
 fn read_credentials(path: &Path, metadata: Option<&Value>) -> Result<Option<Credentials>, String> {
+    read_credentials_for_region(path, metadata, CreditRegion::Cn)
+}
+pub(super) fn read_credentials_for_region(
+    path: &Path,
+    metadata: Option<&Value>,
+    region: CreditRegion,
+) -> Result<Option<Credentials>, String> {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return Err("无法读取 TRAE CN 桌面登录凭据文件".into()),
+        Err(_) => return Err("无法读取 TRAE 桌面登录凭据文件".into()),
     };
     let storage: Value = serde_json::from_slice(&bytes)
-        .map_err(|_| "TRAE CN 桌面登录凭据文件格式无效".to_string())?;
-    credentials_from_storage(&storage, metadata)
+        .map_err(|_| "TRAE 桌面登录凭据文件格式无效".to_string())?;
+    credentials_from_storage_for_region(&storage, metadata, region)
 }
 
 pub(super) fn local_credentials() -> Result<Option<Credentials>, String> {
     read_credentials(&cn_storage_path()?, cn_product_metadata().as_ref())
+}
+pub(super) fn local_credentials_for_region(
+    region: CreditRegion,
+) -> Result<Option<Credentials>, String> {
+    match region {
+        CreditRegion::Cn => local_credentials(),
+        CreditRegion::Intl => read_credentials_for_region(
+            &storage_path(region)?,
+            product_metadata(region).as_ref(),
+            region,
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -272,6 +321,41 @@ mod tests {
     fn metadata() -> Value {
         json!({"appVersion":"3.4.2", "version":"1.107.1", "quality":"stable",
             "iCubeApp":{"authConfig":{"TRAE":{"stable":"public-test-client"}}}})
+    }
+
+    #[test]
+    fn international_desktop_credentials_keep_the_selected_edition_and_server_region() {
+        let mut info = decode_json(AUTH_FIXTURE).unwrap();
+        info["host"] = json!("https://growsg-normal.trae.ai");
+        info["account"]["storeRegion"] = json!("US");
+        info["userRegion"] = json!({"region":"US", "_aiRegion":"US"});
+        let c = credentials_from_info_for_region(
+            &info,
+            &json!({}),
+            Some(&metadata()),
+            CreditRegion::Intl,
+        )
+        .unwrap();
+        assert_eq!(c.region, CreditRegion::Intl);
+        assert_eq!(c.extra["apiBase"], "https://growsg-normal.trae.ai");
+        assert_eq!(c.extra["aiApiBase"], "https://coreva-normal.trae.ai");
+        assert_eq!(c.extra["ugApiBase"], "https://growva-normal.trae.ai");
+        assert!(
+            credentials_from_info_for_region(&info, &json!({}), None, CreditRegion::Cn).is_err()
+        );
+        info["host"] = json!("https://api.trae.cn");
+        assert!(
+            credentials_from_info_for_region(&info, &json!({}), None, CreditRegion::Intl).is_err()
+        );
+    }
+
+    #[test]
+    fn desktop_paths_are_isolated_by_edition() {
+        let cn = storage_path(CreditRegion::Cn).unwrap();
+        let intl = storage_path(CreditRegion::Intl).unwrap();
+        assert_ne!(cn, intl);
+        assert!(cn.ends_with("Trae CN/User/globalStorage/storage.json"));
+        assert!(intl.ends_with("Trae/User/globalStorage/storage.json"));
     }
 
     #[test]

@@ -1,0 +1,35 @@
+{
+  "provenance": {
+    "synthetic": true,
+    "description": "Synthetic identities and quotas matching public official Qoder CLI 1.1.81 and international activity script field contracts; no account traffic captured.",
+    "oauth": "Official international CLI 1.1.81 production configuration",
+    "activity": "https://docs.qoder.com/events/100credits",
+    "activityScript": "https://g.alicdn.com/qbase/qoder/0.0.746/growth-page/activity-iframe/activity-iframe.js"
+  },
+  "token": {
+    "access_token": "synthetic",
+    "refreshToken": "next",
+    "expires_in": 3600
+  },
+  "quota": {
+    "unit": "credits",
+    "expires_at": 1900000000,
+    "user_quota": {
+      "remaining": 5
+    },
+    "add_on_quota": {
+      "remaining": 7,
+      "expires_at": 1950000000
+    },
+    "shared_quota": {
+      "remaining": 9
+    },
+    "dedicated_resource_packages": [
+      {
+        "id": "pack",
+        "remaining": 11,
+        "unit": "USD"
+      }
+    ]
+  }
+}

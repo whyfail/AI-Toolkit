@@ -9,6 +9,43 @@ use rsa::{pkcs8::DecodePublicKey, Pkcs1v15Encrypt, RsaPublicKey};
 pub(super) const API: &str = "https://openapi.qoder.com.cn";
 const GATEWAY: &str = "https://gateway.qoder.com.cn";
 pub(super) const CLIENT_ID: &str = "732aef47-9cf2-46a2-95fe-4cebb5d0d1fa";
+// Official qodercli 1.1.81 production endpoints. The international infer
+// endpoint defaults to Singapore; authentication never probes another region.
+pub(super) fn api_base(c: &Credentials) -> &'static str {
+    match c.region {
+        CreditRegion::Cn => API,
+        CreditRegion::Intl => "https://openapi.qoder.sh",
+    }
+}
+fn gateway_base(c: &Credentials) -> &'static str {
+    match c.region {
+        CreditRegion::Cn => GATEWAY,
+        CreditRegion::Intl => "https://api2.qoder.sh",
+    }
+}
+pub(super) fn client_id(region: CreditRegion) -> &'static str {
+    match region {
+        CreditRegion::Cn => CLIENT_ID,
+        CreditRegion::Intl => "e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb",
+    }
+}
+pub(super) fn auth_base(region: CreditRegion) -> &'static str {
+    match region {
+        CreditRegion::Cn => "https://qoder.cn",
+        CreditRegion::Intl => "https://qoder.com",
+    }
+}
+pub(super) fn token_credentials(v: &Value, previous: &Credentials) -> Result<Credentials, ProviderError> {
+    let mut c = credentials(v, previous, &["token", "device_token", "access_token"], &["refresh_token", "refreshToken"])?;
+    c.expires_at = ["expires_at", "expiresAt", "expire_time", "expireTime"]
+        .iter()
+        .find_map(|key| v.get(*key).and_then(epoch))
+        .or_else(|| num(v, &["expires_in", "expiresIn"])
+            .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
+            .map(|seconds| now_ms().saturating_add((seconds * 1000.0) as i64)))
+        .or(previous.expires_at);
+    Ok(c)
+}
 const PUBKEY:&str="-----BEGIN PUBLIC KEY-----\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDA8iMH5c02LilrsERw9t6Pv5Nc\n4k6Pz1EaDicBMpdpxKduSZu5OANqUq8er4GM95omAGIOPOh+Nx0spthYA2BqGz+l\n6HRkPJ7S236FZz73In/KVuLnwI8JJ2CbuJap8kvheCCZpmAWpb/cPx/3Vr/J6I17\nXcW+ML9FoCI6AOvOzwIDAQAB\n-----END PUBLIC KEY-----";
 pub(super) fn headers(r: RequestBuilder, c: &Credentials) -> RequestBuilder {
     r.bearer_auth(&c.access_token)
@@ -74,39 +111,54 @@ pub(super) async fn authenticate(
     client: &ProviderClient,
     c: &Credentials,
 ) -> Result<(String, String, Credentials), ProviderError> {
+    authenticate_at(client, c, api_base(c)).await
+}
+async fn authenticate_at(
+    client: &ProviderClient,
+    c: &Credentials,
+    api: &str,
+) -> Result<(String, String, Credentials), ProviderError> {
     let mut c = c.clone();
     if c.access_token.starts_with("pt-") {
         let v = client
             .json(
                 client
                     .http
-                    .post(format!("{API}/api/v1/jobToken/exchange"))
+                    .post(format!("{api}/api/v1/jobToken/exchange"))
                     .json(&json!({"personal_token":c.access_token})),
             )
             .await?;
-        c = credentials(data(&v), &c, &["token"], &["refresh_token"])?;
+        c = token_credentials(data(&v), &c)?;
     }
     let v = client
         .json(headers(
-            client.http.get(format!("{API}/api/v1/userinfo")),
+            client.http.get(format!("{api}/api/v1/userinfo")),
             &c,
         ))
         .await?;
     let d = data(&v);
-    let uid = text(d, &["id", "user_id", "uid"])
+    let uid = text(d, &["id", "user_id", "userId", "uid"])
         .ok_or_else(|| ProviderError::new(502, "Qoder 未返回账号身份"))?;
     let label = text(d, &["name", "username"]).unwrap_or_else(|| format!("Qoder {uid}"));
     c.user_id = Some(uid.clone());
     if c.device_id.is_none() {
         c.device_id = Some(uuid::Uuid::new_v4().to_string());
     }
-    c.extra = d.clone();
+    if !c.extra.is_object() {
+        c.extra = json!({});
+    }
+    if let Some(info) = d.as_object() {
+        c.extra.as_object_mut().unwrap().extend(info.clone());
+    }
     Ok((uid, label, c))
 }
 pub(super) async fn refresh(
     client: &ProviderClient,
     c: &Credentials,
 ) -> Result<Credentials, ProviderError> {
+    refresh_at(client, c, api_base(c)).await
+}
+async fn refresh_at(client: &ProviderClient, c: &Credentials, api: &str) -> Result<Credentials, ProviderError> {
     let rt = c
         .refresh_token
         .as_ref()
@@ -116,19 +168,21 @@ pub(super) async fn refresh(
     } else {
         "deviceToken/refresh"
     };
+    let mut body = json!({"refresh_token":rt});
+    if path == "deviceToken/refresh" {
+        if let Some(machine) = &c.device_id {
+            body["machine_id"] = json!(machine);
+        }
+    }
     let v = client
         .json(
             client
                 .http
-                .post(format!("{API}/api/v1/{path}"))
-                .json(&json!({"refresh_token":rt})),
+                .post(format!("{api}/api/v1/{path}"))
+                .json(&body),
         )
         .await?;
-    let mut new = credentials(data(&v), c, &["token", "device_token"], &["refresh_token"])?;
-    if let Some(ms) = num(data(&v), &["expires_in"]) {
-        new.expires_at = Some(now_ms() + ms as i64)
-    }
-    Ok(new)
+    token_credentials(data(&v), c)
 }
 fn encode(plain: &[u8]) -> String {
     let s = STANDARD.encode(plain);
@@ -172,7 +226,7 @@ fn signed(
             .encrypt(&mut rand::rngs::OsRng, Pkcs1v15Encrypt, key.as_bytes())
             .map_err(|_| ProviderError::new(500, "Qoder 签名失败"))?,
     );
-    let identity = json!({"name":text(&c.extra,&["name"]).unwrap_or_default(),"aid":c.user_id.as_deref().unwrap_or(""),"uid":c.user_id.as_deref().unwrap_or(""),"yx_uid":"","organization_id":text(&c.extra,&["organization_id"]).unwrap_or_default(),"organization_name":text(&c.extra,&["organization_name"]).unwrap_or_default(),"user_type":text(&c.extra,&["user_type"]).unwrap_or("personal_standard".into()),"security_oauth_token":c.access_token,"refresh_token":c.refresh_token.as_deref().unwrap_or("")});
+    let identity = json!({"name":text(&c.extra,&["name"]).unwrap_or_default(),"aid":c.user_id.as_deref().unwrap_or(""),"uid":c.user_id.as_deref().unwrap_or(""),"yx_uid":"","organization_id":text(&c.extra,&["organization_id", "organizationId"]).unwrap_or_default(),"organization_name":text(&c.extra,&["organization_name", "organizationName"]).unwrap_or_default(),"user_type":text(&c.extra,&["user_type", "userType"]).unwrap_or("personal_standard".into()),"security_oauth_token":c.access_token,"refresh_token":c.refresh_token.as_deref().unwrap_or("")});
     let info = STANDARD.encode(
         cbc::Encryptor::<aes::Aes128>::new_from_slices(key.as_bytes(), key.as_bytes())
             .map_err(|_| ProviderError::new(500, "Qoder 加密失败"))?
@@ -282,7 +336,7 @@ fn display_slug(name: &str) -> Option<String> {
     (!slug.is_empty()).then_some(slug)
 }
 pub(super) async fn models(client: &ProviderClient, c: &Credentials) -> Result<Vec<ModelInfo>, ProviderError> {
-    let url = format!("{GATEWAY}/algo/api/v2/model/list?Encode=1");
+    let url = format!("{}/algo/api/v2/model/list?Encode=1", gateway_base(c));
     let r = signed(client.http.get(&url), c, encode(b"{}"), &url, None)?;
     let v = client.json(r.header("Accept", "application/json")).await?;
     let ms = parse_models(&v);
@@ -297,27 +351,30 @@ pub(super) async fn models(client: &ProviderClient, c: &Credentials) -> Result<V
 fn parse_packs(v: &Value) -> Vec<CreditPack> {
     let d = data(v);
     let mut out = vec![];
-    for (name, key) in [
-        ("套餐积分", "userQuota"),
-        ("附加积分", "addOnQuota"),
-        ("组织积分", "orgResourcePackage"),
+    for (name, key, aliases) in [
+        ("套餐积分", "userQuota", &["userQuota", "user_quota"][..]),
+        ("附加积分", "addOnQuota", &["addOnQuota", "add_on_quota"][..]),
+        ("组织积分", "orgResourcePackage", &["orgResourcePackage", "org_resource_package", "sharedQuota", "shared_quota"][..]),
     ] {
-        if let Some(p) = d.get(key).filter(|p| p.is_object()) {
+        if let Some(p) = aliases.iter().find_map(|key| d.get(*key).filter(|p| p.is_object())) {
             out.push(CreditPack {
+                unit: text(p, &["unit"]).or_else(|| text(d, &["unit"])).unwrap_or("credits".into()),
                 id: key.into(),
                 name: name.into(),
                 remaining: num(p, &["remaining"]),
-                expires_at: d.get("expiresAt").and_then(epoch),
+                expires_at: p.get("expiresAt").or_else(|| p.get("expires_at")).and_then(epoch)
+                    .or_else(|| (key == "userQuota").then(|| d.get("expiresAt").or_else(|| d.get("expires_at")).and_then(epoch)).flatten()),
             });
         }
     }
-    if let Some(ps) = d["dedicatedResourcePackages"].as_array() {
+    if let Some(ps) = d.get("dedicatedResourcePackages").or_else(|| d.get("dedicated_resource_packages")).and_then(Value::as_array) {
         for (i, p) in ps.iter().enumerate() {
             out.push(CreditPack {
-                id: format!("dedicated-{i}"),
+                unit: text(p, &["unit"]).or_else(|| text(d, &["unit"])).unwrap_or("credits".into()),
+                id: text(p, &["id"]).unwrap_or_else(|| format!("dedicated-{i}")),
                 name: text(p, &["name"]).unwrap_or("赠送积分包".into()),
                 remaining: num(p, &["remaining"]),
-                expires_at: p.get("expiresAt").and_then(epoch),
+                expires_at: p.get("expiresAt").or_else(|| p.get("expires_at")).and_then(epoch),
             });
         }
     }
@@ -423,7 +480,7 @@ fn parse_rewards(v: &Value) -> Vec<Reward> {
     out
 }
 pub(super) async fn rewards(client: &ProviderClient, c: &Credentials) -> Result<Vec<Reward>, ProviderError> {
-    rewards_at(client, c, API).await
+    rewards_at(client, c, api_base(c)).await
 }
 async fn rewards_at(
     client: &ProviderClient,
@@ -441,7 +498,7 @@ async fn rewards_at(
     Ok(parse_rewards(&v))
 }
 pub(super) async fn balance(client: &ProviderClient, c: &Credentials) -> Result<ProviderSnapshot, ProviderError> {
-    let usage = client.json(headers(client.http.get(format!("{API}/api/v2/quota/usage")), c)).await?;
+    let usage = client.json(headers(client.http.get(format!("{}/api/v2/quota/usage", api_base(c))), c)).await?;
     Ok(snapshot(parse_packs(&usage), vec![], vec![], None))
 }
 pub(super) async fn inspect(
@@ -450,7 +507,7 @@ pub(super) async fn inspect(
 ) -> Result<ProviderSnapshot, ProviderError> {
     let (p, r, m) = tokio::join!(
         client.json(headers(
-            client.http.get(format!("{API}/api/v2/quota/usage")),
+            client.http.get(format!("{}/api/v2/quota/usage", api_base(c))),
             c
         )),
         rewards(client, c),
@@ -478,7 +535,7 @@ pub(super) async fn claim(
     a: &Account,
     c: &Credentials,
 ) -> Result<Vec<RewardOutcome>, ProviderError> {
-    claim_at(client, a, c, API, super::qoder_identity::helper_path()).await
+    claim_at(client, a, c, api_base(c), super::qoder_identity::helper_path(c.region)).await
 }
 async fn claim_at(
     client: &ProviderClient,
@@ -494,7 +551,7 @@ async fn claim_at(
         .any(|r| r.status == "claimable" && r.kind == "credits")
     {
         match helper {
-            Some(path) => super::qoder_identity::proof(path, &a.user_id).await?,
+            Some(path) => super::qoder_identity::proof(path, &a.user_id, c.region).await?,
             None => reqwest::header::HeaderMap::new(),
         }
     } else {
@@ -539,7 +596,7 @@ async fn claim_at(
                     urlencoding::encode(&r.id)
                 );
                 let confirmed = campaign_json(
-                    campaign_headers(client.http.get(reward_url), c).headers(proof.clone()),
+                    campaign_headers(client.http.get(reward_url), c).headers(proof.clone()).header("Cache-Control", "no-cache"),
                 )
                 .await
                 .ok()
@@ -671,8 +728,8 @@ pub(super) async fn chat(
     let upstream = m.upstream_id.as_deref().unwrap_or(&m.id);
     let mut b = prepare_chat_body(m, b)?;
     b["aliyun_user_type"] =
-        json!(text(&c.extra, &["user_type"]).unwrap_or("personal_standard".into()));
-    let url=format!("{GATEWAY}/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1");
+        json!(text(&c.extra, &["user_type", "userType"]).unwrap_or("personal_standard".into()));
+    let url=format!("{}/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1", gateway_base(c));
     let r = signed(
         client.http.post(&url),
         c,
@@ -687,6 +744,118 @@ pub(super) async fn chat(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn account_region_selects_all_official_qoder_origins() {
+        let mut c = empty_credentials();
+        assert_eq!(api_base(&c), "https://openapi.qoder.com.cn");
+        assert_eq!(gateway_base(&c), "https://gateway.qoder.com.cn");
+        assert_eq!(client_id(c.region), CLIENT_ID);
+        assert_eq!(auth_base(c.region), "https://qoder.cn");
+        c.region = CreditRegion::Intl;
+        assert_eq!(api_base(&c), "https://openapi.qoder.sh");
+        assert_eq!(gateway_base(&c), "https://api2.qoder.sh");
+        assert_eq!(client_id(c.region), "e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb");
+        assert_eq!(auth_base(c.region), "https://qoder.com");
+        c.access_token = "synthetic-access-token".into();
+        c.device_id = Some("synthetic-device".into());
+        for region in [CreditRegion::Cn, CreditRegion::Intl] {
+            c.region = region;
+            let url = format!("{}/algo/api/v2/model/list?Encode=1", gateway_base(&c));
+            let r = signed(Client::new().get(&url), &c, encode(b"{}"), &url, None).unwrap().build().unwrap();
+            assert_eq!(r.url().as_str(), url);
+            assert!(r.headers()["authorization"].to_str().unwrap().starts_with("Bearer COSY."));
+        }
+    }
+    #[test]
+    fn oauth_and_refresh_token_shapes_keep_region_and_use_seconds_for_duration() {
+        let mut previous = empty_credentials();
+        previous.region = CreditRegion::Intl;
+        previous.extra = json!({"savedMetadata": "keep"});
+        let now = now_ms();
+        let fixture: Value = serde_json::from_str(include_str!("fixtures/qoder_intl.json")).unwrap();
+        let relative = token_credentials(&fixture["token"], &previous).unwrap();
+        assert_eq!(relative.region, CreditRegion::Intl);
+        assert_eq!(relative.extra, previous.extra);
+        assert_eq!(relative.refresh_token.as_deref(), Some("next"));
+        assert!(relative.expires_at.unwrap() >= now + 3_600_000);
+        assert!(relative.expires_at.unwrap() <= now_ms() + 3_600_000);
+        for (key, value) in [
+            ("expires_at", json!(1_900_000_000)),
+            ("expiresAt", json!(1_900_000_000_000i64)),
+            ("expire_time", json!("1900000000")),
+            ("expireTime", json!("2030-03-17T17:46:40Z")),
+        ] {
+            let mut v = json!({"device_token":"synthetic"});
+            v[key] = value;
+            assert_eq!(token_credentials(&v, &previous).unwrap().expires_at, Some(1_900_000_000_000));
+        }
+        assert!(token_credentials(&json!({"expires_at":1_900_000_000}), &previous).is_err());
+    }
+    #[tokio::test]
+    async fn international_pat_authentication_and_device_refresh_preserve_identity() {
+        use axum::{extract::State, http::Request, Json, Router};
+        let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let app = Router::new().fallback(|State(calls): State<Arc<std::sync::Mutex<Vec<String>>>>, request: Request<axum::body::Body>| async move {
+            let path = request.uri().path().to_owned();
+            calls.lock().unwrap().push(path.clone());
+            let v = match path.as_str() {
+                "/api/v1/jobToken/exchange" => {
+                    let body = axum::body::to_bytes(request.into_body(), 4096).await.unwrap();
+                    assert_eq!(serde_json::from_slice::<Value>(&body).unwrap()["personal_token"], "pt-synthetic");
+                    json!({"token":"synthetic-job", "refresh_token":"jrt-synthetic", "expires_at":1_900_000_000})
+                }
+                "/api/v1/userinfo" => {
+                    assert_eq!(request.headers()["authorization"], "Bearer synthetic-job");
+                    json!({"id":"synthetic-user", "name":"Fixture", "user_type":"personal_standard"})
+                }
+                "/api/v1/deviceToken/refresh" => {
+                    let body = axum::body::to_bytes(request.into_body(), 4096).await.unwrap();
+                    let body: Value = serde_json::from_slice(&body).unwrap();
+                    assert_eq!(body["refresh_token"], "synthetic-device-refresh");
+                    assert_eq!(body["machine_id"], "saved-device");
+                    json!({"device_token":"new-device-token", "expiresAt":1_900_000_000_000i64})
+                }
+                _ => panic!("unexpected request: {path}"),
+            };
+            Json(v)
+        }).with_state(calls.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let api = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async { axum::serve(listener, app).await.unwrap(); });
+        let mut client = ProviderClient::new();
+        client.http = Client::builder().no_proxy().build().unwrap();
+        let mut c = empty_credentials();
+        c.region = CreditRegion::Intl;
+        c.access_token = "pt-synthetic".into();
+        c.device_id = Some("saved-device".into());
+        c.extra = json!({"savedMetadata":"keep"});
+        let (uid, _, mut c) = authenticate_at(&client, &c, &api).await.unwrap();
+        assert_eq!(uid, "synthetic-user");
+        assert_eq!(c.region, CreditRegion::Intl);
+        assert_eq!(c.extra["savedMetadata"], "keep");
+        assert_eq!(c.extra["name"], "Fixture");
+        assert_eq!(c.expires_at, Some(1_900_000_000_000));
+        c.refresh_token = Some("synthetic-device-refresh".into());
+        let c = refresh_at(&client, &c, &api).await.unwrap();
+        assert_eq!(c.region, CreditRegion::Intl);
+        assert_eq!(c.access_token, "new-device-token");
+        assert_eq!(c.device_id.as_deref(), Some("saved-device"));
+        assert_eq!(calls.lock().unwrap().len(), 3);
+        server.abort();
+    }
+    #[test]
+    fn international_quota_aliases_preserve_each_pack_unit_and_expiry() {
+        let fixture: Value = serde_json::from_str(include_str!("fixtures/qoder_intl.json")).unwrap();
+        let ps = parse_packs(&fixture["quota"]);
+        assert_eq!(ps.len(), 4);
+        assert_eq!(ps[0].expires_at, Some(1_900_000_000_000));
+        assert_eq!(ps[1].expires_at, Some(1_950_000_000_000));
+        assert_eq!(ps[2].expires_at, None);
+        assert_eq!(ps[3].unit, "USD");
+        assert_eq!(ps[3].id, "pack");
+        assert_eq!(ps[3].remaining, Some(11.0));
+        assert_eq!(parse_packs(&json!({"user_quota":{"percentage":42}}))[0].remaining, None);
+    }
     #[test]
     fn reasoning_levels_use_thinking_configuration_instead_of_the_reasoning_badge() {
         let models = parse_models(&json!({"chat":[
@@ -729,7 +898,10 @@ mod tests {
         assert_eq!(models[0].upstream_model_ids, vec!["deepseek-v4-1-flash-260910"]);
         let b = prepare_chat_body(&models[0], json!({"messages":[{"role":"user","content":"hello"}]})).unwrap();
         assert_eq!(b["model_config"]["key"], "dfmodel");
-        for hidden in [json!(""), json!("dfmodel"), json!("ep-deployment"), json!("deepseek-flash__dev"), json!(123), Value::Null] {
+        let declared = parse_models(&json!({"chat":[{"key":"dfmodel","enable":true,"model":"deepseek-flash__dev"}]}));
+        assert!(identity_matches(&declared[0], "deepseek-flash__dev"));
+        assert!(!identity_matches(&declared[0], "deepseek-flash__undeclared"));
+        for hidden in [json!(""), json!("dfmodel"), json!("ep-deployment"), json!(123), Value::Null] {
             let models = parse_models(&json!({"chat":[{"key":"dfmodel","enable":true,"model":hidden}]}));
             assert!(models[0].upstream_model_ids.is_empty());
         }
@@ -947,6 +1119,9 @@ mod tests {
     const REWARD: &str = "/sash/api/v1/me/campaigns/daily-from-live-list/reward";
 
     async fn claim_fixture(replies: Vec<Reply>) -> Vec<RewardOutcome> {
+        claim_fixture_region(replies, CreditRegion::Cn).await
+    }
+    async fn claim_fixture_region(replies: Vec<Reply>, region: CreditRegion) -> Vec<RewardOutcome> {
         use axum::{extract::State, http::Request, response::IntoResponse, Json, Router};
         let queue = Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from(
             replies,
@@ -985,9 +1160,11 @@ mod tests {
         let mut client = ProviderClient::new();
         client.http = Client::builder().no_proxy().build().unwrap();
         let mut credentials = empty_credentials();
+        credentials.region = region;
         credentials.access_token = "test-token".into();
         credentials.device_id = Some("saved-device".into());
         let account = Account {
+            region,
             id: "test-qoder".into(),
             platform: Platform::Qoder,
             user_id: "test-user".into(),
@@ -1017,6 +1194,18 @@ mod tests {
         assert_eq!(results[0].status, "claimed");
         assert_eq!(results[0].amount, Some(100.0));
         assert_eq!(results[0].name, "每日 100 积分");
+    }
+
+    #[tokio::test]
+    async fn international_campaign_uses_live_id_and_confirms_pending_grant_without_reposting() {
+        let results = claim_fixture_region(vec![
+            ("GET", LIST, 200, daily_campaign("CLAIMABLE")),
+            ("POST", CLAIM, 504, json!({"errorCode":"GRANT_RESULT_UNKNOWN"})),
+            ("GET", REWARD, 200, json!({"status":"CLAIMED","benefit":{"kind":"CREDITS","amount":100}})),
+        ], CreditRegion::Intl).await;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].status, "claimed");
+        assert_eq!(results[0].amount, Some(100.0));
     }
     #[tokio::test]
     async fn already_claimed_daily_credits_are_not_posted_again() {

@@ -15,7 +15,7 @@ pub use oauth::{OAuthPoll, OAuthStart};
 use reqwest::{Client, RequestBuilder, Response};
 use serde_json::{json, Value};
 use std::{pin::Pin, sync::Arc, time::Duration};
-pub(crate) use traework::local_credentials;
+pub(crate) use traework::local_credentials_for_region;
 pub(super) const CHANNEL_VERIFICATION_ERROR: &str =
     "上游通道校验未通过（代码 11128），请使用官方客户端或平台授权的接口";
 pub struct ProviderChat {
@@ -398,14 +398,26 @@ fn upstream_error_detail(v: &Value) -> Option<(String, String)> {
 }
 fn upstream_body_error(status: u16, text: &str) -> ProviderError {
     let detail = serde_json::from_str::<Value>(text).ok();
-    // 11128 is also used for malformed requests; match the channel rejection text too.
+    // 11128 is also used for malformed requests; match the channel rejection
+    // texts. The international gateway phrases it as "request illegal".
     if status == 400
         && detail.as_ref().is_some_and(|value| {
             value["code"].as_i64() == Some(11128)
-                && value["msg"].as_str() == Some("Illegal API invocation from an unapproved channel")
+                && matches!(
+                    value["msg"].as_str(),
+                    Some("Illegal API invocation from an unapproved channel") | Some("request illegal")
+                )
         })
     {
         return ProviderError::new(status, CHANNEL_VERIFICATION_ERROR)
+            .with_upstream_details(detail.as_ref().unwrap(), None);
+    }
+    // The international gateway reserves some catalog models to paid plans and
+    // rejects personal free accounts with code 11158.
+    if status == 400
+        && detail.as_ref().is_some_and(|value| value["code"].as_i64() == Some(11158))
+    {
+        return ProviderError::new(status, "当前账号类型不支持该模型，请在会话中切换其他模型")
             .with_upstream_details(detail.as_ref().unwrap(), None);
     }
     let mut error = http_error(status);
@@ -516,8 +528,9 @@ pub(super) fn token_limit(v: &Value, keys: &[&str]) -> Option<u64> {
 }
 pub(super) fn underlying_model_id(v: &Value, route: &str) -> Option<String> {
     let id = v.as_str()?.trim();
-    // Deployment endpoints and TRAE's internal __dev names do not identify model versions.
-    (!id.is_empty() && id != route && !id.starts_with("ep-") && !id.ends_with("__dev"))
+    // Accept IDs explicitly declared by the catalog, including TRAE's __dev variants.
+    // Deployment endpoints are transport identifiers rather than model identities.
+    (!id.is_empty() && id != route && !id.starts_with("ep-"))
         .then(|| id.to_owned())
 }
 pub(super) fn effort_options(v: &Value) -> Vec<String> {
@@ -573,7 +586,9 @@ pub(super) fn snapshot(
     models: Vec<ModelInfo>,
     diagnostic: Option<String>,
 ) -> ProviderSnapshot {
-    let balance = if packs.is_empty() || packs.iter().any(|p| p.remaining.is_none()) {
+    let unit = packs.first().map(|p| p.unit.clone()).unwrap_or_else(|| "credits".into());
+    let same_unit = packs.iter().all(|p| p.unit == unit);
+    let balance = if packs.is_empty() || !same_unit || packs.iter().any(|p| p.remaining.is_none()) {
         None
     } else {
         Some(
@@ -586,7 +601,7 @@ pub(super) fn snapshot(
     };
     ProviderSnapshot {
         balance,
-        unit: "credits".into(),
+        unit: if same_unit { unit } else { "mixed".into() },
         quota: None,
         packs,
         rewards,
@@ -634,6 +649,9 @@ fn canonical_glm(s: &str) -> Option<String> {
 }
 pub fn identity_matches(m: &ModelInfo, identity: &str) -> bool {
     let id = identity.trim();
+    if m.upstream_model_ids.iter().any(|known| known.eq_ignore_ascii_case(id)) {
+        return true;
+    }
     if let Some(c) = &m.canonical_id {
         canonical_glm(id).as_ref() == Some(c)
     } else {
@@ -718,6 +736,7 @@ pub(super) fn json_shape(value: &Value, depth: usize) -> String {
 }
 pub(super) fn empty_credentials() -> Credentials {
     Credentials {
+        region: CreditRegion::Cn,
         access_token: String::new(),
         refresh_token: None,
         user_id: None,
@@ -730,6 +749,21 @@ pub(super) fn empty_credentials() -> Credentials {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_units_are_never_combined_and_catalog_versions_are_recognized() {
+        let packs = vec![
+            CreditPack { id: "usd".into(), name: "USD".into(), unit: "usd".into(), remaining: Some(0.00125), expires_at: None },
+            CreditPack { id: "requests".into(), name: "Requests".into(), unit: "requests".into(), remaining: Some(10.0), expires_at: None },
+        ];
+        let usd = snapshot(vec![packs[0].clone()], vec![], vec![], None);
+        assert_eq!(usd.balance, Some(0.00125)); assert_eq!(usd.unit, "usd");
+        let mixed = snapshot(packs, vec![], vec![], None);
+        assert_eq!(mixed.balance, None); assert_eq!(mixed.unit, "mixed");
+        let mut advertised = model("gpt-route".into(), "GPT".into(), None);
+        advertised.upstream_model_ids = vec!["gpt-version-from-catalog".into()];
+        assert!(identity_matches(&advertised, "gpt-version-from-catalog"));
+        assert!(!identity_matches(&advertised, "gpt-guessed-version"));
+    }
     #[test]
     fn diagnostics_preserve_only_safe_upstream_identifiers() {
         for body in [
@@ -799,6 +833,7 @@ mod tests {
         Account {
             id: "test".into(),
             platform: Platform::Workbuddy,
+            region: CreditRegion::Cn,
             user_id: "uid".into(),
             label: "test".into(),
             enabled: true,

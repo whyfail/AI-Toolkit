@@ -446,8 +446,16 @@ data: {"tool_calls":[{"index":0,"id":"c","function_call":{"name":"read","argumen
                 "上游通道校验未通过（代码 11128），请使用官方客户端或平台授权的接口",
             ),
             (
+                json!({"code":11128,"msg":"request illegal","token":"fixture-secret"}),
+                "上游通道校验未通过（代码 11128），请使用官方客户端或平台授权的接口",
+            ),
+            (
                 json!({"code":11128,"msg":"first message is not system prompt","token":"fixture-secret"}),
                 "平台请求失败（HTTP 400）",
+            ),
+            (
+                json!({"code":11158,"msg":"model [gemini-3.8-flash] is not allowed for user type [personal_free_user]","token":"fixture-secret"}),
+                "当前账号类型不支持该模型，请在会话中切换其他模型",
             ),
             (
                 json!({"code":11133,"msg":"fixture-secret"}),

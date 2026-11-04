@@ -1,0 +1,325 @@
+{
+  "provenance": {
+    "synthetic": false,
+    "version": "3.6.13",
+    "build": "2.3.99397",
+    "source": "official isolated international client; native NetLog responses captured in memory",
+    "capturedAt": "2026-11-03",
+    "scope": "Projected response fields only. Authentication headers and request bodies were not captured; this is not a complete chat contract.",
+    "redaction": "Prompts, identifiers, account metadata and token limits omitted. Tool ID and file path replaced in stream sample; path fragment boundaries adjusted."
+  },
+  "streams": [
+    {
+      "scenario": "tool_call",
+      "endpoint": "/api/agent/v3/create_agent_task",
+      "events": [
+        {
+          "event": "model_config",
+          "data": {
+            "config_name": "deepseek-v4-flash-0731",
+            "model_name": "deepseek-v4-flash-0731__dev",
+            "multimodal": false
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"/\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"f\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"ix\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"t\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"ur\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"e\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"/i\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"s\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"o\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"la\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"t\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"ed\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"-\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"te\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"s\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"t\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"/s\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"a\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"mp\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"l\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"e.\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"t\"}"
+          }
+        },
+        {
+          "event": "tool_call",
+          "data": {
+            "tool_name": "Read",
+            "first_data": false,
+            "require_local_execution": true,
+            "extra": null,
+            "toolcall_id": "call_fixture_read",
+            "arguments": "{\"file_path\":\"xt\"}"
+          }
+        },
+        {
+          "event": "turn_completion",
+          "data": {
+            "task_completion": false
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "tool_result_continuation",
+      "endpoint": "/api/agent/v3/commit_toolcall_result",
+      "events": [
+        {
+          "event": "thought",
+          "data": {
+            "first_data": false,
+            "reasoning_content": "",
+            "thought": "toolkit"
+          }
+        },
+        {
+          "event": "thought",
+          "data": {
+            "first_data": false,
+            "reasoning_content": "",
+            "thought": "-ok"
+          }
+        },
+        {
+          "event": "turn_completion",
+          "data": {
+            "task_completion": true
+          }
+        }
+      ]
+    }
+  ]
+}

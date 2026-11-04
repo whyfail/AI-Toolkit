@@ -165,3 +165,15 @@ test("其他平台保留原有领取按钮，不显示 Qoder 活动", () => {
   assert.match(html, /当前没有可领取的积分任务/);
   assert.equal(state.buttons.find((button) => button.label === "领取积分").disabled, true);
 });
+
+test("国际原生 USD 小数与未知分项保持独立，活跃奖励不显示手动领取", () => {
+  const html = renderAccount({ region: "intl", platform: "traework", snapshot: { ...snapshot(), unit: "usd", balance: 0.00125,
+    packs: [{ id: "usd", name: "Basic", unit: "usd", remaining: 0.00125 }, { id: "requests", name: "Legacy", unit: "requests", remaining: null }] } });
+  assert.match(html, /国际版/);
+  assert.match(html, /0\.00125/);
+  assert.match(html, /USD/);
+  assert.match(html.replace(/<[^>]+>/g, ""), /未知 次/);
+  assert.equal(state.buttons.some((button) => button.label === "领取积分"), false);
+  const rewardHtml = renderAccount({ region: "intl", platform: "workbuddy", snapshot: snapshot() });
+  assert.match(rewardHtml, /自动发放，无需手动领取/);
+});

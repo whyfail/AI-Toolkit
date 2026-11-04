@@ -12,16 +12,16 @@ use tauri::{Manager, State};
 pub async fn credits_import_local(
     state: State<'_, AppState>,
     platform: Platform,
+    region: Option<CreditRegion>,
 ) -> Result<Account, String> {
+    let region = region.unwrap_or_default();
     let credentials = match platform {
-        Platform::Traework => match crate::credits::providers::local_credentials() {
+        Platform::Traework => match crate::credits::providers::local_credentials_for_region(region) {
             Ok(Some(credentials)) => credentials,
             Ok(None) => {
-                eprintln!("credits: 本机导入未找到 TRAE CN 登录信息");
-                return Err("本机未找到 TRAE CN 桌面或 CLI 登录信息，请先登录 TRAE CN".into());
+                return Err(format!("本机未找到 TRAE {}桌面或 CLI 登录信息，请先登录对应区域的 TRAE", if region == CreditRegion::Cn { "国内版" } else { "国际版" }));
             }
             Err(message) => {
-                eprintln!("credits: 本机导入读取凭据失败 {message}");
                 return Err(message);
             }
         },
@@ -32,14 +32,6 @@ pub async fn credits_import_local(
         .credits
         .add_account(platform, String::new(), credentials)
         .await;
-    eprintln!(
-        "credits: 本机导入 {}",
-        account
-            .as_ref()
-            .map(|a| format!("成功 {}", a.user_id))
-            .as_deref()
-            .unwrap_or("失败")
-    );
     account
 }
 
@@ -123,11 +115,12 @@ pub async fn credits_probe_proxy(state: State<'_, AppState>) -> Result<String, S
 pub async fn credits_oauth_start(
     state: State<'_, AppState>,
     platform: Platform,
+    region: Option<CreditRegion>,
 ) -> Result<OAuthStart, String> {
     state
         .credits
         .provider
-        .start_login(platform)
+        .start_login(platform, region.unwrap_or_default())
         .await
         .map_err(|e| e.message)
 }

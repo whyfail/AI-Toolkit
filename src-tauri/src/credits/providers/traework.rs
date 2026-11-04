@@ -8,14 +8,195 @@ pub(crate) const WORK_CLIENT_ID: &str = "ono9krqynydwx5";
 /// Authorization-page snapshot values of the real IDE client.
 pub(crate) const PAGE_PLUGIN_VERSION: &str = "2.3.83560";
 pub(crate) const PAGE_APP_VERSION: &str = "3.3.100";
+pub(crate) const INTL_APP_VERSION: &str = "3.6.13";
+pub(crate) fn page_app_version(region: CreditRegion) -> &'static str {
+    match region { CreditRegion::Cn => PAGE_APP_VERSION, CreditRegion::Intl => INTL_APP_VERSION }
+}
+pub(crate) fn page_plugin_version(region: CreditRegion) -> &'static str {
+    match region { CreditRegion::Cn => PAGE_PLUGIN_VERSION, CreditRegion::Intl => "2.3.99397" }
+}
+pub(super) const INTL_API: &str = "https://growsg-normal.trae.ai";
+pub(super) fn authorization_origin(region: CreditRegion) -> &'static str {
+    match region {
+        CreditRegion::Cn => "https://www.trae.cn",
+        CreditRegion::Intl => "https://www.trae.ai",
+    }
+}
+// Public account realms from the official international 3.6.13 bootConfig.
+// Validate complete origins so an imported host cannot cross editions or add a path.
+pub(super) fn allowed_account_origin(region: CreditRegion, raw: &str) -> Option<&'static str> {
+    let url = reqwest::Url::parse(raw).ok()?;
+    if url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.path() != "/"
+    {
+        return None;
+    }
+    match (region, url.host_str()?) {
+        (CreditRegion::Cn, "api.trae.cn" | "www.trae.cn" | "trae.cn") => Some(API),
+        (CreditRegion::Cn, "api.trae.com.cn" | "www.trae.com.cn" | "trae.com.cn") => {
+            Some("https://api.trae.com.cn")
+        }
+        (CreditRegion::Intl, "www.trae.ai" | "trae.ai" | "growsg-normal.trae.ai") => Some(INTL_API),
+        (CreditRegion::Intl, "grow-normal.trae.ai") => Some("https://grow-normal.trae.ai"),
+        (CreditRegion::Intl, "grow-normal.traeapi.us") => Some("https://grow-normal.traeapi.us"),
+        _ => None,
+    }
+}
+// Imported credentials must not send a session to another edition's gateway.
+fn validate_origins(c: &Credentials) -> Result<(), ProviderError> {
+    for key in ["apiBase", "ugApiBase", "aiApiBase"] {
+        let Some(value) = c.extra.get(key) else { continue };
+        let raw = value.as_str().ok_or_else(|| ProviderError::new(400, "TRAE 账号域格式无效"))?;
+        let url = reqwest::Url::parse(raw).map_err(|_| ProviderError::new(400, "TRAE 账号域格式无效"))?;
+        #[cfg(test)]
+        if url.scheme() == "http" && url.host_str() == Some("127.0.0.1") {
+            continue;
+        }
+        let valid_origin = url.scheme() == "https" && url.username().is_empty()
+            && url.password().is_none() && url.port().is_none() && url.path() == "/"
+            && url.query().is_none() && url.fragment().is_none();
+        let host = url.host_str().unwrap_or("");
+        let allowed = match (c.region, key) {
+            (CreditRegion::Cn, "apiBase") => allowed_account_origin(c.region, raw).is_some(),
+            (CreditRegion::Intl, "apiBase") => allowed_account_origin(c.region, raw).is_some(),
+            (CreditRegion::Cn, "ugApiBase") => host == "api.trae.cn",
+            (CreditRegion::Intl, "ugApiBase") => matches!(host, "growsg-normal.trae.ai" | "growva-normal.trae.ai" | "grow-normal.traeapi.us"),
+            (CreditRegion::Cn, "aiApiBase") => matches!(host, "trae-api-cn.mchost.guru" | "api.trae.cn" | "api.trae.com.cn"),
+            (CreditRegion::Intl, "aiApiBase") => matches!(host, "coresg-normal.trae.ai" | "coreva-normal.trae.ai" | "core-normal.traeapi.us"),
+            _ => false,
+        };
+        if !valid_origin || !allowed {
+            return Err(ProviderError::new(400, "TRAE 账号域与所选区域不匹配，请重新导入该版本的凭据"));
+        }
+    }
+    Ok(())
+}
+
+fn international_protocol_pending() -> ProviderError {
+    ProviderError::new(501, "TRAE 国际版模型目录与代理尚未启用：新版请求协议待验证；登录与额度查询可用")
+}
+
+fn normalized_region(value: &str) -> Option<&'static str> {
+    match value.to_ascii_uppercase().as_str() {
+        "SG" | "SINGAPORE-CENTRAL" => Some("SG"),
+        "US" | "US-EAST" | "VA" => Some("US"),
+        "USTTP" => Some("USTTP"),
+        _ => None,
+    }
+}
+fn region_field(value: &Value, paths: &[&str]) -> Option<&'static str> {
+    paths.iter().find_map(|path| {
+        value
+            .pointer(path)
+            .and_then(Value::as_str)
+            .and_then(normalized_region)
+    })
+}
+fn upstream_region(c: &Credentials) -> &'static str {
+    region_field(
+        &c.extra,
+        &[
+            "/upstreamRegion",
+            "/userRegion/_aiRegion",
+            "/userRegion/region",
+            "/account/uidRegion",
+            "/account/storeRegion",
+        ],
+    )
+    .unwrap_or("SG")
+}
+pub(super) fn apply_user_region(c: &mut Credentials, user: &Value) {
+    if c.region != CreditRegion::Intl {
+        return;
+    }
+    let tag = text(user, &["UserTag", "userTag"])
+        .or_else(|| text(&c.extra, &["userTag"]))
+        .or_else(|| text(&c.extra["account"], &["userTag"]));
+    let store = region_field(
+        user,
+        &["/StoreRegion", "/storeRegion", "/account/storeRegion"],
+    )
+    .or_else(|| region_field(&c.extra, &["/account/storeRegion", "/storeRegion"]))
+    .or_else(|| {
+        (tag.as_deref() == Some("usttp") || api_base(c) == "https://grow-normal.traeapi.us")
+            .then_some("USTTP")
+    });
+    let ai = region_field(
+        user,
+        &[
+            "/AIRegion",
+            "/aiRegion",
+            "/userRegion/_aiRegion",
+            "/userRegion/region",
+            "/account/uidRegion",
+        ],
+    )
+    .or_else(|| {
+        region_field(
+            &c.extra,
+            &[
+                "/userRegion/_aiRegion",
+                "/userRegion/region",
+                "/account/uidRegion",
+            ],
+        )
+    })
+    .or(store)
+    .unwrap_or("SG");
+    let routing = if store == Some("USTTP") { "USTTP" } else { ai };
+    c.extra["upstreamRegion"] = json!(routing);
+    c.extra["userRegion"] = json!({"region": ai, "_aiRegion": ai});
+    if let Some(store) = store {
+        c.extra["storeRegion"] = json!(store);
+    }
+    if let Some(tag) = tag {
+        c.extra["userTag"] = json!(tag);
+    }
+    if routing == "USTTP" {
+        c.extra["apiBase"] = json!("https://grow-normal.traeapi.us");
+    } else if c.extra.get("apiBase").is_none() {
+        c.extra["apiBase"] = json!(INTL_API);
+    }
+    c.extra["ugApiBase"] = json!(match routing {
+        "US" => "https://growva-normal.trae.ai",
+        "USTTP" => "https://grow-normal.traeapi.us",
+        _ => INTL_API,
+    });
+    c.extra["aiApiBase"] = json!(match routing {
+        "US" => "https://coreva-normal.trae.ai",
+        "USTTP" => "https://core-normal.traeapi.us",
+        _ => "https://coresg-normal.trae.ai",
+    });
+}
 // Keep account, token refresh and billing calls on the account's own realm.
 pub(super) fn api_base(c: &Credentials) -> String {
-    text(&c.extra, &["apiBase"]).unwrap_or_else(|| API.into())
+    text(&c.extra, &["apiBase"]).unwrap_or_else(|| {
+        match c.region {
+            CreditRegion::Cn => API,
+            CreditRegion::Intl => INTL_API,
+        }
+        .into()
+    })
 }
 // Check-in uses the IDE boot config's separate ugApi gateway. The .com.cn
 // account realm accepts billing calls but returns 404 for check-in endpoints.
 fn ug_api_base(c: &Credentials) -> String {
-    text(&c.extra, &["ugApiBase"]).unwrap_or_else(|| API.into())
+    text(&c.extra, &["ugApiBase"]).unwrap_or_else(|| {
+        match c.region {
+            CreditRegion::Cn => API,
+            CreditRegion::Intl => match upstream_region(c) {
+                "US" => "https://growva-normal.trae.ai",
+                "USTTP" => "https://grow-normal.traeapi.us",
+                _ => INTL_API,
+            },
+        }
+        .into()
+    })
 }
 /// The AI plane (model catalog + agent chat) is served by a dedicated gateway:
 /// the TLB cutover moved it off api.trae.cn, which serves account/billing/UG
@@ -23,7 +204,17 @@ fn ug_api_base(c: &Credentials) -> String {
 /// can override it with the aiApiBase credential extra.
 pub(super) const AI_API: &str = "https://trae-api-cn.mchost.guru";
 pub(super) fn ai_api_base(c: &Credentials) -> String {
-    text(&c.extra, &["aiApiBase"]).unwrap_or_else(|| AI_API.into())
+    text(&c.extra, &["aiApiBase"]).unwrap_or_else(|| {
+        match c.region {
+            CreditRegion::Cn => AI_API,
+            CreditRegion::Intl => match upstream_region(c) {
+                "US" => "https://coreva-normal.trae.ai",
+                "USTTP" => "https://core-normal.traeapi.us",
+                _ => "https://coresg-normal.trae.ai",
+            },
+        }
+        .into()
+    })
 }
 pub(super) fn headers(r: RequestBuilder, c: &Credentials, chat: bool) -> RequestBuilder {
     let mut r = r
@@ -33,10 +224,20 @@ pub(super) fn headers(r: RequestBuilder, c: &Credentials, chat: bool) -> Request
     if let Some(d) = &c.device_id {
         r = r.header("X-Device-Id", d);
     }
-    if !chat && text(&c.extra, &["credentialSource"]).as_deref() == Some("desktop") {
+    if !chat
+        && (c.region == CreditRegion::Intl
+            || text(&c.extra, &["credentialSource"]).as_deref() == Some("desktop"))
+    {
         return r
             .header("User-Agent", format!("Trae/{}", ide_version(c)))
-            .header("X-User-Region", "CN");
+            .header(
+                "X-User-Region",
+                if c.region == CreditRegion::Cn {
+                    "CN"
+                } else {
+                    upstream_region(c)
+                },
+            );
     }
     if chat {
         r = r
@@ -88,9 +289,20 @@ pub(super) fn headers(r: RequestBuilder, c: &Credentials, chat: bool) -> Request
 // The TRAE Work CLI stores its login in the system keychain (service
 // "trae_cli", account "auth_info") as `go-keyring-base64:<base64 json>` with
 // the bound device id, console host and OAuth tokens of the local app.
+#[cfg(test)]
 pub(crate) fn local_credentials() -> Result<Option<Credentials>, String> {
-    if let Some(credentials) = super::trae_desktop::local_credentials()? {
+    local_credentials_for_region(CreditRegion::Cn)
+}
+pub(crate) fn local_credentials_for_region(
+    region: CreditRegion,
+) -> Result<Option<Credentials>, String> {
+    if let Some(credentials) = super::trae_desktop::local_credentials_for_region(region)? {
         return Ok(Some(credentials));
+    }
+    // The legacy CLI keychain service has no edition discriminator. Never import
+    // it for an international account where it could select the CN session.
+    if region == CreditRegion::Intl {
+        return Ok(None);
     }
     let entry =
         keyring::Entry::new("trae_cli", "auth_info").map_err(|_| "系统凭据库不可用".to_string())?;
@@ -162,13 +374,20 @@ fn identity_headers(r: RequestBuilder, c: &Credentials) -> RequestBuilder {
     }
 }
 fn ide_version(c: &Credentials) -> String {
-    text(&c.extra, &["ideVersion"]).unwrap_or_else(|| PAGE_APP_VERSION.into())
+    text(&c.extra, &["ideVersion"]).unwrap_or_else(|| {
+        match c.region {
+            CreditRegion::Cn => PAGE_APP_VERSION,
+            CreditRegion::Intl => INTL_APP_VERSION,
+        }
+        .into()
+    })
 }
 
 pub(super) async fn authenticate(
     client: &ProviderClient,
     c: &Credentials,
 ) -> Result<(String, String, Credentials), ProviderError> {
+    validate_origins(c)?;
     // The desktop identity API accepts the Cloud IDE session in this header;
     // its separate SSO UserJwt must never replace the session used for billing.
     let v = client
@@ -185,10 +404,19 @@ pub(super) async fn authenticate(
     let d = data(&v);
     let uid = text(d, &["UserID", "UserId", "user_id", "uid"])
         .ok_or_else(|| ProviderError::new(502, "TRAE 未返回账号身份"))?;
-    let label = text(d, &["ScreenName", "Nickname", "nickname", "name"])
-        .unwrap_or_else(|| format!("TRAE CN {uid}"));
+    let label = text(d, &["ScreenName", "Nickname", "nickname", "name"]).unwrap_or_else(|| {
+        format!(
+            "TRAE {}{uid}",
+            if c.region == CreditRegion::Cn {
+                "CN "
+            } else {
+                ""
+            }
+        )
+    });
     let mut credentials = c.clone();
     credentials.user_id = Some(uid.clone());
+    apply_user_region(&mut credentials, d);
     let status = client
         .json(
             identity_headers(
@@ -215,6 +443,7 @@ pub(super) async fn refresh(
     client: &ProviderClient,
     c: &Credentials,
 ) -> Result<Credentials, ProviderError> {
+    validate_origins(c)?;
     let rt = c
         .refresh_token
         .as_ref()
@@ -325,6 +554,7 @@ fn parse_packs(v: &Value) -> (Vec<CreditPack>, Option<String>) {
                         .zip(used)
                         .map(|(n, u)| (n - u).max(0.0).round()),
                     expires_at: b.get("end_time").and_then(epoch),
+                    unit: "credits".into(),
                 });
             }
             if let Some(l) = num(q, &["premium_model_fast_request_limit"]) {
@@ -346,6 +576,114 @@ fn parse_packs(v: &Value) -> (Vec<CreditPack>, Option<String>) {
         }
     }
     (packs, (!quota.is_empty()).then(|| quota.join("；")))
+}
+fn parse_international_packs(v: &Value) -> (Vec<CreditPack>, Option<String>) {
+    let d = data(v);
+    let dollars = flag(d, &["is_dollar_usage_billing"]) == Some(true);
+    let mut packs = vec![];
+    let mut notes = vec![];
+    for (index, p) in d["user_entitlement_pack_list"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let base = &p["entitlement_base_info"];
+        let quota = [
+            "/quota",
+            "/product_extra/subscription_extra/quota",
+            "/product_extra/package_extra/quota",
+        ]
+        .iter()
+        .find_map(|path| {
+            base.pointer(path)
+                .filter(|q| q.as_object().is_some_and(|o| !o.is_empty()))
+        })
+        .unwrap_or(&Value::Null);
+        let usage = &p["usage"];
+        let id = text(base, &["id", "entitlement_id"]).unwrap_or_else(|| index.to_string());
+        let name = text(p, &["display_desc"]).unwrap_or_else(|| "TRAE 额度包".into());
+        let fields: &[(&str, &str, &str, &str)] = if dollars {
+            &[
+                ("basic_usage_limit", "basic_usage_amount", "基础额度", "usd"),
+                ("bonus_usage_limit", "bonus_usage_amount", "奖励额度", "usd"),
+            ]
+        } else {
+            &[(
+                "premium_model_fast_request_limit",
+                "premium_model_fast_amount",
+                "快请求",
+                "requests",
+            )]
+        };
+        for (limit_key, usage_key, label, unit) in fields {
+            if *limit_key == "bonus_usage_limit" && flag(quota, &["no_bonus_quota"]) == Some(true) {
+                continue;
+            }
+            let Some(limit) = num(quota, &[*limit_key]).filter(|n| n.is_finite()) else {
+                continue;
+            };
+            let used = num(usage, &[*usage_key]).filter(|n| n.is_finite() && *n >= 0.0);
+            packs.push(CreditPack {
+                id: format!("{id}:{limit_key}"),
+                name: format!("{name} · {label}"),
+                unit: (*unit).into(),
+                remaining: (limit >= 0.0)
+                    .then_some(limit)
+                    .zip(used)
+                    .map(|(l, u)| (l - u).max(0.0)),
+                expires_at: base.get("end_time").and_then(epoch),
+            });
+            if limit < 0.0 {
+                notes.push(format!("{label}：不限"));
+            }
+        }
+    }
+    (packs, (!notes.is_empty()).then(|| notes.join("；")))
+}
+fn usage_snapshot(v: &Value, c: &Credentials) -> ProviderSnapshot {
+    let (packs, quota) = match c.region {
+        CreditRegion::Cn => parse_packs(v),
+        CreditRegion::Intl => parse_international_packs(v),
+    };
+    let mut result = snapshot(packs, vec![], vec![], None);
+    result.quota = quota;
+    if c.region == CreditRegion::Intl {
+        if result.packs.is_empty() {
+            result.unit = match flag(data(v), &["is_dollar_usage_billing"]) {
+                Some(true) => "usd",
+                Some(false) => "requests",
+                None => "unknown",
+            }
+            .into();
+        }
+    } else if let Some(balance) = parse_credit_balance(v) {
+        result.balance = Some(balance);
+    } else if result.packs.is_empty()
+        && flag(data(v), &["is_credits_billing"]) == Some(true)
+        && flag(data(v), &["is_dollar_usage_billing"]) != Some(true)
+    {
+        result.balance = Some(0.0);
+    }
+    result
+}
+async fn fetch_usage(client: &ProviderClient, c: &Credentials) -> Result<Value, ProviderError> {
+    validate_origins(c)?;
+    let (origin, path, body) = match c.region {
+        CreditRegion::Cn => (
+            api_base(c),
+            "/trae/api/v2/pay/ide_user_ent_usage",
+            json!({"require_usage":true,"req_source":1}),
+        ),
+        CreditRegion::Intl => (
+            ug_api_base(c),
+            "/trae/api/v1/pay/ide_user_ent_usage",
+            json!({"require_usage":true}),
+        ),
+    };
+    client
+        .json(headers(client.http.post(format!("{origin}{path}")), c, false).json(&body))
+        .await
 }
 fn parse_credit_balance(v: &Value) -> Option<f64> {
     let d = data(v);
@@ -378,10 +716,14 @@ pub(super) fn parse_models(v: &Value) -> Vec<ModelInfo> {
                 .and_then(|config| serde_json::from_str::<Value>(config).ok())
                 .unwrap_or(Value::Null);
             let upstream_model_ids = m["model_detail_list"]
-                .as_array().into_iter().flatten()
+                .as_array()
+                .into_iter()
+                .flatten()
                 .filter_map(|detail| underlying_model_id(&detail["model_name"], &id))
                 .fold(Vec::new(), |mut ids, id| {
-                    if !ids.contains(&id) { ids.push(id); }
+                    if !ids.contains(&id) {
+                        ids.push(id);
+                    }
                     ids
                 });
             Some(ModelInfo {
@@ -406,7 +748,14 @@ pub(super) fn parse_models(v: &Value) -> Vec<ModelInfo> {
         })
         .collect()
 }
-pub(super) async fn models(client: &ProviderClient, c: &Credentials) -> Result<Vec<ModelInfo>, ProviderError> {
+pub(super) async fn models(
+    client: &ProviderClient,
+    c: &Credentials,
+) -> Result<Vec<ModelInfo>, ProviderError> {
+    validate_origins(c)?;
+    if c.region == CreditRegion::Intl {
+        return Err(international_protocol_pending());
+    }
     let v=client.json(headers(client.http.post(format!("{}/api/ide/v1/get_detail_param", ai_api_base(c))),c,true).json(&json!({"function":"solo_work_lite","config_names":null,"need_prompt":false,"current_config_info":null,"poly_prompt":true,"mode_type":null}))).await?;
     let m = parse_models(&v);
     if m.is_empty() {
@@ -429,8 +778,7 @@ fn reward(v: &Value, c: &Credentials) -> Reward {
             "claimed"
         } else if c.device_id.is_none() {
             "device_required"
-        } else if flag(d, &["enable"]) == Some(false)
-            || flag(d, &["did_checked_in"]) == Some(true)
+        } else if flag(d, &["enable"]) == Some(false) || flag(d, &["did_checked_in"]) == Some(true)
         {
             "unavailable"
         } else if flag(d, &["checked_in"]) == Some(false) {
@@ -445,7 +793,16 @@ fn reward(v: &Value, c: &Credentials) -> Reward {
         action_url: None,
     }
 }
-pub(super) async fn rewards(client: &ProviderClient, c: &Credentials) -> Result<Vec<Reward>, ProviderError> {
+pub(super) async fn rewards(
+    client: &ProviderClient,
+    c: &Credentials,
+) -> Result<Vec<Reward>, ProviderError> {
+    validate_origins(c)?;
+    // Check-in is a CN entitlement. The official international client does not
+    // expose it; sharing the compiled CN implementation is not eligibility.
+    if c.region == CreditRegion::Intl {
+        return Ok(vec![]);
+    }
     let v = client
         .json(
             headers(
@@ -461,43 +818,22 @@ pub(super) async fn rewards(client: &ProviderClient, c: &Credentials) -> Result<
         .await?;
     Ok(vec![reward(&v, c)])
 }
-pub(super) async fn balance(client: &ProviderClient, c: &Credentials) -> Result<ProviderSnapshot, ProviderError> {
-    let usage = client.json(headers(client.http.post(format!(
-        "{}/trae/api/v2/pay/ide_user_ent_usage", api_base(c))), c, false)
-        .json(&json!({"require_usage":true,"req_source":1}))).await?;
-    let (packs, quota) = parse_packs(&usage);
-    let mut value = snapshot(packs, vec![], vec![], None);
-    value.quota = quota;
-    if let Some(balance) = parse_credit_balance(&usage) {
-        value.balance = Some(balance);
-    } else if value.packs.is_empty()
-        && flag(data(&usage), &["is_credits_billing"]) == Some(true)
-        && flag(data(&usage), &["is_dollar_usage_billing"]) != Some(true) {
-        value.balance = Some(0.0);
-    }
-    Ok(value)
+pub(super) async fn balance(
+    client: &ProviderClient,
+    c: &Credentials,
+) -> Result<ProviderSnapshot, ProviderError> {
+    Ok(usage_snapshot(&fetch_usage(client, c).await?, c))
 }
 pub(super) async fn inspect(
     client: &ProviderClient,
     c: &Credentials,
 ) -> Result<ProviderSnapshot, ProviderError> {
     let (p, r, m) = tokio::join!(
-        client.json(
-            headers(
-                client.http.post(format!(
-                    "{}/trae/api/v2/pay/ide_user_ent_usage",
-                    api_base(c)
-                )),
-                c,
-                false
-            )
-            .json(&json!({"require_usage": true, "req_source": 1}))
-        ),
+        fetch_usage(client, c),
         rewards(client, c),
         models(client, c)
     );
     let p = p?;
-    let (packs, quota) = parse_packs(&p);
     let mut diagnostics = vec![];
     let r = r.unwrap_or_else(|e| {
         diagnostics.push(e.message);
@@ -507,21 +843,10 @@ pub(super) async fn inspect(
         diagnostics.push(e.message);
         vec![]
     });
-    let mut s = snapshot(
-        packs,
-        r,
-        m,
-        (!diagnostics.is_empty()).then(|| diagnostics.join("；")),
-    );
-    s.quota = quota;
-    if let Some(balance) = parse_credit_balance(&p) {
-        s.balance = Some(balance);
-    } else if s.packs.is_empty()
-        && flag(data(&p), &["is_credits_billing"]) == Some(true)
-        && flag(data(&p), &["is_dollar_usage_billing"]) != Some(true)
-    {
-        s.balance = Some(0.0)
-    }
+    let mut s = usage_snapshot(&p, c);
+    s.rewards = r;
+    s.models = m;
+    s.diagnostic = (!diagnostics.is_empty()).then(|| diagnostics.join("；"));
     Ok(s)
 }
 pub(super) async fn claim(
@@ -530,6 +855,9 @@ pub(super) async fn claim(
     c: &Credentials,
 ) -> Result<Vec<RewardOutcome>, ProviderError> {
     let rs = rewards(client, c).await?;
+    if rs.is_empty() {
+        return Ok(vec![]);
+    }
     let r = &rs[0];
     if r.status != "claimable" {
         return Ok(vec![outcome(
@@ -632,6 +960,10 @@ pub(super) async fn chat(
     m: &ModelInfo,
     body: Value,
 ) -> Result<ProviderChat, ProviderError> {
+    validate_origins(c)?;
+    if c.region == CreditRegion::Intl {
+        return Err(international_protocol_pending());
+    }
     stream::response(
         headers(
             client
@@ -649,18 +981,179 @@ pub(super) async fn chat(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    #[ignore = "requires explicitly selected isolated international desktop login; read-only"]
+    async fn international_desktop_identity_and_billing_smoke() {
+        assert_eq!(std::env::var("AI_TOOLKIT_TRAE_DIAGNOSTIC").as_deref(), Ok("read-only"));
+        let root = std::path::PathBuf::from(std::env::var("AI_TOOLKIT_TRAE_PROFILE").expect("explicit isolated profile"));
+        let c = super::super::trae_desktop::read_credentials_for_region(
+            &root.join("User/globalStorage/storage.json"),
+            Some(&json!({"appVersion": INTL_APP_VERSION})),
+            CreditRegion::Intl,
+        ).expect("decode isolated desktop login").expect("desktop login present");
+        let client = ProviderClient::new();
+        let (uid, _, authenticated) = authenticate(&client, &c).await.expect("official identity query");
+        assert_eq!(authenticated.region, CreditRegion::Intl);
+        assert_eq!(c.user_id.as_deref(), Some(uid.as_str()));
+        let snapshot = balance(&client, &authenticated).await.expect("official international billing query");
+        assert!(matches!(snapshot.unit.as_str(), "usd" | "requests"));
+        assert!(snapshot.packs.iter().all(|p| matches!(p.unit.as_str(), "usd" | "requests")));
+        println!("TRAE international isolated desktop identity and native-unit billing verified; no inference or claims submitted");
+    }
+
+    #[test]
+    fn imported_origins_reject_cross_edition_credentials_before_network_access() {
+        for (region, key, wrong) in [
+            (CreditRegion::Intl, "apiBase", API),
+            (CreditRegion::Intl, "aiApiBase", AI_API),
+            (CreditRegion::Intl, "ugApiBase", API),
+            (CreditRegion::Cn, "apiBase", INTL_API),
+            (CreditRegion::Cn, "aiApiBase", "https://coresg-normal.trae.ai"),
+            (CreditRegion::Intl, "apiBase", "https://growsg-normal.trae.ai.evil.test"),
+        ] {
+            let mut c = empty_credentials(); c.region = region; c.extra[key] = json!(wrong);
+            assert!(validate_origins(&c).is_err());
+        }
+        let mut c = empty_credentials(); c.region = CreditRegion::Intl;
+        c.extra["apiBase"] = json!("https://grow-normal.trae.ai");
+        apply_user_region(&mut c, &json!({"AIRegion":"US"}));
+        assert_eq!(api_base(&c), "https://grow-normal.trae.ai");
+        assert!(validate_origins(&c).is_ok());
+    }
+
+    #[tokio::test]
+    async fn international_models_and_chat_require_verified_official_protocol_samples() {
+        let mut c = empty_credentials(); c.region = CreditRegion::Intl;
+        let client = ProviderClient::new();
+        assert_eq!(models(&client, &c).await.unwrap_err().status, 501);
+        let m = parse_models(&json!({"config_info_list":[{"config_name":"fixture","display_config":{"display_name":"Fixture"}}]})).remove(0);
+        match chat(&client, &c, &m, json!({"messages":[]})).await {
+            Err(error) => assert_eq!(error.status, 501),
+            Ok(_) => panic!("unverified international protocol must not be submitted"),
+        }
+    }
+
+    #[test]
+    fn observed_international_catalog_declares_the_stream_model_version() {
+        let catalog: Value = serde_json::from_str(include_str!("fixtures/trae_intl_catalog_observed.json")).unwrap();
+        let stream: Value = serde_json::from_str(include_str!("fixtures/trae_intl_stream_observed.json")).unwrap();
+        let function = &catalog["response"]["data"]["function_configs"][0];
+        assert_eq!(function["function"], "solo_agent");
+        let models = parse_models(function);
+        assert_eq!(models.len(), 1);
+        let model = &models[0];
+        assert_eq!(model.id, "deepseek-v4-flash-0731");
+        let observed = stream["streams"][0]["events"].as_array().unwrap().iter()
+            .find(|event| event["event"] == "model_config").unwrap();
+        assert_eq!(observed["data"]["config_name"], model.id);
+        assert!(model.upstream_model_ids.iter().any(|id| Some(id.as_str()) == observed["data"]["model_name"].as_str()));
+        assert!(identity_matches(model, observed["data"]["model_name"].as_str().unwrap()));
+        assert!(!identity_matches(model, "deepseek-v4-flash-0731__undeclared"));
+        // The capture omitted token limits; keep context unknown rather than inventing one.
+        assert_eq!(model.context_window, None);
+    }
+
+    #[test]
+    fn international_realms_follow_official_account_and_ai_region_separately() {
+        let mut c = empty_credentials();
+        c.region = CreditRegion::Intl;
+        assert_eq!(authorization_origin(c.region), "https://www.trae.ai");
+        for (region, ai, ug) in [
+            ("SG", "https://coresg-normal.trae.ai", INTL_API),
+            (
+                "US-East",
+                "https://coreva-normal.trae.ai",
+                "https://growva-normal.trae.ai",
+            ),
+        ] {
+            apply_user_region(&mut c, &json!({"AIRegion":region}));
+            assert_eq!(api_base(&c), INTL_API);
+            assert_eq!(ai_api_base(&c), ai);
+            assert_eq!(ug_api_base(&c), ug);
+        }
+        apply_user_region(&mut c, &json!({"AIRegion":"US", "UserTag":"usttp"}));
+        assert_eq!(api_base(&c), "https://grow-normal.traeapi.us");
+        assert_eq!(ug_api_base(&c), "https://grow-normal.traeapi.us");
+        assert_eq!(ai_api_base(&c), "https://core-normal.traeapi.us");
+    }
+    #[test]
+    fn account_origins_cannot_cross_editions_or_contain_arbitrary_components() {
+        assert_eq!(
+            allowed_account_origin(CreditRegion::Intl, INTL_API),
+            Some(INTL_API)
+        );
+        assert!(allowed_account_origin(CreditRegion::Cn, INTL_API).is_none());
+        assert!(allowed_account_origin(CreditRegion::Intl, API).is_none());
+        for host in [
+            "http://growsg-normal.trae.ai",
+            "https://growsg-normal.trae.ai.evil.test",
+            "https://evil.trae.ai",
+            "https://growsg-normal.trae.ai:8443",
+            "https://user@growsg-normal.trae.ai",
+            "https://growsg-normal.trae.ai/path",
+            "https://growsg-normal.trae.ai/?x=1",
+        ] {
+            assert!(allowed_account_origin(CreditRegion::Intl, host).is_none());
+        }
+    }
+    #[test]
+    fn international_native_dollars_preserve_fractions_and_unknown_usage() {
+        let fixture: Value = serde_json::from_str(include_str!("fixtures/trae_intl_billing.json")).unwrap();
+        let value = fixture["dollars"].clone();
+        let (packs, note) = parse_international_packs(&value);
+        assert_eq!(packs.len(), 4);
+        assert!(packs.iter().all(|p| p.unit == "usd"));
+        assert_eq!(packs[0].remaining, Some(17.875));
+        assert_eq!(packs[1].remaining, Some(3.75));
+        assert_eq!(packs[2].remaining, None);
+        assert_eq!(packs[3].remaining, None);
+        assert!(note.unwrap().contains("不限"));
+        assert!(parse_credit_balance(&value).is_none());
+    }
+    #[test]
+    fn missing_international_billing_metadata_keeps_balance_and_unit_unknown() {
+        let mut c = empty_credentials(); c.region = CreditRegion::Intl;
+        let s = usage_snapshot(&json!({}), &c);
+        assert_eq!(s.balance, None);
+        assert_eq!(s.unit, "unknown");
+        assert!(s.packs.is_empty());
+    }
+
+    #[test]
+    fn legacy_international_request_quota_is_never_reported_as_credits_or_usd() {
+        let fixture: Value = serde_json::from_str(include_str!("fixtures/trae_intl_billing.json")).unwrap();
+        let (packs, _) = parse_international_packs(&fixture["requests"]);
+        assert_eq!(packs.len(), 1);
+        assert_eq!(packs[0].unit, "requests");
+        assert_eq!(packs[0].remaining, Some(477.0));
+    }
+    #[tokio::test]
+    async fn international_checkin_never_submits_cn_entitlement_requests() {
+        let mut c = empty_credentials();
+        c.region = CreditRegion::Intl;
+        c.extra = json!({"ugApiBase":"http://127.0.0.1:1"});
+        assert!(rewards(&ProviderClient::new(), &c)
+            .await
+            .unwrap()
+            .is_empty());
+    }
     #[test]
     fn reasoning_levels_keep_native_names_and_do_not_infer_tiers_from_a_badge() {
         let models = parse_models(&json!({"config_info_list":[
             {"config_name":"glm-5.3-flash","display_config":{"display_name":"GLM-5.3-Flash"},"reasoning_effort_config":{"support_thinking":true,"options":["light","high","extra_high"],"default_level":"extra_high"}},
             {"config_name":"unknown","display_config":{"display_name":"Unknown"},"display_contact_config":"{\"reasoning\":{\"enable\":true}}"}
         ]}));
-        assert_eq!(models[0].reasoning_effort_options, vec!["light", "high", "extra_high"]);
-        assert_eq!(models[0].default_reasoning_effort.as_deref(), Some("extra_high"));
+        assert_eq!(
+            models[0].reasoning_effort_options,
+            vec!["light", "high", "extra_high"]
+        );
+        assert_eq!(
+            models[0].default_reasoning_effort.as_deref(),
+            Some("extra_high")
+        );
         assert!(models[1].reasoning_effort_options.is_empty());
         assert_eq!(models[1].default_reasoning_effort, None);
     }
-
 
     #[test]
     fn checkin_gateway_is_independent_of_the_account_realm() {
@@ -676,7 +1169,7 @@ mod tests {
     }
 
     #[test]
-    fn catalog_model_ids_preserve_versions_and_exclude_internal_names() {
+    fn catalog_model_ids_preserve_declared_variants_and_exclude_deployment_endpoints() {
         let models = parse_models(&json!({"config_info_list":[
             {"config_name":"deepseek-flash","display_config":{"display_name":"DeepSeek Flash"},"model_detail_list":[
                 {"model_name":"deepseek-v4-1-flash-260910"},
@@ -688,9 +1181,16 @@ mod tests {
             ]},
             {"config_name":"hidden","display_config":{"display_name":"Hidden"},"model_detail_list":[{"model_name":"hidden__dev","encrypted_model_params":{"EncryptedStr":"opaque"}}]}
         ]}));
-        assert_eq!(models[0].upstream_model_ids, vec!["deepseek-v4-1-flash-260910", "deepseek-v4-1-flash-261017"]);
-        assert!(models[1].upstream_model_ids.is_empty());
-        let b = chat_body(json!({"messages":[{"role":"user","content":"hello"}]}), &models[0].id).unwrap();
+        assert_eq!(
+            models[0].upstream_model_ids,
+            vec!["deepseek-v4-1-flash-260910", "deepseek-v4-1-flash-261017", "deepseek-flash__dev"]
+        );
+        assert_eq!(models[1].upstream_model_ids, vec!["hidden__dev"]);
+        let b = chat_body(
+            json!({"messages":[{"role":"user","content":"hello"}]}),
+            &models[0].id,
+        )
+        .unwrap();
         assert_eq!(b["config_name"], "deepseek-flash");
     }
 
@@ -701,7 +1201,10 @@ mod tests {
             {"config_name":"fixed-window","display_config":{"display_name":"Fixed"},"context_window_tokens":{"dev":200000}},
             {"config_name":"invalid-window","display_config":{"display_name":"Invalid"},"context_window_tokens":{"dev":256000,"max":0}}
         ]}));
-        assert_eq!(models.iter().map(|m| m.context_window).collect::<Vec<_>>(), vec![Some(1000000), Some(200000), Some(256000)]);
+        assert_eq!(
+            models.iter().map(|m| m.context_window).collect::<Vec<_>>(),
+            vec![Some(1000000), Some(200000), Some(256000)]
+        );
     }
 
     #[test]
@@ -806,6 +1309,7 @@ mod tests {
         let account = Account {
             id: "test-trae".into(),
             platform: Platform::Traework,
+            region: CreditRegion::Cn,
             user_id: uid,
             label: "Test".into(),
             enabled: true,
@@ -856,12 +1360,14 @@ mod tests {
         use axum::http::HeaderMap;
         use axum::{routing::post, Json, Router};
         use p256::pkcs8::{EncodePrivateKey, LineEnding};
-        let app = Router::new().route("/trae/api/v3/oauth/ExchangeToken", post(|headers: HeaderMap, Json(body): Json<Value>| async move {
+        for (region, version) in [(CreditRegion::Cn, "3.4.2"), (CreditRegion::Intl, INTL_APP_VERSION)] {
+        let app = Router::new().route("/trae/api/v3/oauth/ExchangeToken", post(move |headers: HeaderMap, Json(body): Json<Value>| async move {
             assert_eq!(headers["x-cloudide-token"], "expired-session-test");
             assert_eq!(body["ClientID"], "desktop-beta-client");
             assert_eq!(body["DeviceInfo"]["PlatformCode"], "IDE_PC");
             assert_eq!(body["DeviceInfo"]["DeviceID"], "existing-device");
-            assert_eq!(body["IDEVersion"], "3.4.2");
+            assert_eq!(body["IDEVersion"], version);
+            assert_eq!(body["DeviceInfo"]["ClientVersion"], version);
             assert!(body["DeviceProof"]["Signature"].as_str().is_some_and(|signature| !signature.is_empty()));
             Json(json!({"Result":{"Token":"refreshed-session","RefreshToken":"refreshed-refresh"}}))
         }));
@@ -872,17 +1378,22 @@ mod tests {
         });
         let key = p256::SecretKey::from_slice(&[1u8; 32]).unwrap();
         let mut c = empty_credentials();
+        c.region = region;
         c.access_token = "expired-session-test".into();
         c.refresh_token = Some("refresh-test".into());
         c.device_id = Some("existing-device".into());
         c.extra = json!({"apiBase":format!("http://{address}"),"clientId":"desktop-beta-client",
-            "credentialSource":"desktop","platformCode":"IDE_PC","ideVersion":"3.4.2",
+            "credentialSource":"desktop","platformCode":"IDE_PC","ideVersion":version,
             "machineId":"existing-machine","devicePublicKey":"test-public-key",
             "devicePrivateKey":key.to_pkcs8_pem(LineEnding::LF).unwrap().as_str()});
         let updated = refresh(&ProviderClient::new(), &c).await.unwrap();
         assert_eq!(updated.access_token, "refreshed-session");
+        assert_eq!(updated.region, region);
+        assert_eq!(updated.extra["apiBase"], c.extra["apiBase"]);
+        assert_eq!(updated.extra["machineId"], c.extra["machineId"]);
         assert_eq!(updated.extra["clientId"], "desktop-beta-client");
         server.abort();
+        }
     }
 
     #[tokio::test]
@@ -965,8 +1476,14 @@ mod tests {
         let mut c = empty_credentials();
         c.device_id = Some("test-device".into());
         for (value, expected) in [
-            (json!({"enable":true,"checked_in":false,"did_checked_in":false}), "claimable"),
-            (json!({"enable":true,"checked_in":false,"did_checked_in":true}), "unavailable"),
+            (
+                json!({"enable":true,"checked_in":false,"did_checked_in":false}),
+                "claimable",
+            ),
+            (
+                json!({"enable":true,"checked_in":false,"did_checked_in":true}),
+                "unavailable",
+            ),
             (json!({"enable":true,"did_checked_in":true}), "unavailable"),
             (json!({"checked_in":true,"did_checked_in":true}), "claimed"),
             (json!({"checked_in":true,"did_checked_in":false}), "claimed"),
