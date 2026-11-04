@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.1.8-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,10 +16,11 @@
 
 AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MCP 服务器、Skills 技能、平台积分与本地模型代理**。当前版本提供 Skills 管理、MCP 服务器、积分与代理、更新日志、设置、关于六个面板，支持 25 种工具的本地安装检测与配置适配。
 
-## 🆕 v2.1.8 更新
+## 🆕 v2.2.0 更新
 
-- **TRAE CN 签到金额**：按平台返回的奖励金额展示，不再重复叠加会员奖励提示；缺少金额时保持未知。
-- **TRAE CN 签到状态**：区分账号已签到与设备领取限制，避免误报领取成功；已签到账号重复操作不会再次提交或累计奖励。详见 [积分与模型代理](docs/credits-proxy.md)。
+- **账号区域与独立路由**：国内、国际账户分别管理，国际模型使用 `-intl/` 前缀，失败不会跨区域切换；旧账号迁移前备份并保留原有数据。
+- **国际原生额度与实验性适配**：积分、USD、请求次数分项展示，接入 WorkBuddy、Qoder 国际适配及 TRAE 国际身份与额度查询；各平台验证范围见 [支持与验证矩阵](docs/credits-international.md)。
+- **Messages 思考输出**：明确启用时返回无签名思考内容，保留正文、工具块及流事件顺序。详见 [积分与模型代理](docs/credits-proxy.md)。
 
 完整变更见 [更新记录](CHANGELOG.md)，安全加固与验证边界见 [安全加固记录](docs/security-hardening.md)。
 
@@ -46,6 +47,9 @@ AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MC
 - **同步进度与冲突策略**：批量同步展示逐项进度，安装/重命名同名技能时支持重命名、跳过或覆盖
 
 ### 🪙 积分与模型代理
+
+v2.2.0 发布国际版**实验性适配**：新增独立区域、WorkBuddy／Qoder 国际接口和 TRAE 国际本机登录态与额度查询。WorkBuddy 国际真实账号余额和目录只读查询已有通过记录，推理调用未完整实测；Qoder 国际账号**未实测**。TRAE 已取得目录和工具闭环响应样本，仍缺请求体与认证头，暂未开放国际模型目录和代理。详见 [支持与验证矩阵](docs/credits-international.md)。
+
 - **多平台账户**：连接 WorkBuddy、TRAE CN、Qoder 账户，支持官方授权入口与已有 Token/凭据 JSON 导入；凭据保存到系统凭据库
 - **TRAE CN 一键导入**：优先读取本机新版桌面应用的登录态，未找到时兼容 CLI 钥匙串凭据；导入后验证身份并同步积分
 - **积分展示与领取**：分别显示平台原生额度、更新时间、额度包与领取资格；一键检查并领取可用积分，优惠券单独展示
@@ -55,7 +59,7 @@ AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MC
 - **本地模型代理**：手动启动兼容 OpenAI Chat Completions 和 Anthropic Messages 的服务，默认地址 `http://127.0.0.1:17860/v1`；支持复制独立代理 API Key，关闭窗口后继续运行，从托盘退出应用后停止
 - **图片与工具截图**：两个协议均支持 base64 或 HTTP(S) 图片输入，保留工具返回的截图；实际图片理解能力取决于所选来源模型
 - **真实模型目录**：带平台前缀的 ID 指定账户目录模型，上游返回不同型号时拒绝响应；跨平台别名仅在已验证模型间路由，优先使用即将到期的积分
-- **模型参数与上下文**：信息卡展示通道参数、能力及目录公开的底层模型 ID；优先使用目录声明的最大上下文，Qoder 显式选择最大可用档位
+- **模型参数与上下文**：信息卡展示通道参数、能力及目录公开的底层模型 ID；上下文遵守目录当前配置与权限，Qoder 显式选择最大可用档位
 - **凭据安全**：macOS 使用 Keychain、Windows 使用 Credential Manager、Linux 使用 Secret Service；启动与后台请求不触发授权弹窗，需要授权时返回明确错误
 - **通用客户端配置**：在代理页复制 Base URL、API Key 与模型 ID，按客户端支持的协议添加自定义提供商
 

@@ -1,8 +1,8 @@
 # 积分与模型代理
 
-AI-Toolkit 的「积分与代理」页面管理 WorkBuddy、TRAE CN、Qoder 国内账号。账号积分保留在来源平台；本地网关转发模型请求并消耗对应账号的额度。
+AI-Toolkit 的「积分与代理」页面管理 WorkBuddy、TRAE、Qoder 账号。v2.2.0 新增国际版实验性适配，区域、路由及验证边界见 [国际版适配状态](credits-international.md)。TRAE 国际模型协议仍待完整验证，当前未开放其模型目录与代理。账号积分保留在来源平台；本地网关转发模型请求并消耗对应账号的额度。
 
-当前说明对应 **v2.1.8**：修正 TRAE CN 签到奖励金额与账号、设备状态的判断。继续支持工具定义结构预检、受限错误诊断和请求 ID 关联，以及余额后台自动刷新、独立模型目录同步、限流退避和历史数据保留；两种代理协议支持 32 MiB 请求正文、思考内容、图片与工具调用历史的转换。完整变更见 [更新记录](../CHANGELOG.md)。
+当前说明对应 **v2.2.0**：新增账号区域、独立路由与国际原生额度，Messages 在明确启用时返回无签名思考内容。继续支持 TRAE CN 签到金额与状态修复、工具定义结构预检、受限错误诊断和请求 ID 关联，以及余额后台自动刷新、独立模型目录同步、限流退避和历史数据保留；两种代理协议支持 32 MiB 请求正文、图片与工具调用历史的转换。完整变更见 [更新记录](../CHANGELOG.md)。
 
 下图为 macOS v2.0.0 实际窗口截图，昵称和账号 ID 已打码。余额、领取状态和模型数量仅代表截图时的账户状态。
 
@@ -62,13 +62,13 @@ Qoder 账户卡片与 TRAE 一样仅显示积分任务、金额及领取状态�
 
 信息卡还展示「推理等级」及目录默认值，保留 `low`、`high`、`max`、`light`、`extra_high` 等通道原始名称并配中文说明。档位分别读取 WorkBuddy 的 `reasoning.supportedEfforts`、TRAE 的 `reasoning_effort_config.options` 和 Qoder 的 `thinking_config.enabled.efforts`；仅有思考输出标记或默认值时，不据此补出支持列表。此处展示通道目录能力，不修改客户端请求或代理的推理参数。
 
-所有模型默认使用当前通道目录提供的最大上下文。Qoder 优先从 `context_config` 或 `available_context_windows` 读取可选档位，选取最大值，并通过原生请求的 `parameters.context_length` 实际启用；不再仅使用旧的 `max_input_tokens` 输入预算。WorkBuddy 优先读取完整上下文字段，TRAE 优先读取 `context_window_tokens.max`。只有固定窗口的通道使用其已声明上限；没有目录数据时仍显示“未知”。更新应用后刷新账户目录，模型信息卡和代理请求使用同一份最大窗口配置。上下文选择不改变客户端的输出 Token 预算。
+上下文使用当前通道目录声明的配置；WorkBuddy 国际版保留账号已启用的默认窗口，不根据可选档位推断权限。国内模型继续优先使用目录提供的最大上下文。Qoder 优先从 `context_config` 或 `available_context_windows` 读取可选档位，选取最大值，并通过原生请求的 `parameters.context_length` 实际启用；不再仅使用旧的 `max_input_tokens` 输入预算。WorkBuddy 优先读取完整上下文字段，TRAE 优先读取 `context_window_tokens.max`。只有固定窗口的通道使用其已声明上限；没有目录数据时仍显示“未知”。更新应用后刷新账户目录，模型信息卡和代理请求使用同一份最大窗口配置。上下文选择不改变客户端的输出 Token 预算。
 
-模型信息卡分别展示带平台前缀的代理 ID、实际提交给平台的「调用 ID」和平台目录声明的「底层模型 ID」。目录提供具体型号或版本 ID 时完整展示，支持换行选中复制；未公开时标注「通道未公开具体版本 ID」。路由键、TRAE 的 `__dev` 内部名称和 `ep-` 部署编号不会被当作具体模型版本，也不根据显示名称拼接日期后缀。底层 ID 只用于展示，不改变原有调用路由或模型身份校验。
+模型信息卡分别展示带平台前缀的代理 ID、实际提交给平台的「调用 ID」和平台目录声明的「底层模型 ID」。目录提供具体型号或版本 ID 时完整展示，支持换行选中复制；未公开时标注「通道未公开具体版本 ID」。仅接受目录明确声明的底层版本，包括 TRAE 目录提供的 `__dev`／`__max` 变体；不会把路由键或 `ep-` 部署编号当作具体模型版本，也不根据显示名称拼接日期后缀。底层 ID 不改变调用路由；身份校验接受目录明确声明的版本 ID。
 
 开启代理后默认地址为 `http://127.0.0.1:17860/v1`。接口包括 `GET /health`、`GET /v1/models`、OpenAI Chat Completions 的 `POST /v1/chat/completions` 和 Anthropic Messages 的 `POST /v1/messages`。使用网关生成的 API Key：OpenAI 接口使用 `Authorization: Bearer <key>`；Messages 接口支持 `x-api-key` 或 Bearer。修改端口前停止代理；轮换密钥后更新客户端中的密钥。
 
-`workbuddy/<实际模型ID>`、`traework/<实际模型ID>`、`qoder/<实际模型ID>` 固定来源平台。准确的 `glm-<版本>` 别名在已验证支持同一型号的账号间调度，优先使用即将到期的积分。不同 GLM 版本不会合并。只有确认未执行的认证、限流或额度错误可以切换账号；开始返回内容后不重试。网络超时不会被当作尚未执行。
+`workbuddy/<实际模型ID>`、`traework/<实际模型ID>`、`qoder/<实际模型ID>` 固定来源平台及国内区域；国际版使用对应的 `-intl/` 前缀，详见国际适配状态。准确的 `glm-<版本>` 别名在已验证支持同一型号的国内账号间调度，优先使用即将到期的积分。不同 GLM 版本不会合并。只有确认未执行的认证、限流或额度错误可以切换账号；开始返回内容后不重试。网络超时不会被当作尚未执行。
 
 请求记录保存来源账号、模型、结果、耗时与上游报告的 Token 数；失败时另存 HTTP 状态、失败阶段、上游业务错误码及上游提供的请求 ID。仅提取限定字段中的短标识符，不保存上游原始错误正文、请求正文、授权令牌或 API Key。Token 数不能直接换算为平台积分扣减。
 
@@ -89,9 +89,9 @@ Chat Completions 接口兼容 DeepSeek Harness 等客户端自动发送的 `stor
 
 Qoder 通道会将 Chat Completions 的 `developer` 消息转为上游支持的 `system` 消息，并纳入原生请求的系统指令集合；消息正文、顺序和工具调用历史保持不变。Messages 客户端使用顶层 `system`，不经过 `developer` 角色路径。
 
-WorkBuddy 适配器对两段已实测触发通道拒绝的固定 DeepSeek Harness 系统模板做定点措辞调整：身份首句由 `powered by` 改为 `running on`，Web GUI 固定句中的 `the DeepSeek Harness Web GUI` 改为 `the Web GUI`。Harness 名称、运行时 URL 引用和其余系统指令保留，消息继续使用 `system` 优先级；用户消息、助手历史、工具定义与工具结果保持原样。这两处兼容只作用于 WorkBuddy 的系统文本，覆盖字符串和文本块数组；社区定位见 [身份首句 PR #280](https://github.com/magpie-community/plugins/pull/280) 与 [Web GUI 模板 PR #293](https://github.com/magpie-community/plugins/pull/293)。
+WorkBuddy 适配器对两段已实测触发通道拒绝的固定 DeepSeek Harness 系统模板做定点措辞调整：身份首句由 `powered by` 改为 `running on`，Web GUI 固定句中的 `the DeepSeek Harness Web GUI` 改为 `the Web GUI`。Harness 名称、运行时 URL 引用和其余系统指令保留，消息继续使用 `system` 优先级；用户消息、助手历史、工具定义与工具结果保持原样。这两处兼容只作用于 WorkBuddy 国内版的系统文本，覆盖字符串和文本块数组；社区定位见 [身份首句 PR #280](https://github.com/magpie-community/plugins/pull/280) 与 [Web GUI 模板 PR #293](https://github.com/magpie-community/plugins/pull/293)。
 
-其他 WorkBuddy 请求返回 HTTP 400、代码 `11128` 且明确说明 `Illegal API invocation from an unapproved channel` 时，代理仍返回 `upstream_channel_rejected` 并提示通道校验未通过，不自动重试或轮换账号。此时应使用官方客户端或平台授权的接口，也可自行选择其他可用通道。`11128` 的其他请求格式错误仍按普通上游错误处理，不将全部同码错误视为通道限制。
+其他 WorkBuddy 请求返回 HTTP 400、代码 `11128` 且明确说明 `Illegal API invocation from an unapproved channel` 或国际网关的 `request illegal` 时，代理返回 `upstream_channel_rejected` 并提示通道校验未通过，不自动重试或轮换账号。此时应使用官方客户端或平台授权的接口，也可自行选择其他可用通道。`11128` 的其他请求格式错误仍按普通上游错误处理，不将全部同码错误视为通道限制。国际网关返回 `11158` 时提示当前账号类型不支持该模型，可选择其他可用模型。
 
 ### ZCode 图片与工具截图
 
@@ -102,6 +102,8 @@ Messages 接口接受用户附件和 `tool_result.content` 中的图片，将标
 超过正文上限时返回 HTTP 413 `request_too_large`，提示压缩图片或精简历史；JSON 格式无效返回 HTTP 400，未使用 `Content-Type: application/json` 返回 HTTP 415。这些入口错误发生在模型推理之前，不能据此判断模型是否支持图片。
 
 ZCode 历史中的无签名或空签名 `assistant.thinking` 块转换为独立的 `reasoning_content`，按原顺序保留思考文本，同时保留正文与工具调用。GLM 的历史思考字段见 [官方思考模式说明](https://docs.z.ai/guides/capabilities/thinking-mode)。带非空签名或加密的 Anthropic 思考块仍显式拒绝，不把它们当作普通文本或静默丢弃。
+
+Messages 请求设置 `thinking.type` 为 `enabled` 或 `adaptive`，且未设置 `thinking.display: omitted` 时，可在 JSON 或 SSE 响应中返回上游无签名思考块。空签名仅用于兼容无签名内容的往返，不代表 Anthropic 签名证明；默认请求不输出思考。流式响应先结束思考块，再输出正文和工具块；最终文本开始后又出现思考内容时明确报错。
 
 | 来源 | 图片与工具结果的上游格式 |
 | --- | --- |
