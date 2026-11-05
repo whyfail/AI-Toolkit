@@ -530,6 +530,9 @@ fn parse_models_for_region(v: &Value, region: CreditRegion) -> Vec<ModelInfo> {
                     }
                     lengths
                 });
+            let context_window = token_limit(&m["contextWindow"], &["defaultLength"])
+                .or_else(|| token_limit(m, &["contextWindow", "contextLength", "maxInputTokens"]))
+                .into_iter().chain(context_window_options.iter().copied()).max();
             Some(ModelInfo {
                 upstream_model_ids: ["model", "modelId"]
                     .iter()
@@ -554,11 +557,7 @@ fn parse_models_for_region(v: &Value, region: CreditRegion) -> Vec<ModelInfo> {
                 ..model(
                     id.clone(),
                     text(m, &["displayName", "display_name", "label", "name"]).unwrap_or(id),
-                    // An advertised tier is not enabled merely by listing it. Keep
-                    // the channel's default when no request override is submitted.
-                    token_limit(&m["contextWindow"], &["defaultLength"]).or_else(|| {
-                        token_limit(m, &["contextWindow", "contextLength", "maxInputTokens"])
-                    }),
+                    context_window,
                 )
             })
         })
@@ -1108,7 +1107,7 @@ mod tests {
             vec!["gpt-fixture", "claude-fixture"]
         );
         assert_eq!(models[0].upstream_model_ids, vec!["gpt-fixture-version"]);
-        assert_eq!(models[0].context_window, Some(128000));
+        assert_eq!(models[0].context_window, Some(1000000));
         assert_eq!(models[0].context_window_options, vec![128000, 1000000]);
         assert_eq!(models[0].max_output_tokens, Some(32000));
         assert_eq!(
@@ -1135,7 +1134,7 @@ mod tests {
             }]}),
             CreditRegion::Intl,
         );
-        assert_eq!(unknown[0].context_window, None);
+        assert_eq!(unknown[0].context_window, Some(1000000));
     }
 
     #[test]
