@@ -273,6 +273,26 @@ fn api_error(status: StatusCode, code: &str, message: &str) -> Response {
         .into_response()
 }
 
+fn insert_catalog_model(
+    entries: &mut std::collections::BTreeMap<String, Value>,
+    id: String,
+    owner: &str,
+    model: &ModelInfo,
+) {
+    let entry = entries.entry(id.clone()).or_insert_with(|| json!({
+        "id": id, "object": "model", "created": 0, "owned_by": owner,
+        "context_window": model.context_window, "max_output_tokens": model.max_output_tokens
+    }));
+    // A route can choose any eligible account. Advertise only a capacity shared
+    // by all of them; a missing limit must stay unknown rather than be guessed.
+    for (field, capacity) in [("context_window", model.context_window), ("max_output_tokens", model.max_output_tokens)] {
+        match (entry[field].as_u64().filter(|value| *value > 0), capacity.filter(|value| *value > 0)) {
+            (Some(previous), Some(current)) => entry[field] = json!(previous.min(current)),
+            _ => { entry.as_object_mut().unwrap().remove(field); }
+        }
+    }
+}
+
 async fn models(State(context): State<Arc<GatewayContext>>, headers: HeaderMap) -> Response {
     if !authorized(&headers, &context.key) {
         return api_error(
@@ -296,9 +316,9 @@ async fn models(State(context): State<Arc<GatewayContext>>, headers: HeaderMap) 
         if let Some(snapshot) = &account.snapshot {
             for model in &snapshot.models {
                 let alias = format!("{}/{}", account.platform.route_key(account.region), model.id);
-                entries.insert(alias.clone(), json!({"id": alias, "object": "model", "created": 0, "owned_by": account.platform.route_key(account.region)}));
+                insert_catalog_model(&mut entries, alias, &account.platform.route_key(account.region), model);
                 if let Some(canonical) = model.canonical_id.as_ref().filter(|_| model.verified && account.region == super::types::CreditRegion::Cn) {
-                    entries.insert(canonical.clone(), json!({"id": canonical, "object": "model", "created": 0, "owned_by": "auto"}));
+                    insert_catalog_model(&mut entries, canonical.clone(), "auto", model);
                 }
             }
         }
@@ -1475,6 +1495,47 @@ mod tests {
             select_candidate(&context, &earlier).unwrap().0.account.id,
             "first"
         );
+    }
+
+    #[tokio::test]
+    async fn model_catalog_exposes_route_capacities_and_keeps_unknown_output_limits_unknown() {
+        let manager = CreditManager::test();
+        for (id, context, output) in [("wide", 1_000_000, 32_768), ("narrow", 512_000, 8192)] {
+            let mut account = account(id, "shared", now_ms() + 60_000);
+            let model = &mut account.snapshot.as_mut().unwrap().models[0];
+            model.context_window = Some(context);
+            model.max_output_tokens = Some(output);
+            manager.store.save_account(&account).unwrap();
+        }
+        let mut minimax = account("minimax", "MiniMax-M3.1-Flash", now_ms() + 60_000);
+        minimax.platform = Platform::MinimaxCode;
+        let model = &mut minimax.snapshot.as_mut().unwrap().models[0];
+        model.context_window = Some(1_000_000);
+        model.verified = false;
+        manager.store.save_account(&minimax).unwrap();
+        let status = manager.gateway.start(manager.clone(), 0).await.unwrap();
+        let http = reqwest::Client::builder().no_proxy().timeout(std::time::Duration::from_secs(3)).build().unwrap();
+        let key = manager.gateway_key().unwrap();
+        let catalog: Value = http.get(format!("{}/models", status.base_url)).bearer_auth(&key)
+            .send().await.unwrap().json().await.unwrap();
+        for id in ["workbuddy/shared", "shared"] {
+            let entry = catalog["data"].as_array().unwrap().iter().find(|entry| entry["id"] == id).unwrap();
+            assert_eq!(entry["context_window"], 512_000);
+            assert_eq!(entry["max_output_tokens"], 8192);
+        }
+        let entry = catalog["data"].as_array().unwrap().iter().find(|entry| entry["id"] == "minimax-code/MiniMax-M3.1-Flash").unwrap();
+        assert_eq!(entry["context_window"], 1_000_000);
+        assert!(entry.get("max_output_tokens").is_none());
+        // Unknown capacity in one eligible account cannot inherit another account's limit.
+        manager.store.save_account(&account("unknown", "shared", now_ms() + 60_000)).unwrap();
+        let catalog: Value = http.get(format!("{}/models", status.base_url)).bearer_auth(&key)
+            .send().await.unwrap().json().await.unwrap();
+        for id in ["workbuddy/shared", "shared"] {
+            let entry = catalog["data"].as_array().unwrap().iter().find(|entry| entry["id"] == id).unwrap();
+            assert!(entry.get("context_window").is_none());
+            assert!(entry.get("max_output_tokens").is_none());
+        }
+        manager.gateway.stop().await.unwrap();
     }
 
     #[tokio::test]
