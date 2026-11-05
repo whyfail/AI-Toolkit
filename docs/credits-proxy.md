@@ -1,8 +1,8 @@
 # 积分与模型代理
 
-AI-Toolkit 的「积分与代理」页面管理 WorkBuddy、TRAE、Qoder 账号。v2.2.0 新增国际版实验性适配，区域、路由及验证边界见 [国际版适配状态](credits-international.md)。TRAE 国际模型协议仍待完整验证，当前未开放其模型目录与代理。账号积分保留在来源平台；本地网关转发模型请求并消耗对应账号的额度。
+AI-Toolkit 的「积分与代理」页面管理 WorkBuddy、TRAE、Qoder、MiniMax Code 账号。v2.2.1 新增 MiniMax Code 账号、签到与模型代理，并延续国际版实验性适配；区域、路由及验证边界见 [国际版适配状态](credits-international.md)。TRAE 国际模型协议仍待完整验证，当前未开放其模型目录与代理。账号积分保留在来源平台；本地网关转发模型请求并消耗对应账号的额度。
 
-当前说明对应 **v2.2.0**：新增账号区域、独立路由与国际原生额度，Messages 在明确启用时返回无签名思考内容。继续支持 TRAE CN 签到金额与状态修复、工具定义结构预检、受限错误诊断和请求 ID 关联，以及余额后台自动刷新、独立模型目录同步、限流退避和历史数据保留；两种代理协议支持 32 MiB 请求正文、图片与工具调用历史的转换。完整变更见 [更新记录](../CHANGELOG.md)。
+当前说明对应 **v2.2.1**：新增 MiniMax Code 登录、余额、签到与双协议模型代理，展示可选上下文与推理档位，明确区分本地参数校验和上游错误。继续支持账号区域隔离、原生额度、无签名思考、工具定义结构预检、受限诊断和请求 ID 关联，以及后台刷新、限流退避与历史数据保留；两种代理协议支持 32 MiB 请求正文、图片与工具调用历史的转换。完整变更见 [更新记录](../CHANGELOG.md)。
 
 下图为 macOS v2.0.0 实际窗口截图，昵称和账号 ID 已打码。余额、领取状态和模型数量仅代表截图时的账户状态。
 
@@ -26,11 +26,19 @@ Qoder 活动请求携带已保存的设备身份及官方活动客户端请求�
 
 Qoder 账户卡片与 TRAE 一样仅显示积分任务、金额及领取状态，不展示活动说明、规则入口、平台网页活动或优惠券。只有平台明确返回 `CLAIM_BENEFIT` 和 `CREDITS` 的任务才会由“一键领取积分”处理；兑换码、优惠券和查看详情活动不会被当作积分领取。
 
+MiniMax Code 支持国内、国际独立账号，可使用官方设备授权流程登录，或读取本机桌面端／`mcode` CLI 共用的 OAuth 凭据。默认路径为 `~/.minimax/auth/prod/{cn,en}/mcode-public/auth.json`，遵循 `MINIMAX_DATA_DIR`／`MAVIS_DATA_DIR`。本机导入只读取访问凭据，过期后重新读取官方客户端的有效登录态，不消耗其轮换刷新令牌；也可直接在 AI Toolkit 使用网页登录独立授权。
+
+MiniMax Code 的个人工作区余额来自会员账单汇总；每日签到通过官方 `signin/status` 与 `signin/claim` 接口在工具内完成，接入单账号、批量和定时领取。金额与资格来自实时七日面板，`bonus_points` 已包含在 `points`，不重复累计；已领取时跳过，返回不明确时只回查状态。模型目录从官方 `/archon/api/v1/config` 实时查询，只展示当前账号返回的 MiniMax 路由。模型代理使用对应区域的官方 managed Messages 接口，支持 Chat Completions／Messages 的 JSON 与 SSE，以及文本、图片、思考和工具调用历史转换。
+
+MiniMax Code 的模型 ID 形如 `minimax-code/MiniMax-M3`；国际账号使用 `minimax-code-intl/` 前缀，两个区域不混用。上下文与可选档位、思考开关和推理等级来自当前账号目录；默认选择当前账号目录声明的最高上下文档位，M3 与 M3.1-Flash 均默认 1M（用量较高），512K 保留为可选档位。旧接口可能仅给 M3 返回 400K 且省略可选档位，此时依据官方共享目录补齐 512K／1M；接口明确返回的账号档位列表继续优先，未知型号不套用此规则。固定窗口模型沿用其已声明上限。未返回的输出上限保持未知；图片与工具能力参考官方共享目录的明确条目。M3 使用 `on`／`off`，M3.1-Flash 使用目录列出的 effort；Messages 的 `thinking` 与 `output_config.effort` 在 MiniMax 路由中保留。工具参数分片保留真实调用 ID，并区分工具索引与思考／文本块序号；缓存读写 Token 按上游原生用量计入输入 Token。
+
+MiniMax-M3.1-Flash 强制使用 adaptive 思考，不接受 `thinking.type=disabled` 或 `reasoning_effort=none`。ZCode 3.17.2 的连接测试会取模型支持列表的第一个推理档位；自定义模型未声明档位时会发送 `disabled`，造成参数冲突。该模型需配置 `low`、`medium`、`high`、`xhigh`、`max` 等有效档位；连接测试使用 `low`。代理保留关闭请求的明确校验错误，不擅自将关闭改成开启；界面也会提示思考不可关闭。此类本地校验返回 `invalid_request` 与 `validation` 阶段，不再误报成上游响应失败。
+
 「一键领取积分」逐账号处理当前符合条件的奖励。自动领取默认关闭；开启后仅在应用运行期间按北京时间每日 10:30 检查并领取，10:30 前启动会等待到点，当天 10:30 后启动会补做检查，从托盘退出应用后停止。同一账号的任务串行执行，超时或状态不明确时先查询，不盲目重复领取。
 
 ## 自动刷新
 
-三个平台默认开启余额自动刷新，可在「同步与领取设置」关闭。自动刷新与自动领取分别控制，开启余额刷新不会自动领取积分。
+各平台默认开启余额自动刷新，可在「同步与领取设置」关闭。自动刷新与自动领取分别控制，开启余额刷新不会自动领取积分。
 
 | 场景 | 同步策略 |
 | --- | --- |
@@ -62,7 +70,7 @@ Qoder 账户卡片与 TRAE 一样仅显示积分任务、金额及领取状态�
 
 信息卡还展示「推理等级」及目录默认值，保留 `low`、`high`、`max`、`light`、`extra_high` 等通道原始名称并配中文说明。档位分别读取 WorkBuddy 的 `reasoning.supportedEfforts`、TRAE 的 `reasoning_effort_config.options` 和 Qoder 的 `thinking_config.enabled.efforts`；仅有思考输出标记或默认值时，不据此补出支持列表。此处展示通道目录能力，不修改客户端请求或代理的推理参数。
 
-上下文使用当前通道目录声明的配置；WorkBuddy 国际版保留账号已启用的默认窗口，不根据可选档位推断权限。国内模型继续优先使用目录提供的最大上下文。Qoder 优先从 `context_config` 或 `available_context_windows` 读取可选档位，选取最大值，并通过原生请求的 `parameters.context_length` 实际启用；不再仅使用旧的 `max_input_tokens` 输入预算。WorkBuddy 优先读取完整上下文字段，TRAE 优先读取 `context_window_tokens.max`。只有固定窗口的通道使用其已声明上限；没有目录数据时仍显示“未知”。更新应用后刷新账户目录，模型信息卡和代理请求使用同一份最大窗口配置。上下文选择不改变客户端的输出 Token 预算。
+各平台默认选择当前账号目录声明的最高上下文档位。WorkBuddy 国内、国际版与 MiniMax Code 从账号可选档位和已声明窗口中取最大值；不使用其他账号或固定猜测的档位。Qoder 优先从 `context_config` 或 `available_context_windows` 读取可选档位，选取最大值，并通过原生请求的 `parameters.context_length` 实际启用；不再仅使用旧的 `max_input_tokens` 输入预算。WorkBuddy 优先读取完整上下文字段，TRAE 优先读取 `context_window_tokens.max`。只有固定窗口的通道使用其已声明上限；没有目录数据时仍显示“未知”。更新应用后刷新账户目录，模型信息卡和代理请求使用同一份最大窗口配置。上下文选择不改变客户端的输出 Token 预算。
 
 模型信息卡分别展示带平台前缀的代理 ID、实际提交给平台的「调用 ID」和平台目录声明的「底层模型 ID」。目录提供具体型号或版本 ID 时完整展示，支持换行选中复制；未公开时标注「通道未公开具体版本 ID」。仅接受目录明确声明的底层版本，包括 TRAE 目录提供的 `__dev`／`__max` 变体；不会把路由键或 `ep-` 部署编号当作具体模型版本，也不根据显示名称拼接日期后缀。底层 ID 不改变调用路由；身份校验接受目录明确声明的版本 ID。
 
@@ -140,6 +148,12 @@ WorkBuddy 工具闭环验证保留原有 44 个工具定义，追加一个只返
 2026-10-16 已用真实 `traework/glm-5.3-flash` 的短工具生成请求复现：首片带完整 ID，后续参数片带空 ID。该真实响应经修复后的 JSON 与 Messages SSE 转换，均保留原 ID 和完整参数，SSE 正常结束；未执行工具或修改用户项目。这不等同于 ZCode 原完整任务已经运行通过。
 
 macOS 使用 Keychain，Windows 使用 Credential Manager，Linux 使用 Secret Service；凭据库不可用时返回明确错误，不退回明文文件。构建与测试命令：`pnpm check`、`cargo test --manifest-path src-tauri/Cargo.toml`、`pnpm tauri build`。Windows 安装包由现有 Windows CI 构建验证，本机 macOS 无法完成 Windows 运行验收。
+
+2026-11-05：MiniMax Code 国内账号的本机凭据读取、服务端身份、个人工作区积分余额和签到状态通过 Rust 适配器只读实测；未执行真实签到或推理。领取成功、已领取及结果不明确的回查路径经过本地 HTTP 回归，国内／国际账号的前端单项和批量领取经过组件测试。网页登录完整流程、国际真实账号与真实领取到账尚未实测。
+
+2026-11-05：MiniMax Code 当前国内账号的实时目录返回 MiniMax-M3.1-Flash（512K，可选 1M）与 MiniMax-M3（旧接口返回 400K、缺少档位；官方共享目录为 512K／1M，适配器已补齐并默认选择 1M）。在独立内存数据库、临时本地代理端口与测试密钥下，M3 已通过 Chat Completions JSON 工具调用及 Messages SSE 工具结果续写；M3.1-Flash 已通过 Messages JSON、低档推理请求。验证仅使用返回固定文本的工具描述，未执行外部工具或领取积分，未改写用户账号数据库。国际真实账号及图片理解仍未实测；图片内容转换、双协议 JSON／SSE 和国内／国际路由隔离经过离线回归。
+
+2026-11-05：通过 ZCode 3.17.2 随附 CLI 的官方 `provider/testModelConnectivity` 流程，用独立临时配置复现其原始 `thinking=disabled`／1 Token 探针。将该模型推理档位声明为 `low`、`medium`、`high`、`xhigh`、`max` 后，同一流程发送 `adaptive + low`，经当前本地代理返回 HTTP 200 和 `success=true`。原有 ZCode 配置已单独备份；此次调整仅作用于对应 MiniMax 模型的推理档位。
 
 ## 系统凭据授权弹窗
 

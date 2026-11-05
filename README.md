@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.2.1-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,11 +16,11 @@
 
 AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MCP 服务器、Skills 技能、平台积分与本地模型代理**。当前版本提供 Skills 管理、MCP 服务器、积分与代理、更新日志、设置、关于六个面板，支持 25 种工具的本地安装检测与配置适配。
 
-## 🆕 v2.2.0 更新
+## 🆕 v2.2.1 更新
 
-- **账号区域与独立路由**：国内、国际账户分别管理，国际模型使用 `-intl/` 前缀，失败不会跨区域切换；旧账号迁移前备份并保留原有数据。
-- **国际原生额度与实验性适配**：积分、USD、请求次数分项展示，接入 WorkBuddy、Qoder 国际适配及 TRAE 国际身份与额度查询；各平台验证范围见 [支持与验证矩阵](docs/credits-international.md)。
-- **Messages 思考输出**：明确启用时返回无签名思考内容，保留正文、工具块及流事件顺序。详见 [积分与模型代理](docs/credits-proxy.md)。
+- **MiniMax Code 账号与签到**：支持国内／国际独立登录、本机凭据导入、积分余额和每日签到，接入单项、批量与定时领取；本机导入不消耗官方客户端的轮换刷新令牌。
+- **MiniMax Code 模型代理**：实时查询账号模型目录，接入双协议 JSON／SSE、文本、图片与工具历史转换，保留原生思考控制和调用 ID。国际账号、图片理解及真实领取仍缺实测，详见 [积分与模型代理](docs/credits-proxy.md)。
+- **上下文与参数校验**：展示可选档位，M3／M3.1-Flash 默认最高 1M 并提示用量较高；强制思考模型明确提示有效档位，本地参数错误不再误报上游失败。
 
 完整变更见 [更新记录](CHANGELOG.md)，安全加固与验证边界见 [安全加固记录](docs/security-hardening.md)。
 
@@ -48,7 +48,7 @@ AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MC
 
 ### 🪙 积分与模型代理
 
-v2.2.0 发布国际版**实验性适配**：新增独立区域、WorkBuddy／Qoder 国际接口和 TRAE 国际本机登录态与额度查询。WorkBuddy 国际真实账号余额和目录只读查询已有通过记录，推理调用未完整实测；Qoder 国际账号**未实测**。TRAE 已取得目录和工具闭环响应样本，仍缺请求体与认证头，暂未开放国际模型目录和代理。详见 [支持与验证矩阵](docs/credits-international.md)。
+v2.2.1 延续国际版**实验性适配**，并新增 MiniMax Code 国内／国际账号。WorkBuddy 国际真实账号余额和目录只读查询已有通过记录，推理调用未完整实测；Qoder、MiniMax Code 国际账号**未实测**。TRAE 已取得目录和工具闭环响应样本，仍缺请求体与认证头，暂未开放国际模型目录和代理。详见 [支持与验证矩阵](docs/credits-international.md)。
 
 - **多平台账户**：连接 WorkBuddy、TRAE CN、Qoder 账户，支持官方授权入口与已有 Token/凭据 JSON 导入；凭据保存到系统凭据库
 - **TRAE CN 一键导入**：优先读取本机新版桌面应用的登录态，未找到时兼容 CLI 钥匙串凭据；导入后验证身份并同步积分
@@ -114,7 +114,7 @@ v2.2.0 发布国际版**实验性适配**：新增独立区域、WorkBuddy／Qod
 
 ### 账户与积分
 
-分别查看 WorkBuddy、TRAE CN、Qoder 的原生额度、领取状态与模型目录。
+分别查看 WorkBuddy、TRAE CN、Qoder 的原生额度、领取状态与模型目录。MiniMax Code 支持国内／国际账号登录、本机导入、积分余额与每日签到，已接入单项、批量及定时领取；实时模型目录与本地代理支持文本、图片和工具历史转换，模型参数按账号目录展示。
 
 ![账户与积分界面，账号信息已打码](assets/screenshots/credits-panel.png)
 

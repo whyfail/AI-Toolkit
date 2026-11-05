@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release Version (e.g., 2.2.0)'
+        description: 'Release Version (e.g., 2.2.1)'
         required: true
-        default: '2.2.0'
+        default: '2.2.1'
       publish:
         description: 'Publish the release after building both platforms'
         type: boolean
@@ -427,15 +427,15 @@ jobs:
 
             **Note**: Auto-updater uses `.app.tar.gz` (macOS) and `.msi` (Windows) bundles which are included in this release.
 
-            ### New in v2.2.0
+            ### New in v2.2.1
 
-            - Domestic and international account regions with separate credentials, backed-up migration, and region-specific model routes
-            - Native credits, USD, and request quotas without mixing units or double-counting billing details
-            - Experimental WorkBuddy and Qoder international adapters; TRAE international identity and billing only
-            - Opt-in unsigned thinking output for Anthropic Messages, preserving text and tool block order
-            - WorkBuddy international catalog and plan permissions with the account's active context configuration
+            - MiniMax Code CN/global accounts with device OAuth and local import without consuming the official client's rotating refresh tokens
+            - Personal credit balances and daily check-in through individual, batch, and scheduled claims with status reconciliation
+            - Live MiniMax model discovery and managed model proxy with both protocols, JSON/SSE, native thinking, images, and tool history conversion
+            - Selectable context information, highest 1M defaults for M3/M3.1-Flash, and explicit required-thinking guidance
+            - Local parameter errors reported as validation failures; tool IDs, stream completion, and cached input usage preserved
 
-            International validation is incomplete: WorkBuddy inference lacks complete live validation, Qoder international accounts are untested live, and TRAE international catalog and chat remain disabled (HTTP 501). See the [support and verification matrix](https://github.com/whyfail/AI-Toolkit/blob/main/docs/credits-international.md).
+            MiniMax CN identity, credits, catalog, and selected short text/tool inference have prior live validation. Global accounts, image understanding, complete browser login, and real claims remain unverified. International support remains experimental; TRAE international catalog and chat remain disabled (HTTP 501). See the [support and verification matrix](https://github.com/whyfail/AI-Toolkit/blob/main/docs/credits-international.md).
 
             ### ✨ Features
 
@@ -460,7 +460,7 @@ jobs:
             - DeepSeek Harness desktop and CLI discovery, launching, MCP configuration, and Skills sync
             - Client store=false, Qoder developer messages, and WorkBuddy Harness template compatibility
             - Specific upstream channel-rejection errors without automatic retries or account failover
-            - Respect active context permissions, including Qoder context tier selection and WorkBuddy international defaults
+            - Prefer the highest account catalog context tier, with model-specific options and preserved output limits
             - Route TRAE CN check-in status and claims through the separate UG gateway
             - Correct TRAE CN check-in amounts and distinguish account confirmation from device limits
             - Skill path validation, private caches, and desktop/OAuth hardening

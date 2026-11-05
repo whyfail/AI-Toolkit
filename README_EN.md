@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.2.1-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,11 +16,11 @@
 
 AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and a local model proxy**. The current version has six panels: Skills, MCP Servers, Credits & Proxy, Changelog, Settings, and About, with local installation detection and configuration adapters for 25 AI programming tools.
 
-## 🆕 What's New in v2.2.0
+## 🆕 What's New in v2.2.1
 
-- **Account regions and routing**: Manage domestic and international accounts independently, with `-intl/` model prefixes and no retries across regions. Existing accounts retain their data through a backed-up migration.
-- **Native quotas and experimental international adapters**: Display credits, USD, and request quotas separately. WorkBuddy and Qoder international adapters and TRAE international identity and billing are included within the [support and verification matrix](docs/credits-international.md#english-status).
-- **Messages thinking output**: Explicit opt-in exposes unsigned reasoning while preserving text, tool blocks, and stream ordering. See [Credits & Model Proxy](docs/credits-proxy.md).
+- **MiniMax Code accounts and check-in**: Separate CN/global login, local credential import, credit balances, and individual, batch, or scheduled daily claims. Local import does not consume the official client's rotating refresh token.
+- **MiniMax Code model proxy**: Discover the account's live catalog and translate both protocols, JSON/SSE, text, images, and tool history while preserving native thinking controls and tool IDs. Global accounts, image understanding, and real claims remain unverified; see [Credits & Model Proxy](docs/credits-proxy.md).
+- **Context and validation**: Display selectable context tiers, default M3/M3.1-Flash context information to the highest 1M tier with a usage notice, and report invalid thinking parameters as local validation errors.
 
 See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/security-hardening.md) for security changes and validation scope.
 
@@ -48,7 +48,7 @@ See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/
 
 ### 🪙 Credits & Model Proxy
 
-v2.2.0 includes **experimental international adapters**, with independent regional routing. WorkBuddy international billing and catalog have prior live read-only validation; inference lacks complete live validation. Qoder international accounts remain **untested live**. TRAE international desktop import, identity and billing passed a read-only check. Official catalog and tool-loop responses were captured, but authentication headers and request bodies remain unverified; international catalog and chat are not enabled. See the [support and verification matrix](docs/credits-international.md#english-status).
+v2.2.1 retains **experimental international adapters** and adds MiniMax Code CN/global accounts, with independent regional routing. WorkBuddy international billing and catalog have prior live read-only validation; inference lacks complete live validation. Qoder and MiniMax Code international accounts remain **untested live**. TRAE international desktop import, identity and billing passed a read-only check. Official catalog and tool-loop responses were captured, but authentication headers and request bodies remain unverified; international catalog and chat are not enabled. See the [support and verification matrix](docs/credits-international.md#english-status).
 
 - **Multi-Platform Accounts**: Connect WorkBuddy, TRAE CN, and Qoder accounts via the official authorization flow or by importing existing Token/credential JSON; credentials are stored in the system credential store
 - **TRAE CN One-Click Import**: Prefers the local desktop app's login state and falls back to CLI keychain credentials; identity is verified and credits synced after import
@@ -114,7 +114,7 @@ View servers and their enabled tools, then paste JSON to add a new configuration
 
 ### Accounts & Credits
 
-View platform-native balances, claim status, and model catalogs for WorkBuddy, TRAE CN, and Qoder.
+View platform-native balances, claim status, and model catalogs for WorkBuddy, TRAE CN, and Qoder. MiniMax Code supports separate CN/global accounts, official login, local credential import, personal credit balances, and daily check-in through individual, batch, and scheduled claims. Its live model catalog and local proxy support text, images, tool history, and native thinking controls, using account-specific model parameters.
 
 ![Accounts and credits with account information redacted](assets/screenshots/credits-panel.png)
 
