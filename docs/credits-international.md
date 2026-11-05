@@ -1,6 +1,6 @@
-# 国际版适配（v2.2.1 实验性）
+# 国际版适配（v2.2.2 实验性）
 
-v2.2.1 延续独立的 `cn` / `intl` 区域，保留国内版平台标识和模型 ID，并新增 MiniMax Code 国内／国际账号适配。各平台按以下范围发布，国际真实账号验证仍不完整。**TRAE 国际版新版模型协议尚未完成完整验证，模型目录与代理暂不开放。**
+v2.2.2 延续独立的 `cn` / `intl` 区域，保留国内版平台标识和模型 ID，包含 MiniMax Code 国内／国际账号适配。各平台按以下范围发布，国际真实账号验证仍不完整。**TRAE 国际版新版模型协议尚未完成完整验证，模型目录与代理暂不开放。**
 
 ## 支持与验证矩阵
 
@@ -65,9 +65,11 @@ HTTPS 代理采样因原生 TLS 证书校验失败，未取得请求体。该临
 
 2026-11-05 v2.2.1 发布检查：前端 42 项、Rust 325 项测试通过，6 项真实账号或诊断测试按默认设置忽略，主项目生产构建通过。本次发布检查未额外执行真实授权、推理或领取；各平台真实账号状态沿用已有验证记录。
 
+2026-11-05 v2.2.2 发布检查：前端 42 项、Rust 326 项测试通过，6 项真实账号或诊断测试按默认设置忽略，主项目生产构建通过。新增本地 HTTP 回归验证目录容量、多账号共同最小值与未知输出上限；未额外执行真实推理或领取。
+
 ## English status
 
-v2.2.1 retains **experimental international adapters** and adds MiniMax Code CN/global accounts within the scope below. Accounts and credentials carry `cn` or `intl`; the default remains China. Account uniqueness and routing include the region. Existing account IDs, secure credentials, snapshots and history survive a backed-up, transactional migration. Credits, USD and request quotas are never added together, and unknown balances remain unknown.
+v2.2.2 retains **experimental international adapters** and MiniMax Code CN/global accounts within the scope below. Accounts and credentials carry `cn` or `intl`; the default remains China. Account uniqueness and routing include the region. Existing account IDs, secure credentials, snapshots and history survive a backed-up, transactional migration. Credits, USD and request quotas are never added together, and unknown balances remain unknown.
 
 WorkBuddy international billing and a 20-model catalog passed a live read-only check. Personal accounts use authenticated `/v3/config` model and agent permissions; enterprise accounts use the official enterprise configuration endpoint. Chat uses the configuration-declared, validated international model node. WorkBuddy inference remains untested live. Qoder international adapters have offline contract coverage but are **not tested with real international accounts**. Their model prefixes are `workbuddy-intl/` and `qoder-intl/`. Bare exact GLM aliases remain domestic-only. Requests never retry across regions. WorkBuddy activity rewards settle automatically under the official rules; Qoder claims only live eligible credit tasks using the international helper environment `4`.
 

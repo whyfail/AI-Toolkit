@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release Version (e.g., 2.2.1)'
+        description: 'Release Version (e.g., 2.2.2)'
         required: true
-        default: '2.2.1'
+        default: '2.2.2'
       publish:
         description: 'Publish the release after building both platforms'
         type: boolean
@@ -427,13 +427,11 @@ jobs:
 
             **Note**: Auto-updater uses `.app.tar.gz` (macOS) and `.msi` (Windows) bundles which are included in this release.
 
-            ### New in v2.2.1
+            ### New in v2.2.2
 
-            - MiniMax Code CN/global accounts with device OAuth and local import without consuming the official client's rotating refresh tokens
-            - Personal credit balances and daily check-in through individual, batch, and scheduled claims with status reconciliation
-            - Live MiniMax model discovery and managed model proxy with both protocols, JSON/SSE, native thinking, images, and tool history conversion
-            - Selectable context information, highest 1M defaults for M3/M3.1-Flash, and explicit required-thinking guidance
-            - Local parameter errors reported as validation failures; tool IDs, stream completion, and cached input usage preserved
+            - `/v1/models` exposes known `context_window` and `max_output_tokens` capacities for prefixed routes and verified aliases
+            - Shared routes advertise only the minimum positive capacity explicitly declared by every eligible account; missing limits stay unknown
+            - Capacity metadata helps clients configure budgets without rewriting caller-specified output limits or truncation reasons
 
             MiniMax CN identity, credits, catalog, and selected short text/tool inference have prior live validation. Global accounts, image understanding, complete browser login, and real claims remain unverified. International support remains experimental; TRAE international catalog and chat remain disabled (HTTP 501). See the [support and verification matrix](https://github.com/whyfail/AI-Toolkit/blob/main/docs/credits-international.md).
 
@@ -442,6 +440,7 @@ jobs:
             - MCP and Skills adapters for 25 AI programming tools, including DeepSeek Harness
             - Skills management panel with batch sync
             - Offline in-app changelog with version cards and the running version highlighted
+            - MiniMax Code regional accounts, local import, personal credits, daily check-in, live catalog, and dual-protocol managed model proxy
             - Automatic credit balance refresh with foreground, background, and post-request scheduling
             - Independent balance, reward eligibility, and model catalog sync with cached-data status
             - Shared in-flight account queries, three-account concurrency, backoff, and Retry-After handling

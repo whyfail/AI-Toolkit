@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.2.1-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.2.2-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,11 +16,10 @@
 
 AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MCP 服务器、Skills 技能、平台积分与本地模型代理**。当前版本提供 Skills 管理、MCP 服务器、积分与代理、更新日志、设置、关于六个面板，支持 25 种工具的本地安装检测与配置适配。
 
-## 🆕 v2.2.1 更新
+## 🆕 v2.2.2 更新
 
-- **MiniMax Code 账号与签到**：支持国内／国际独立登录、本机凭据导入、积分余额和每日签到，接入单项、批量与定时领取；本机导入不消耗官方客户端的轮换刷新令牌。
-- **MiniMax Code 模型代理**：实时查询账号模型目录，接入双协议 JSON／SSE、文本、图片与工具历史转换，保留原生思考控制和调用 ID。国际账号、图片理解及真实领取仍缺实测，详见 [积分与模型代理](docs/credits-proxy.md)。
-- **上下文与参数校验**：展示可选档位，M3／M3.1-Flash 默认最高 1M 并提示用量较高；强制思考模型明确提示有效档位，本地参数错误不再误报上游失败。
+- **模型目录返回容量**：`/v1/models` 提供已知的 `context_window` 与 `max_output_tokens`，让客户端按当前路由的上下文和输出上限配置预算。
+- **多账号容量一致**：同一路由取所有可用账号共同声明的最小容量，缺失上限保持未知；不改写客户端输出预算或截断原因。详见 [积分与模型代理](docs/credits-proxy.md)。
 
 完整变更见 [更新记录](CHANGELOG.md)，安全加固与验证边界见 [安全加固记录](docs/security-hardening.md)。
 
@@ -48,7 +47,7 @@ AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MC
 
 ### 🪙 积分与模型代理
 
-v2.2.1 延续国际版**实验性适配**，并新增 MiniMax Code 国内／国际账号。WorkBuddy 国际真实账号余额和目录只读查询已有通过记录，推理调用未完整实测；Qoder、MiniMax Code 国际账号**未实测**。TRAE 已取得目录和工具闭环响应样本，仍缺请求体与认证头，暂未开放国际模型目录和代理。详见 [支持与验证矩阵](docs/credits-international.md)。
+v2.2.2 包含国际版**实验性适配**和 MiniMax Code 国内／国际账号。WorkBuddy 国际真实账号余额和目录只读查询已有通过记录，推理调用未完整实测；Qoder、MiniMax Code 国际账号**未实测**。TRAE 已取得目录和工具闭环响应样本，仍缺请求体与认证头，暂未开放国际模型目录和代理。详见 [支持与验证矩阵](docs/credits-international.md)。
 
 - **多平台账户**：连接 WorkBuddy、TRAE CN、Qoder 账户，支持官方授权入口与已有 Token/凭据 JSON 导入；凭据保存到系统凭据库
 - **TRAE CN 一键导入**：优先读取本机新版桌面应用的登录态，未找到时兼容 CLI 钥匙串凭据；导入后验证身份并同步积分

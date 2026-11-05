@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.2.1-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.2.2-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,11 +16,10 @@
 
 AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and a local model proxy**. The current version has six panels: Skills, MCP Servers, Credits & Proxy, Changelog, Settings, and About, with local installation detection and configuration adapters for 25 AI programming tools.
 
-## 🆕 What's New in v2.2.1
+## 🆕 What's New in v2.2.2
 
-- **MiniMax Code accounts and check-in**: Separate CN/global login, local credential import, credit balances, and individual, batch, or scheduled daily claims. Local import does not consume the official client's rotating refresh token.
-- **MiniMax Code model proxy**: Discover the account's live catalog and translate both protocols, JSON/SSE, text, images, and tool history while preserving native thinking controls and tool IDs. Global accounts, image understanding, and real claims remain unverified; see [Credits & Model Proxy](docs/credits-proxy.md).
-- **Context and validation**: Display selectable context tiers, default M3/M3.1-Flash context information to the highest 1M tier with a usage notice, and report invalid thinking parameters as local validation errors.
+- **Model catalog capacities**: `/v1/models` exposes known `context_window` and `max_output_tokens` fields so clients can configure budgets from the route's declared limits.
+- **Consistent multi-account limits**: A shared route advertises the minimum capacity explicitly declared by every eligible account; missing limits remain unknown. Caller-specified output budgets and truncation reasons are preserved. See [Credits & Model Proxy](docs/credits-proxy.md).
 
 See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/security-hardening.md) for security changes and validation scope.
 
@@ -48,7 +47,7 @@ See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/
 
 ### 🪙 Credits & Model Proxy
 
-v2.2.1 retains **experimental international adapters** and adds MiniMax Code CN/global accounts, with independent regional routing. WorkBuddy international billing and catalog have prior live read-only validation; inference lacks complete live validation. Qoder and MiniMax Code international accounts remain **untested live**. TRAE international desktop import, identity and billing passed a read-only check. Official catalog and tool-loop responses were captured, but authentication headers and request bodies remain unverified; international catalog and chat are not enabled. See the [support and verification matrix](docs/credits-international.md#english-status).
+v2.2.2 includes **experimental international adapters** and MiniMax Code CN/global accounts, with independent regional routing. WorkBuddy international billing and catalog have prior live read-only validation; inference lacks complete live validation. Qoder and MiniMax Code international accounts remain **untested live**. TRAE international desktop import, identity and billing passed a read-only check. Official catalog and tool-loop responses were captured, but authentication headers and request bodies remain unverified; international catalog and chat are not enabled. See the [support and verification matrix](docs/credits-international.md#english-status).
 
 - **Multi-Platform Accounts**: Connect WorkBuddy, TRAE CN, and Qoder accounts via the official authorization flow or by importing existing Token/credential JSON; credentials are stored in the system credential store
 - **TRAE CN One-Click Import**: Prefers the local desktop app's login state and falls back to CLI keychain credentials; identity is verified and credits synced after import
