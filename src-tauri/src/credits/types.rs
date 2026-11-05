@@ -7,6 +7,8 @@ pub enum Platform {
     Workbuddy,
     Traework,
     Qoder,
+    #[serde(rename = "minimax-code")]
+    MinimaxCode,
 }
 impl Platform {
     pub fn key(self) -> &'static str {
@@ -14,6 +16,7 @@ impl Platform {
             Self::Workbuddy => "workbuddy",
             Self::Traework => "traework",
             Self::Qoder => "qoder",
+            Self::MinimaxCode => "minimax-code",
         }
     }
 

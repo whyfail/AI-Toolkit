@@ -192,6 +192,10 @@ impl CreditManager {
         if credentials.access_token.trim().is_empty() || credentials.access_token.len() > 65536 {
             return Err("请输入有效的账号凭据".into());
         }
+        let credentials = if platform == Platform::MinimaxCode
+            && credentials.expires_at.is_some_and(|expires| expires <= now_ms() + 60_000) {
+            self.provider.refresh_credentials(platform, &credentials).await.map_err(|error| error.message)?
+        } else { credentials };
         let requested_region = credentials.region;
         let authentication = self.provider.authenticate(platform, &credentials).await;
         let (user_id, default_label, credentials) = match authentication {

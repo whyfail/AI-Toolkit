@@ -40,7 +40,9 @@ impl Protocol {
     fn failure_value(self, error: &ProviderError, guard: &mut RequestGuard) -> Value {
         let diagnostic = error.diagnostic();
         let message = format!("{}；代理请求 ID：{}", diagnostic.message, guard.id);
-        let code = if error.message == super::providers::CHANNEL_VERIFICATION_ERROR {
+        let code = if diagnostic.stage == "validation" {
+            "invalid_request"
+        } else if error.message == super::providers::CHANNEL_VERIFICATION_ERROR {
             "upstream_channel_rejected"
         } else if diagnostic.stage == "stream" {
             "upstream_stream_error"
@@ -1386,6 +1388,19 @@ mod tests {
     }
 
     #[test]
+    fn local_provider_validation_reports_the_parameter_error_instead_of_an_upstream_failure() {
+        let error = ProviderError { stage: "validation", ..ProviderError::new(400, "MiniMax Code 当前模型强制开启思考") };
+        let mut guard = RequestGuard::new(account("fixture", "glm-5.3", now_ms()));
+        for protocol in [Protocol::Openai, Protocol::Messages] {
+            let value = protocol.failure_value(&error, &mut guard);
+            assert_eq!(value["error"]["code"], "invalid_request");
+            assert_eq!(value["error"]["stage"], "validation");
+            assert!(value["error"]["message"].as_str().unwrap().contains("强制开启思考"));
+            assert!(value["error"]["message"].as_str().unwrap().contains("校验请求参数"));
+        }
+    }
+
+    #[test]
     fn aggregates_fragmented_tool_calls_and_usage() {
         let mut completion = Completion::default();
         completion.push(&json!({"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\":"}}]}, "finish_reason": null}]}));
@@ -1721,7 +1736,7 @@ mod tests {
 
     fn regional_test_manager() -> Arc<CreditManager> {
         let manager = CreditManager::test();
-        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder] {
+        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder, Platform::MinimaxCode] {
             for region in [CreditRegion::Cn, CreditRegion::Intl] {
                 let id = platform.route_key(region);
                 let mut a = account(&id, "glm-5.3", now_ms() + 10000);
@@ -1748,7 +1763,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn six_region_routes_preserve_protocol_tools_images_thinking_and_history() {
+    async fn eight_region_routes_preserve_protocol_tools_images_thinking_and_history() {
         let manager = regional_test_manager();
         let gateway = GatewayManager::new();
         let status = gateway.start(manager.clone(), 0).await.unwrap();
@@ -1756,9 +1771,9 @@ mod tests {
         let key = manager.gateway_key().unwrap();
         let listed: Value = http.get(format!("{}/models", status.base_url)).bearer_auth(&key)
             .send().await.unwrap().json().await.unwrap();
-        assert_eq!(listed["data"].as_array().unwrap().len(), 7);
+        assert_eq!(listed["data"].as_array().unwrap().len(), 9);
         let image = "data:image/png;base64,iVBORw0KGgo=";
-        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder] {
+        for platform in [Platform::Workbuddy, Platform::Traework, Platform::Qoder, Platform::MinimaxCode] {
             for region in [CreditRegion::Cn, CreditRegion::Intl] {
                 let id = platform.route_key(region);
                 let requested = format!("{id}/glm-5.3");
@@ -1811,7 +1826,7 @@ mod tests {
             }
         }
         let history = manager.store.requests().unwrap();
-        assert_eq!(history.len(), 48);
+        assert_eq!(history.len(), 64);
         for row in history {
             assert!(row.model.starts_with(&format!("{}/", row.platform.route_key(row.region))));
         }

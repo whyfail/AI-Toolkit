@@ -177,3 +177,40 @@ test("国际原生 USD 小数与未知分项保持独立，活跃奖励不显示
   const rewardHtml = renderAccount({ region: "intl", platform: "workbuddy", snapshot: snapshot() });
   assert.match(rewardHtml, /自动发放，无需手动领取/);
 });
+
+
+test("MiniMax Code 国内和国际签到均通过账户按钮和批量领取，保留平台实时金额", async () => {
+  for (const region of ["cn", "intl"]) {
+    state.buttons = [];
+    const reward = { id: "daily-signin", kind: "credits", name: "每日签到 · 第 4 天", status: "claimable", amount: 1234 };
+    const account = { id: "minimax-only", platform: "minimax-code", region, label: "MiniMax Code", enabled: true, status: "ready", snapshot: { ...snapshot([reward]), models: [{ id: "MiniMax-M3", name: "M3" }, { id: "MiniMax-M3.1-Flash", name: "M3.1-Flash" }] } };
+    const html = renderAccount(account);
+    assert.match(html, /MiniMax Code/);
+    assert.doesNotMatch(html, /模型代理暂未开放/);
+    assert.match(html, /可用模型 · 2/);
+    assert.match(html, /1,234/);
+    const button = state.buttons.find((button) => button.label === "领取积分");
+    assert.equal(button.disabled, false);
+    button.onClick();
+    state.buttons = [];
+    renderToStaticMarkup(createElement(AccountsView, { data: { accounts: [account], rewards: [], settings: { autoClaim: false, port: 17860 } }, onAdd() {} }));
+    const batch = state.buttons.find((button) => button.label === "一键领取积分");
+    assert.equal(batch.disabled, false);
+    batch.onClick();
+    await Promise.all(state.pending);
+  }
+  assert.deepEqual(state.claims, ["minimax-only", undefined, "minimax-only", undefined]);
+  assert.equal(state.opened.length, 0);
+});
+
+test("MiniMax Code 已签到、未同步或停用时不可领取", () => {
+  for (const overrides of [
+    { snapshot: null },
+    { snapshot: snapshot([{ id: "today", kind: "credits", name: "每日签到", status: "claimed", amount: 400 }]) },
+    { enabled: false, snapshot: snapshot([{ id: "today", kind: "credits", name: "每日签到", status: "claimable", amount: 400 }]) },
+  ]) {
+    state.buttons = [];
+    renderAccount({ platform: "minimax-code", ...overrides });
+    assert.equal(state.buttons.find((button) => button.label === "领取积分").disabled, true);
+  }
+});

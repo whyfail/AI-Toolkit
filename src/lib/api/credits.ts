@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type CreditPlatform = "workbuddy" | "traework" | "qoder";
+export type CreditPlatform = "workbuddy" | "traework" | "qoder" | "minimax-code";
 export type CreditRegion = "cn" | "intl";
 
 export interface Credentials {

@@ -14,6 +14,10 @@ struct State {
     answered: bool,
     shape_logged: bool,
     upstream_request_id: Option<String>,
+    minimax_tools: std::collections::HashMap<u64, (usize, bool)>,
+    minimax_tool_count: usize,
+    minimax_usage: Value,
+    minimax_finish: Option<String>,
 }
 pub(super) async fn response(
     r: RequestBuilder,
@@ -44,6 +48,10 @@ pub(super) async fn response(
         answered: false,
         shape_logged: false,
         upstream_request_id: request_id,
+        minimax_tools: Default::default(),
+        minimax_tool_count: 0,
+        minimax_usage: json!({}),
+        minimax_finish: None,
     };
     Ok(ProviderChat {
         stream: Box::pin(futures::stream::unfold(state, |mut s| async move {
@@ -128,6 +136,10 @@ impl State {
             return;
         }
         if raw.trim() == "[DONE]" {
+            if self.platform == Platform::MinimaxCode {
+                self.fail(ProviderError::new(502, "MiniMax Code 响应缺少 message_stop"));
+                return;
+            }
             self.finished = true;
             self.ended = true;
             return;
@@ -136,6 +148,10 @@ impl State {
             self.fail(ProviderError::new(502, "平台 SSE 数据无效"));
             return;
         };
+        if self.platform == Platform::MinimaxCode {
+            self.parse_minimax(event, &v);
+            return;
+        }
         if self.platform == Platform::Qoder {
             if let Some(status) = v.get("statusCodeValue").and_then(Value::as_u64) {
                 if status >= 400 {
@@ -242,6 +258,122 @@ impl State {
             }));
         }
     }
+    fn parse_minimax(&mut self, event: &str, value: &Value) {
+        let event = value["type"].as_str().unwrap_or(event);
+        if self.identity.is_none() && !matches!(event, "message_start" | "error" | "ping") {
+            self.fail(ProviderError::new(502, "MiniMax Code 在模型身份确认前返回了内容"));
+            return;
+        }
+        match event {
+            "message_start" => {
+                self.identity = text(&value["message"], &["model"]);
+                if self.identity.is_none() {
+                    self.fail(ProviderError::new(502, "MiniMax Code 未返回模型身份"));
+                    return;
+                }
+                self.update_minimax_usage(&value["message"]["usage"]);
+                self.emit(json!({"role":"assistant"}), None, Some(self.minimax_usage()));
+            }
+            "content_block_start" => {
+                let block = &value["content_block"];
+                match block["type"].as_str() {
+                    Some("tool_use") => {
+                        let Some(block_index) = value["index"].as_u64() else {
+                            self.fail(ProviderError::new(502, "MiniMax Code 工具块缺少序号")); return;
+                        };
+                        if self.minimax_tools.contains_key(&block_index) || !block["input"].is_object()
+                            || text(block, &["id"]).is_none() || text(block, &["name"]).is_none() {
+                            self.fail(ProviderError::new(502, "MiniMax Code 工具块格式无效")); return;
+                        }
+                        let index = self.minimax_tool_count;
+                        self.minimax_tool_count += 1;
+                        let has_arguments = block["input"].as_object().is_some_and(|input| !input.is_empty());
+                        self.minimax_tools.insert(block_index, (index, has_arguments));
+                        self.emit(json!({"tool_calls":[{"index":index,"id":block["id"],"type":"function",
+                            "function":{"name":block["name"],"arguments":if has_arguments { block["input"].to_string() } else { String::new() }}}]}), None, None);
+                    }
+                    Some("text") => {
+                        if let Some(text) = block["text"].as_str().filter(|text| !text.is_empty()) {
+                            self.emit(json!({"content":text}), None, None);
+                        }
+                    }
+                    Some("thinking") => {
+                        if let Some(text) = block["thinking"].as_str().filter(|text| !text.is_empty()) {
+                            self.emit(json!({"reasoning_content":text}), None, None);
+                        }
+                    }
+                    _ => self.fail(ProviderError::new(502, "MiniMax Code 返回了不支持的内容块")),
+                }
+            }
+            "content_block_delta" => {
+                let delta = &value["delta"];
+                match delta["type"].as_str() {
+                    Some("text_delta") => self.emit(json!({"content":delta["text"]}), None, None),
+                    Some("thinking_delta") => self.emit(json!({"reasoning_content":delta["thinking"]}), None, None),
+                    Some("input_json_delta") => {
+                        let tool = value["index"].as_u64().and_then(|index| self.minimax_tools.get_mut(&index));
+                        let (Some((index, has_arguments)), Some(arguments)) = (tool, delta["partial_json"].as_str()) else {
+                            self.fail(ProviderError::new(502, "MiniMax Code 工具参数分片缺少关联块")); return;
+                        };
+                        *has_arguments |= !arguments.is_empty();
+                        let index = *index;
+                        self.emit(json!({"tool_calls":[{"index":index,"function":{"arguments":arguments}}]}), None, None);
+                    }
+                    Some("signature_delta") => {}, // No Anthropic signature proof is advertised by this proxy.
+                    _ => self.fail(ProviderError::new(502, "MiniMax Code 返回了不支持的内容分片")),
+                }
+            }
+            "content_block_stop" => {
+                if let Some((index, false)) = value["index"].as_u64().and_then(|index| self.minimax_tools.remove(&index)) {
+                    self.emit(json!({"tool_calls":[{"index":index,"function":{"arguments":"{}"}}]}), None, None);
+                }
+            }
+            "message_delta" => {
+                self.update_minimax_usage(&value["usage"]);
+                if let Some(reason) = value["delta"]["stop_reason"].as_str() {
+                    self.minimax_finish = Some(match reason {
+                        "tool_use" => "tool_calls",
+                        "max_tokens" | "model_context_window_exceeded" => "length",
+                        "end_turn" | "stop_sequence" | "refusal" => "stop",
+                        _ => { self.fail(ProviderError::new(502, "MiniMax Code 返回了不支持的结束原因")); return; }
+                    }.into());
+                }
+            }
+            "message_stop" => {
+                let Some(finish) = self.minimax_finish.take() else {
+                    self.fail(ProviderError::new(502, "MiniMax Code 响应缺少结束原因")); return;
+                };
+                self.emit(json!({}), Some(finish), Some(self.minimax_usage()));
+                self.finished = true;
+                self.ended = true;
+            }
+            "error" => {
+                let status = match value["error"]["type"].as_str() {
+                    Some("authentication_error") => 401,
+                    Some("permission_error") => 403,
+                    Some("rate_limit_error") => 429,
+                    Some("invalid_request_error") => 400,
+                    _ => 502,
+                };
+                let mut error = upstream_body_error(status, &value.to_string());
+                error.rejected &= !self.answered;
+                self.fail(error);
+            }
+            "ping" => {},
+            _ => self.fail(ProviderError::new(502, "MiniMax Code 返回了无法识别的流事件")),
+        }
+    }
+    fn update_minimax_usage(&mut self, usage: &Value) {
+        for field in ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"] {
+            if let Some(value) = usage[field].as_u64() { self.minimax_usage[field] = json!(value); }
+        }
+    }
+    fn minimax_usage(&self) -> Value {
+        let input = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"].iter()
+            .map(|field| self.minimax_usage[*field].as_u64().unwrap_or(0)).fold(0_u64, u64::saturating_add);
+        let output = self.minimax_usage["output_tokens"].as_u64().unwrap_or(0);
+        json!({"prompt_tokens":input,"completion_tokens":output,"total_tokens":input.saturating_add(output)})
+    }
     fn emit(&mut self, delta: Value, finish: Option<String>, usage: Option<Value>) {
         self.answered |= has_answer(&delta);
         let mut v = json!({"id":self.id,"object":"chat.completion.chunk","created":now_ms()/1000,"model":"","choices":[{"index":0,"delta":delta,"finish_reason":finish}]});
@@ -302,6 +434,10 @@ mod tests {
             answered: false,
             shape_logged: false,
             upstream_request_id: None,
+            minimax_tools: Default::default(),
+            minimax_tool_count: 0,
+            minimax_usage: json!({}),
+            minimax_finish: None,
         }
     }
     #[test]
@@ -413,6 +549,50 @@ data: {"tool_calls":[{"index":0,"id":"c","function_call":{"name":"read","argumen
     #[test]
     fn byte_boundaries_accept_crlf() {
         assert_eq!(boundary(b"data: x\r\n\r\n"), Some((7, 4)));
+    }
+
+    #[test]
+    fn minimax_anthropic_stream_preserves_thinking_tool_indices_usage_and_completion() {
+        let mut s = state(Platform::MinimaxCode);
+        for value in [
+            json!({"type":"message_start","message":{"model":"MiniMax-M3","usage":{"input_tokens":7,"cache_read_input_tokens":10,"cache_creation_input_tokens":3}}}),
+            json!({"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}),
+            json!({"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"plan"}}),
+            json!({"type":"content_block_start","index":1,"content_block":{"type":"text","text":"hello"}}),
+            json!({"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"first","name":"echo","input":{}}}),
+            json!({"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"value\":"}}),
+            json!({"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"42}"}}),
+            json!({"type":"content_block_stop","index":2}),
+            json!({"type":"content_block_start","index":4,"content_block":{"type":"tool_use","id":"second","name":"noop","input":{}}}),
+            json!({"type":"content_block_stop","index":4}),
+            json!({"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"input_tokens":7,"output_tokens":11}}),
+        ] { s.parse(format!("data: {value}").as_bytes()); }
+        assert!(!s.finished);
+        s.parse(b"event: message_stop\ndata: {\"type\":\"message_stop\"}");
+        assert!(s.finished && s.ended);
+        let chunks: Vec<_> = s.queue.into_iter().map(Result::unwrap).collect();
+        assert!(chunks.iter().all(|chunk| chunk.upstream_model.as_deref() == Some("MiniMax-M3")));
+        assert!(chunks.iter().any(|chunk| chunk.data["choices"][0]["delta"]["reasoning_content"] == "plan"));
+        let calls: Vec<_> = chunks.iter().filter_map(|chunk| chunk.data["choices"][0]["delta"]["tool_calls"].as_array()).flatten().collect();
+        let args = |index| calls.iter().filter(|call| call["index"] == index)
+            .filter_map(|call| call["function"]["arguments"].as_str()).collect::<String>();
+        assert_eq!(args(0), "{\"value\":42}"); assert_eq!(args(1), "{}");
+        let last = &chunks.last().unwrap().data;
+        assert_eq!(last["choices"][0]["finish_reason"], "tool_calls");
+        assert_eq!(last["usage"], json!({"prompt_tokens":20,"completion_tokens":11,"total_tokens":31}));
+    }
+    #[test]
+    fn minimax_stream_errors_do_not_retry_after_output_or_accept_incomplete_endings() {
+        let mut s = state(Platform::MinimaxCode);
+        s.answered = true;
+        s.parse(br#"data: {"type":"error","error":{"type":"rate_limit_error","message":"fixture-secret"}}"#);
+        let error = s.queue.pop_front().unwrap().unwrap_err();
+        assert_eq!(error.status, 429); assert!(!error.rejected); assert!(!error.message.contains("fixture-secret"));
+        let mut s = state(Platform::MinimaxCode);
+        s.parse(br#"data: {"type":"message_stop"}"#);
+        assert!(s.queue.pop_front().unwrap().is_err()); assert!(!s.finished);
+        let mut s = state(Platform::MinimaxCode); s.parse(b"data: [DONE]");
+        assert!(s.queue.pop_front().unwrap().is_err()); assert!(!s.finished);
     }
 
     #[tokio::test]

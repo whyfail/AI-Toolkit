@@ -16,6 +16,8 @@ pub async fn credits_import_local(
 ) -> Result<Account, String> {
     let region = region.unwrap_or_default();
     let credentials = match platform {
+        Platform::MinimaxCode => crate::credits::providers::minimax::local_credentials_for_region(region)?
+            .ok_or_else(|| format!("本机未找到 MiniMax Code {}登录信息，请先登录对应区域的 MiniMax Code 或 mcode CLI", if region == CreditRegion::Cn { "国内版" } else { "国际版" }))?,
         Platform::Traework => match crate::credits::providers::local_credentials_for_region(region) {
             Ok(Some(credentials)) => credentials,
             Ok(None) => {

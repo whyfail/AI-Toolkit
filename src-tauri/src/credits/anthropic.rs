@@ -374,6 +374,20 @@ pub(super) fn request(data: Value) -> Result<Value, &'static str> {
         return Err("历史 tool_use 必须带对应的 user tool_result");
     }
     let mut output = Map::new();
+    // MiniMax Code exposes the native thinking switch/effort in its account
+    // catalog. Preserve it through the shared OpenAI-shaped provider boundary.
+    let minimax = object.get("model").and_then(Value::as_str).is_some_and(|id|
+        id.starts_with("minimax-code/") || id.starts_with("minimax-code-intl/"));
+    if minimax {
+        let thinking = data.pointer("/thinking/type").and_then(Value::as_str);
+        let effort = if thinking == Some("disabled") { Some(json!("off")) }
+            else { data.pointer("/output_config/effort").filter(|value| !value.is_null()).cloned()
+                .or_else(|| matches!(thinking, Some("enabled" | "adaptive")).then(|| json!("on"))) };
+        if let Some(effort) = effort {
+            if !effort.is_string() { return Err("output_config.effort 必须是字符串"); }
+            output.insert("reasoning_effort".into(), effort);
+        }
+    }
     for field in ["model", "max_tokens", "stream", "temperature", "top_p"] {
         if let Some(value) = object.get(field) {
             output.insert(field.into(), value.clone());
@@ -871,6 +885,21 @@ mod tests {
         for (kind, expected) in [("any", "required"), ("none", "none"), ("auto", "auto")] {
             let converted = request(json!({"model":"test","max_tokens":32,"messages":[{"role":"user","content":"hello"}],"tools":[{"name":"read","input_schema":{"type":"object"}}],"tool_choice":{"type":kind}})).unwrap();
             assert_eq!(converted["tool_choice"], expected);
+        }
+    }
+
+    #[test]
+    fn minimax_messages_keep_native_thinking_controls_without_changing_other_routes() {
+        for prefix in ["minimax-code", "minimax-code-intl"] {
+            let mut body = json!({"model":format!("{prefix}/MiniMax-M3"),"max_tokens":64,
+                "messages":[{"role":"user","content":"hello"}],"thinking":{"type":"disabled"}});
+            assert_eq!(request(body.clone()).unwrap()["reasoning_effort"], "off");
+            body["thinking"]["type"] = json!("adaptive");
+            assert_eq!(request(body.clone()).unwrap()["reasoning_effort"], "on");
+            body["output_config"] = json!({"effort":"low"});
+            assert_eq!(request(body.clone()).unwrap()["reasoning_effort"], "low");
+            body["model"] = json!("qoder/glm-5.3");
+            assert!(request(body).unwrap().get("reasoning_effort").is_none());
         }
     }
 

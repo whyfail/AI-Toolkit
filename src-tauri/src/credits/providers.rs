@@ -2,6 +2,8 @@
 #[path = "oauth.rs"]
 mod oauth;
 mod qoder;
+pub(crate) mod minimax;
+mod minimax_chat;
 mod qoder_identity;
 mod stream;
 mod trae_desktop;
@@ -79,13 +81,16 @@ impl ProviderError {
 
     pub(super) fn diagnostic(&self) -> RequestDiagnostic {
         let (stage, label) = match self.stage {
+            "validation" => ("validation", "校验请求参数"),
             "request" => ("request", "发送请求"),
             "stream" => ("stream", "读取响应流"),
             _ => ("response", "接收上游响应"),
         };
         let upstream_code = self.upstream_code.as_deref().and_then(safe_diagnostic_id);
         let upstream_request_id = self.upstream_request_id.as_deref().and_then(safe_diagnostic_id);
-        let base = if self.message == CHANNEL_VERIFICATION_ERROR {
+        let base = if self.stage == "validation" {
+            self.message.as_str()
+        } else if self.message == CHANNEL_VERIFICATION_ERROR {
             CHANNEL_VERIFICATION_ERROR
         } else {
             "上游请求失败"
@@ -227,6 +232,7 @@ impl ProviderClient {
             Platform::Workbuddy => workbuddy::authenticate(self, c).await,
             Platform::Traework => traework::authenticate(self, c).await,
             Platform::Qoder => qoder::authenticate(self, c).await,
+            Platform::MinimaxCode => minimax::authenticate(self, c).await,
         }
     }
     pub async fn refresh_credentials(
@@ -238,6 +244,7 @@ impl ProviderClient {
             Platform::Workbuddy => workbuddy::refresh(self, c).await,
             Platform::Traework => traework::refresh(self, c).await,
             Platform::Qoder => qoder::refresh(self, c).await,
+            Platform::MinimaxCode => minimax::refresh(self, c).await,
         }
     }
     pub async fn inspect(
@@ -249,6 +256,7 @@ impl ProviderClient {
             Platform::Workbuddy => workbuddy::inspect(self, c).await,
             Platform::Traework => traework::inspect(self, c).await,
             Platform::Qoder => qoder::inspect(self, c).await,
+            Platform::MinimaxCode => minimax::inspect(self, c).await,
         }
     }
     pub(super) async fn inspect_parts(&self, a: &Account, c: &Credentials, scope: Scope) -> Inspection {
@@ -280,6 +288,7 @@ impl ProviderClient {
                     Platform::Workbuddy => workbuddy::balance(self, c).await,
                     Platform::Traework => traework::balance(self, c).await,
                     Platform::Qoder => qoder::balance(self, c).await,
+                    Platform::MinimaxCode => minimax::balance(self, c).await,
                 })
             },
             async {
@@ -288,6 +297,7 @@ impl ProviderClient {
                     Platform::Workbuddy => workbuddy::rewards(self, c).await,
                     Platform::Traework => traework::rewards(self, c).await,
                     Platform::Qoder => qoder::rewards(self, c).await,
+                    Platform::MinimaxCode => minimax::rewards(self, c).await,
                 })
             },
             async {
@@ -296,6 +306,7 @@ impl ProviderClient {
                     Platform::Workbuddy => workbuddy::models(self, c).await,
                     Platform::Traework => traework::models(self, c).await,
                     Platform::Qoder => qoder::models(self, c).await,
+                    Platform::MinimaxCode => minimax::models(self, c).await,
                 })
             },
         );
@@ -310,6 +321,7 @@ impl ProviderClient {
             Platform::Workbuddy => workbuddy::claim(self, a, c).await,
             Platform::Traework => traework::claim(self, a, c).await,
             Platform::Qoder => qoder::claim(self, a, c).await,
+            Platform::MinimaxCode => minimax::claim(self, a, c).await,
         }
     }
     pub async fn chat(
@@ -337,6 +349,7 @@ impl ProviderClient {
             Platform::Workbuddy => workbuddy::chat(self, c, m, body).await,
             Platform::Traework => traework::chat(self, c, m, body).await,
             Platform::Qoder => qoder::chat(self, c, m, body).await,
+            Platform::MinimaxCode => minimax::chat(self, c, m, body).await,
         }
     }
     async fn json(&self, r: RequestBuilder) -> Result<Value, ProviderError> {

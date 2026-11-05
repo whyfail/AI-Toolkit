@@ -1,5 +1,5 @@
 use super::*;
-use super::{qoder, traework, workbuddy};
+use super::{minimax, qoder, traework, workbuddy};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -64,7 +64,7 @@ fn local_identity() -> (String, String) {
 impl ProviderClient {
     pub async fn start_login(&self, platform: Platform, region: CreditRegion) -> Result<OAuthStart, ProviderError> {
         let flow_id = uuid::Uuid::new_v4().to_string();
-        let expires_at = now_ms() + 5 * 60 * 1000;
+        let mut expires_at = now_ms() + 5 * 60 * 1000;
         let client = reqwest::Client::builder()
             .cookie_store(true)
             .connect_timeout(std::time::Duration::from_secs(15))
@@ -82,6 +82,38 @@ impl ProviderClient {
         base.extra = json!({"machineId":machine});
         let mut nonce = flow_id.clone();
         let authorization_url = match platform {
+            Platform::MinimaxCode => {
+                let value = json_response(client.post(format!("{}/oauth2/device/code", minimax::account_origin(region)))
+                    .form(&[("client_id", "mcode-public"), ("scope", "agent.default"), ("audience", "agent-backend"),
+                        ("code_challenge", challenge.as_str()), ("code_challenge_method", "S256")])
+                    .send().await.map_err(ProviderError::transport)?).await?;
+                let user_code = text(&value, &["user_code"])
+                    .ok_or_else(|| ProviderError::new(502, "MiniMax Code 未返回授权码"))?;
+                let standard = text(&value, &["device_code"]);
+                let account_polling = standard.is_none() && num(&value, &["expired_in"]).is_some();
+                if standard.is_none() && !account_polling {
+                    return Err(ProviderError::new(502, "MiniMax Code 未返回设备授权信息"));
+                }
+                nonce = standard.unwrap_or_else(|| user_code.clone());
+                let expires = num(&value, &["expires_in"]).or_else(|| num(&value, &["expired_in"]).map(|expiry|
+                    if expiry >= 1_000_000_000_000.0 { (expiry - now_ms() as f64) / 1000.0 } else { expiry }))
+                    .filter(|expiry| expiry.is_finite() && *expiry > 0.0)
+                    .ok_or_else(|| ProviderError::new(502, "MiniMax Code 授权有效期无效"))?;
+                expires_at = now_ms() + (expires.min(1800.0) * 1000.0) as i64;
+                let interval = num(&value, &["interval"]).unwrap_or(if account_polling { 5000.0 } else { 5.0 });
+                let interval = if account_polling { interval } else { interval * 1000.0 };
+                base.extra = json!({"pollIntervalMs":interval.clamp(1000.0, 60_000.0) as i64,
+                    "nextPollAt":now_ms() + interval.clamp(1000.0, 60_000.0) as i64,
+                    "codeParameter":if account_polling { "user_code" } else { "device_code" }});
+                let complete = text(&value, &["verification_uri_complete"]);
+                let url = complete.clone().or_else(|| text(&value, &["verification_uri", "verification_url"]))
+                    .ok_or_else(|| ProviderError::new(502, "MiniMax Code 未返回授权地址"))?;
+                validate_browser_url(&url, if region == CreditRegion::Cn { &["minimax.cn", "minimaxi.com"] } else { &["minimax.io"] })?;
+                let mut url = reqwest::Url::parse(&url).map_err(|_| ProviderError::new(502, "MiniMax Code 授权地址无效"))?;
+                if !account_polling && complete.is_none() { url.query_pairs_mut().append_pair("user_code", &user_code); }
+                url.query_pairs_mut().append_pair("client_surface", "tui").append_pair("download_source", "mcode-internal");
+                url.to_string()
+            }
             Platform::Workbuddy => {
                 let v = json_response(
                     workbuddy::headers(
@@ -364,6 +396,34 @@ impl ProviderClient {
     }
     async fn poll_flow(&self, id: &str, f: LoginFlow) -> Result<Option<Credentials>, ProviderError> {
         match f.platform {
+            Platform::MinimaxCode => {
+                if f.base.extra["nextPollAt"].as_i64().is_some_and(|next| next > now_ms()) { return Ok(None); }
+                let parameter = if f.base.extra["codeParameter"] == "user_code" { "user_code" } else { "device_code" };
+                let response = f.client.post(format!("{}/oauth2/token", minimax::account_origin(f.base.region)))
+                    .form(&[("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+                        (parameter, f.nonce.as_str()), ("client_id", "mcode-public"), ("code_verifier", f.verifier.as_str())])
+                    .send().await.map_err(ProviderError::transport)?;
+                let status = response.status();
+                let value: Value = response.json().await.map_err(|_| ProviderError::new(502, "MiniMax Code 授权响应无效"))?;
+                let state = text(&value, &["error", "status"]).unwrap_or_default();
+                if matches!(state.as_str(), "pending" | "authorization_pending" | "slow_down") {
+                    let interval = f.base.extra["pollIntervalMs"].as_i64().unwrap_or(5000)
+                        + if state == "slow_down" { 5000 } else { 0 };
+                    if let Some(flow) = self.flows.lock().await.get_mut(id) {
+                        flow.base.extra["pollIntervalMs"] = json!(interval);
+                        flow.base.extra["nextPollAt"] = json!(now_ms() + interval);
+                    }
+                    return Ok(None);
+                }
+                if !status.is_success() || value.get("error").is_some()
+                    || matches!(state.as_str(), "denied" | "access_denied" | "expired" | "expired_token") {
+                    return Err(ProviderError::new(401, "MiniMax Code 授权被拒绝或已过期，请重新登录"));
+                }
+                let mut base = f.base;
+                base.extra = json!({});
+                base.device_id = None;
+                Ok(Some(minimax::token_credentials(&value, &base)?))
+            }
             Platform::Workbuddy => self.poll_workbuddy_at(id, &f, workbuddy::api_base(&f.base)).await,
             Platform::Qoder => {
                 let r = f

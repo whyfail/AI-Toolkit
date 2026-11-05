@@ -41,12 +41,36 @@ test("国际目录保留国际代理 ID 与显式版本，默认区域仍为国�
   assert.doesNotMatch(render(), /-intl\//);
 });
 
+test("MiniMax 默认使用最高 1M 档位，保留 512K 选项，不把上下文当作输出上限", () => {
+  for (const region of ["cn", "intl"]) {
+    const text = render({ id: "MiniMax-M3.1-Flash", name: "M3.1-Flash", contextWindow: 1000000,
+      contextWindowOptions: [1000000, 512000, 1000000, 0, -1, 1.5], maxOutputTokens: null },
+    { ...account, platform: "minimax-code", region });
+    assert.match(text, /默认上下文窗口1M1,000,000 Token/);
+    assert.match(text, /可选上下文窗口512K（可选）1M（默认）/);
+    assert.match(text, /1M 档位用量较高/);
+    assert.match(text, /最大输出未知通道未提供/);
+  }
+  const text = render({ contextWindowOptions: undefined });
+  assert.doesNotMatch(text, /可选上下文窗口|默认上下文窗口|1M 档位用量较高/);
+});
+
 test("旧快照缺失的能力显示未知，不按模型名称或上下文补出输出上限", () => {
   const text = render({ maxOutputTokens: undefined, supportsImages: undefined, supportsReasoning: null });
   assert.match(text, /最大输出未知通道未提供/);
   assert.match(text, /图片未知/);
   assert.match(text, /思考输出未知/);
   assert.doesNotMatch(text, /最大输出1M|32,000|32K|图片不支持/);
+});
+
+test("MiniMax 强制思考模型提示 ZCode 使用有效推理档位，可关闭的 M3 不误报", () => {
+  const owner = { ...account, platform: "minimax-code" };
+  const text = render({ id: "MiniMax-M3.1-Flash", supportsReasoning: true,
+    reasoningEffortOptions: ["default", "low", "medium", "high", "xhigh", "max"] }, owner);
+  assert.match(text, /此模型不支持关闭思考/);
+  assert.match(text, /连接测试也不能使用 disabled／none/);
+  assert.doesNotMatch(render({ id: "MiniMax-M3", supportsReasoning: true,
+    reasoningEffortOptions: ["off", "on"] }, owner), /此模型不支持关闭思考/);
 });
 
 test("模型卡片分别展示调用 ID 与目录提供的完整底层模型 ID", () => {

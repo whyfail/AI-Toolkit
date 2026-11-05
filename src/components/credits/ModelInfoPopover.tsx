@@ -38,6 +38,8 @@ function Capability({ label, value, note }: { label: string; value?: boolean | n
 
 export function ModelInfoContent({ account, model, platformName }: ModelInfoProps) {
   const snapshot = account.snapshot;
+  const contextOptions = [...new Set((model.contextWindowOptions ?? []).filter((value) => Number.isSafeInteger(value) && value > 0))].sort((a, b) => a - b);
+  const minimaxContexts = account.platform === "minimax-code" && contextOptions.length > 1;
   const efforts = [...(model.reasoningEffortOptions ?? [])].sort((a, b) => {
     const rank = (value: string) => effortOrder.includes(value) ? effortOrder.indexOf(value) : effortOrder.length;
     return rank(a) - rank(b);
@@ -64,9 +66,14 @@ export function ModelInfoContent({ account, model, platformName }: ModelInfoProp
     </dl>
 
     <dl className="mt-4 grid grid-cols-2 gap-2">
-      <TokenLimit label="上下文窗口" value={model.contextWindow} />
+      <TokenLimit label={minimaxContexts ? "默认上下文窗口" : "上下文窗口"} value={model.contextWindow} />
       <TokenLimit label="最大输出" value={model.maxOutputTokens} />
     </dl>
+    {contextOptions.length > 1 ? <dl className="mt-3 rounded-xl border border-slate-500/10 px-3 py-2.5 text-[11px]">
+      <dt className="font-medium">可选上下文窗口</dt>
+      <dd className="mt-2 flex flex-wrap gap-1.5">{contextOptions.map((value) => <span key={value} title={`${tokenNumber.format(value)} Token`} className="rounded-md bg-slate-500/5 px-2 py-1 text-slate-600 dark:text-slate-300">{compactTokens.format(value)}{value === model.contextWindow ? minimaxContexts ? "（默认）" : "（当前）" : "（可选）"}</span>)}</dd>
+      {minimaxContexts && contextOptions.includes(1000000) ? <dd className="mt-2 text-[10px] text-slate-500 dark:text-slate-400">1M 档位用量较高。</dd> : null}
+    </dl> : null}
 
     <div className="mt-4">
       <p className="text-[11px] font-medium">代理输入类型</p>
@@ -94,6 +101,7 @@ export function ModelInfoContent({ account, model, platformName }: ModelInfoProp
           : <span className="text-slate-500 dark:text-slate-400">未知 · 通道未提供</span>}
       </dd>
       {model.defaultReasoningEffort ? <dd className="mt-2 text-[10px] text-slate-500 dark:text-slate-400">默认：{effortLabel(model.defaultReasoningEffort)}</dd> : null}
+      {account.platform === "minimax-code" && model.supportsReasoning === true && efforts.length > 0 && !efforts.some((effort) => ["off", "none", "disabled"].includes(effort)) ? <dd className="mt-2 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">此模型不支持关闭思考。ZCode 等客户端需配置支持的推理等级，连接测试也不能使用 disabled／none。</dd> : null}
     </dl>
     <div className="mt-4 border-t border-slate-500/10 pt-3 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">
       <p>参数与能力来自当前账号通道。未知表示目录未提供，刷新账户可更新；目录标注不等于已实测。</p>
