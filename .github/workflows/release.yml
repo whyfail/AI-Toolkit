@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release Version (e.g., 2.2.2)'
+        description: 'Release Version (e.g., 2.2.3)'
         required: true
-        default: '2.2.2'
+        default: '2.2.3'
       publish:
         description: 'Publish the release after building both platforms'
         type: boolean
@@ -427,11 +427,11 @@ jobs:
 
             **Note**: Auto-updater uses `.app.tar.gz` (macOS) and `.msi` (Windows) bundles which are included in this release.
 
-            ### New in v2.2.2
+            ### New in v2.2.3
 
-            - `/v1/models` exposes known `context_window` and `max_output_tokens` capacities for prefixed routes and verified aliases
-            - Shared routes advertise only the minimum positive capacity explicitly declared by every eligible account; missing limits stay unknown
-            - Capacity metadata helps clients configure budgets without rewriting caller-specified output limits or truncation reasons
+            - Messages requests accept system messages within the conversation and preserve their role and order in the shared request representation
+            - System text strings and block arrays use text and standard cache-hint validation
+            - Local protocol and gateway regressions cover system messages, tool history, JSON, and SSE responses
 
             MiniMax CN identity, credits, catalog, and selected short text/tool inference have prior live validation. Global accounts, image understanding, complete browser login, and real claims remain unverified. International support remains experimental; TRAE international catalog and chat remain disabled (HTTP 501). See the [support and verification matrix](https://github.com/whyfail/AI-Toolkit/blob/main/docs/credits-international.md).
 
@@ -451,6 +451,7 @@ jobs:
             - Built-in connection testing
             - Real-time sync to configuration files
             - OpenAI and Anthropic proxy protocols with 32 MiB request bodies
+            - Model catalog context and output capacities aggregated across eligible accounts
             - Tool definition and JSON Schema structural preflight with errors naming the original field path
             - Safe upstream diagnostics and correlated JSON/SSE errors with request IDs
             - Image, tool, and unsigned reasoning history compatibility

@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.2.2-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.2.3-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,10 +16,10 @@
 
 AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and a local model proxy**. The current version has six panels: Skills, MCP Servers, Credits & Proxy, Changelog, Settings, and About, with local installation detection and configuration adapters for 25 AI programming tools.
 
-## 🆕 What's New in v2.2.2
+## 🆕 What's New in v2.2.3
 
-- **Model catalog capacities**: `/v1/models` exposes known `context_window` and `max_output_tokens` fields so clients can configure budgets from the route's declared limits.
-- **Consistent multi-account limits**: A shared route advertises the minimum capacity explicitly declared by every eligible account; missing limits remain unknown. Caller-specified output budgets and truncation reasons are preserved. See [Credits & Model Proxy](docs/credits-proxy.md).
+- Messages requests accept `system` messages appended within the conversation, preserving their role and order alongside tool history in the shared request representation.
+- System content supports strings and text block arrays with text and cache-hint validation. Local gateway regressions cover JSON and SSE responses. See [Credits & Model Proxy](docs/credits-proxy.md).
 
 See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/security-hardening.md) for security changes and validation scope.
 

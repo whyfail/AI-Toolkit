@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.2.2-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.2.3-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,10 +16,10 @@
 
 AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MCP 服务器、Skills 技能、平台积分与本地模型代理**。当前版本提供 Skills 管理、MCP 服务器、积分与代理、更新日志、设置、关于六个面板，支持 25 种工具的本地安装检测与配置适配。
 
-## 🆕 v2.2.2 更新
+## 🆕 v2.2.3 更新
 
-- **模型目录返回容量**：`/v1/models` 提供已知的 `context_window` 与 `max_output_tokens`，让客户端按当前路由的上下文和输出上限配置预算。
-- **多账号容量一致**：同一路由取所有可用账号共同声明的最小容量，缺失上限保持未知；不改写客户端输出预算或截断原因。详见 [积分与模型代理](docs/credits-proxy.md)。
+- Messages 请求支持会话中追加的 `system` 消息，按顺序转换系统指令、环境提醒和工具历史。
+- 系统内容支持字符串与文本块数组，并校验文本格式和标准缓存提示。JSON 与 SSE 路径均有本地网关回归覆盖。详见 [积分与模型代理](docs/credits-proxy.md)。
 
 完整变更见 [更新记录](CHANGELOG.md)，安全加固与验证边界见 [安全加固记录](docs/security-hardening.md)。
 

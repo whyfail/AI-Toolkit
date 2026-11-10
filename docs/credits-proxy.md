@@ -2,7 +2,7 @@
 
 AI-Toolkit 的「积分与代理」页面管理 WorkBuddy、TRAE、Qoder、MiniMax Code 账号。当前版本包含 MiniMax Code 账号、签到与模型代理，并延续国际版实验性适配；区域、路由及验证边界见 [国际版适配状态](credits-international.md)。TRAE 国际模型协议仍待完整验证，当前未开放其模型目录与代理。账号积分保留在来源平台；本地网关转发模型请求并消耗对应账号的额度。
 
-当前说明对应 **v2.2.2**：`/v1/models` 返回已知的上下文与最大输出容量，多账号路由取共同最小值，缺失字段保持未知。继续支持 MiniMax Code 登录、余额、签到与双协议代理，以及账号区域隔离、无签名思考、工具定义预检、受限诊断、后台刷新和历史数据保留；两种代理协议支持 32 MiB 请求正文、图片与工具调用历史的转换。完整变更见 [更新记录](../CHANGELOG.md)。
+v2.2.3 的 Messages 代理支持会话内追加的 `system` 消息，按会话顺序转换系统文本和工具历史。模型目录容量、MiniMax Code、区域隔离、思考内容、工具定义预检和后台刷新等功能的完整变更见 [更新记录](../CHANGELOG.md)。
 
 下图为 macOS v2.0.0 实际窗口截图，昵称和账号 ID 已打码。余额、领取状态和模型数量仅代表截图时的账户状态。
 
@@ -97,7 +97,9 @@ Chat Completions 接口兼容 DeepSeek Harness 等客户端自动发送的 `stor
 
 两种协议均在转发前检查工具名称重复、指定工具缺失、强制工具调用时的空工具列表，以及常见 JSON Schema 关键字的结构和类型。错误会指出原协议字段位置，例如 `tools[0].input_schema.properties.query.type`，并在调用平台前返回 HTTP 400。校验参考 [JSON Schema Validation](https://json-schema.org/draft/2020-12/json-schema-validation) 与 [Core](https://json-schema.org/draft/2020-12/json-schema-core)，保留合法组合类型、布尔子 Schema、旧版 tuple items、`$ref` 和通道扩展；不请求引用 URL、不静默删除或改写定义，也不把历史工具参数套用到当前工具定义。这是结构预检，不等同于平台全部能力验证或完整的 Schema 语义验证。
 
-Qoder 通道会将 Chat Completions 的 `developer` 消息转为上游支持的 `system` 消息，并纳入原生请求的系统指令集合；消息正文、顺序和工具调用历史保持不变。Messages 客户端使用顶层 `system`，不经过 `developer` 角色路径。
+Qoder 通道会将 Chat Completions 的 `developer` 消息转为上游支持的 `system` 消息，并纳入原生请求的系统指令集合，按顺序传递消息正文和工具历史。
+
+Messages 请求支持顶层 `system`，也接受 `messages` 数组中的 `system` 消息。会话内系统内容可为字符串或文本块数组，文本块按顺序拼接并保留在共享请求中的原始位置。文本与标准 `ephemeral` 缓存提示均进行格式校验，非法角色或系统内容返回 HTTP 400。本地网关回归覆盖系统消息与工具历史组合的 JSON 和 SSE 请求。
 
 WorkBuddy 适配器对两段已实测触发通道拒绝的固定 DeepSeek Harness 系统模板做定点措辞调整：身份首句由 `powered by` 改为 `running on`，Web GUI 固定句中的 `the DeepSeek Harness Web GUI` 改为 `the Web GUI`。Harness 名称、运行时 URL 引用和其余系统指令保留，消息继续使用 `system` 优先级；用户消息、助手历史、工具定义与工具结果保持原样。这两处兼容只作用于 WorkBuddy 国内版的系统文本，覆盖字符串和文本块数组；社区定位见 [身份首句 PR #280](https://github.com/magpie-community/plugins/pull/280) 与 [Web GUI 模板 PR #293](https://github.com/magpie-community/plugins/pull/293)。
 
@@ -158,6 +160,8 @@ macOS 使用 Keychain，Windows 使用 Credential Manager，Linux 使用 Secret 
 2026-11-05：通过 ZCode 3.17.2 随附 CLI 的官方 `provider/testModelConnectivity` 流程，用独立临时配置复现其原始 `thinking=disabled`／1 Token 探针。将该模型推理档位声明为 `low`、`medium`、`high`、`xhigh`、`max` 后，同一流程发送 `adaptive + low`，经当前本地代理返回 HTTP 200 和 `success=true`。原有 ZCode 配置已单独备份；此次调整仅作用于对应 MiniMax 模型的推理档位。
 
 2026-11-05：`GET /v1/models` 增加 `context_window` 与 `max_output_tokens` 扩展字段，分别反映当前路由的上下文和最大输出。相同路由包含多个可用账号时，只返回所有账号都明确声明的容量，并取最小值；任一账号缺失的容量保持未知。供 Harness 等客户端按实际目录配置预算，避免 1M 模型被客户端当作 32K 后将输出预算压到 1 Token。此扩展不改变调用方明确指定的输出预算或真实截断的结束原因。
+
+2026-11-10 的 v2.2.3 发布检查通过前端 42 项和 Rust 329 项测试，6 项真实账号或诊断测试按默认设置忽略，生产构建成功。Messages 会话内系统消息的回归覆盖文本块、缓存提示校验、工具历史、JSON 与 SSE 响应。
 
 ## 系统凭据授权弹窗
 
