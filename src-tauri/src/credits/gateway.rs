@@ -1787,6 +1787,43 @@ mod tests {
         json!({"model":"workbuddy/glm-5.3","max_tokens":64,"messages":[{"role":"user","content":"hello"}],"stream":stream})
     }
 
+    #[tokio::test]
+    async fn messages_gateway_accepts_claude_mid_conversation_system_messages() {
+        let manager = routed_test_manager();
+        let gateway = GatewayManager::new();
+        let status = gateway.start(manager.clone(), 0).await.unwrap();
+        let http = local_http();
+        for stream in [false, true] {
+            manager.provider.queue_test_chat("first", fixture_chunks(vec![
+                json!({"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]})
+            ]));
+            let mut body = messages_body(stream);
+            body["system"] = json!("base instructions");
+            body["messages"] = json!([
+                {"role":"user","content":"hello"},
+                {"role":"system","content":"environment"},
+                {"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"read","input":{}}]},
+                {"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":"result"}]},
+                {"role":"system","content":[{"type":"text","text":"answer briefly","cache_control":{"type":"ephemeral"}}]}
+            ]);
+            let response = http.post(format!("{}/messages", status.base_url))
+                .header("x-api-key", manager.gateway_key().unwrap())
+                .json(&body).send().await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let text = response.text().await.unwrap();
+            assert!(text.contains("OK"), "{text}");
+            if stream {
+                assert!(text.contains("event: message_stop"), "{text}");
+            }
+            let forwarded = manager.provider.test_chat_bodies().pop().unwrap();
+            assert_eq!(forwarded["messages"][0], json!({"role":"system","content":"base instructions"}));
+            assert_eq!(forwarded["messages"][2], json!({"role":"system","content":"environment"}));
+            assert_eq!(forwarded["messages"][4], json!({"role":"tool","tool_call_id":"call_1","content":"result"}));
+            assert_eq!(forwarded["messages"][5], json!({"role":"system","content":"answer briefly"}));
+        }
+        gateway.stop().await.unwrap();
+    }
+
     fn local_http() -> reqwest::Client {
         reqwest::Client::builder()
             .no_proxy()

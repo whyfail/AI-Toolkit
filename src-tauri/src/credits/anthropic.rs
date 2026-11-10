@@ -248,10 +248,16 @@ pub(super) fn request(data: Value) -> Result<Value, &'static str> {
             .get("role")
             .and_then(Value::as_str)
             .ok_or("message 缺少 role")?;
-        if !matches!(role, "user" | "assistant") {
-            return Err("Messages 的 role 仅支持 user 和 assistant；system 使用顶层字段");
+        if !matches!(role, "user" | "assistant" | "system") {
+            return Err("Messages 的 role 仅支持 user、assistant 和 system");
         }
         let content = message.get("content").ok_or("message 缺少 content")?;
+        // Newer Claude clients append environment/reminder system messages.
+        // Preserve their authority and position in the conversation.
+        if role == "system" {
+            converted.push(json!({"role":"system", "content":text_content(content)?}));
+            continue;
+        }
         let blocks = match content {
             Value::String(text) => vec![json!({"type":"text", "text":text})],
             Value::Array(blocks) if !blocks.is_empty() => blocks.clone(),
@@ -707,6 +713,54 @@ impl MessageStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mid_conversation_system_messages_preserve_order_and_authority() {
+        let converted = request(json!({
+            "model":"workbuddy/deepseek-v4.1-flash", "max_tokens":64,
+            "system":"base instructions",
+            "messages":[
+                {"role":"user","content":"hello"},
+                {"role":"system","content":"environment"},
+                {"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"read","input":{}}]},
+                {"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":"result"}]},
+                {"role":"system","content":[{"type":"text","text":"updated instructions","cache_control":{"type":"ephemeral"}}]}
+            ]
+        })).unwrap();
+        assert_eq!(converted["messages"], json!([
+            {"role":"system","content":"base instructions"},
+            {"role":"user","content":"hello"},
+            {"role":"system","content":"environment"},
+            {"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"read","arguments":"{}"}}]},
+            {"role":"tool","tool_call_id":"call_1","content":"result"},
+            {"role":"system","content":"updated instructions"}
+        ]));
+    }
+
+    #[test]
+    fn system_messages_reject_unsupported_content_and_unknown_roles() {
+        let base = json!({"model":"test","max_tokens":32,"messages":[
+            {"role":"user","content":"hello"},
+            {"role":"system","content":"instructions"}
+        ]});
+        for content in [
+            Value::Null,
+            json!([{"type":"text","text":42}]),
+            json!([{"type":"text","text":"hi","cache_control":{"type":"unknown"}}]),
+            json!([{"type":"image","source":{"type":"url","url":"https://example.test/a.png"}}]),
+            json!([{"type":"tool_use","id":"call_1","name":"read","input":{}}]),
+            json!([{"type":"tool_addition","tool":{}}]),
+        ] {
+            let mut data = base.clone();
+            data["messages"][1]["content"] = content;
+            assert!(request(data).is_err());
+        }
+        for role in ["developer", "tool", "unknown"] {
+            let mut data = base.clone();
+            data["messages"][1]["role"] = json!(role);
+            assert!(request(data).is_err());
+        }
+    }
 
     #[test]
     fn converts_system_tools_and_tool_results_without_losing_error_semantics() {
