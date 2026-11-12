@@ -2645,6 +2645,7 @@ mod tests {
         let url = format!("{}/messages", status.base_url);
         let mut body = messages_body(true);
         body["tools"] = json!([{"name":"read_file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}},"cache_control":{"type":"ephemeral"}}]);
+        body["tools"][0]["eager_input_streaming"] = json!(true);
         let response = http
             .post(&url)
             .header("x-api-key", &key)
@@ -2732,6 +2733,9 @@ mod tests {
             message["content"][1],
             json!({"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"a.txt"}})
         );
+        for forwarded in manager.provider.test_chat_bodies() {
+            assert_eq!(forwarded["tools"], json!([{"type":"function","function":{"name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}}]));
+        }
         gateway.stop().await.unwrap();
     }
 

@@ -438,9 +438,18 @@ pub(super) fn request(data: Value) -> Result<Value, &'static str> {
                     "input_schema",
                     "cache_control",
                     "type",
+                    "eager_input_streaming",
                 ],
             )?;
             cache_hint(tool)?;
+            // Consume this transport hint here. Tool input is emitted once the
+            // provider's complete JSON has been assembled by MessageStream.
+            if tool
+                .get("eager_input_streaming")
+                .is_some_and(|value| !value.is_boolean())
+            {
+                return Err("工具 eager_input_streaming 必须是布尔值");
+            }
             if tool
                 .get("type")
                 .is_some_and(|kind| kind.as_str() != Some("custom"))
@@ -782,6 +791,40 @@ mod tests {
         assert_eq!(converted["tool_choice"]["function"]["name"], "read");
         assert_eq!(converted["user"], "test-user");
         assert!(converted.get("stop").is_none());
+    }
+
+    #[test]
+    fn eager_tool_input_streaming_accepts_boolean_hints() {
+        let base = json!({
+            "model":"workbuddy/deepseek-v4.1-flash", "max_tokens":64,
+            "messages":[{"role":"user","content":"hello"}], "stream":true,
+            "tools":[{"name":"read","description":"Read a file",
+                "input_schema":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]},
+                "cache_control":{"type":"ephemeral"}}]
+        });
+        let expected = request(base.clone()).unwrap();
+        for eager in [false, true] {
+            let mut data = base.clone();
+            data["tools"][0]["eager_input_streaming"] = json!(eager);
+            assert_eq!(request(data).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn eager_tool_input_streaming_rejects_non_boolean_hints() {
+        let base = json!({
+            "model":"test", "max_tokens":32,
+            "messages":[{"role":"user","content":"hello"}],
+            "tools":[
+                {"name":"read","input_schema":{"type":"object"}},
+                {"name":"write","input_schema":{"type":"object"}}
+            ]
+        });
+        for value in [Value::Null, json!("true"), json!(0), json!(1), json!([]), json!({})] {
+            let mut data = base.clone();
+            data["tools"][1]["eager_input_streaming"] = value;
+            assert_eq!(request(data).unwrap_err(), "工具 eager_input_streaming 必须是布尔值");
+        }
     }
 
     #[test]
