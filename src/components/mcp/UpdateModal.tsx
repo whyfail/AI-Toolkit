@@ -10,6 +10,8 @@ interface UpdateModalProps {
   body: string;
   onInstall: () => void;
   installing: boolean;
+  /** 弹窗缩放的起点，通常传触发按钮元素，让弹窗从入口处展开。 */
+  anchor?: HTMLElement | null;
 }
 
 const UpdateModal: React.FC<UpdateModalProps> = ({
@@ -19,9 +21,10 @@ const UpdateModal: React.FC<UpdateModalProps> = ({
   body,
   onInstall,
   installing,
+  anchor,
 }) => {
   return (
-    <Modal open={open} onClose={onClose} size="md">
+    <Modal open={open} onClose={onClose} size="md" anchor={anchor}>
       <div role="dialog" aria-modal="true" className="w-full">
         {/* 头部 */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4">

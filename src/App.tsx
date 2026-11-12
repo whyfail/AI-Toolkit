@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Toaster, toast } from "sonner";
 import UnifiedMcpPanel from "@/components/mcp/UnifiedMcpPanel";
@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-shell";
 import { useAppVersion } from "@/hooks/useAppVersion";
+import { useStartupUpdateCheck, checkNow } from "@/hooks/useStartupUpdateCheck";
 import { useTheme, type ThemeMode } from "@/hooks/useTheme";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 import { useCreditsRuntime } from "@/hooks/useCredits";
@@ -37,7 +38,6 @@ const CreditsPanel = lazy(() => import("@/components/credits/CreditsPanel"));
 const ChangelogPanel = lazy(() => import("@/components/changelog/ChangelogPanel"));
 const GITHUB_REPO_URL = "https://github.com/whyfail/ai-toolkit";
 const OFFICIAL_WEBSITE_URL = "https://whyfail.github.io/ai-toolkit-website/";
-let startupUpdateCheckStarted = false;
 
 const copyText = async (text: string) => {
   try {
@@ -61,49 +61,18 @@ const copyText = async (text: string) => {
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>("skills");
   useCreditsRuntime(activeTab === "credits");
-  const [startupUpdateInfo, setStartupUpdateInfo] = useState<{
-    version: string;
-    body: string;
-  } | null>(null);
-  const [showStartupUpdateModal, setShowStartupUpdateModal] = useState(false);
-  const [startupInstalling, setStartupInstalling] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const versionBadgeRef = useRef<HTMLButtonElement | null>(null);
+  const [updateAnchor, setUpdateAnchor] = useState<HTMLElement | null>(null);
   const appVersion = useAppVersion();
+  const availableUpdate = useStartupUpdateCheck(appVersion);
   const theme = useTheme();
   const reduced = useReducedMotion();
   const { installedAgents, isLoading: scanningAgents, refresh: scanAgents } = useInstalledTools();
 
-  // 首次打开应用时自动检查新版本，有更新时交给用户决定是否安装。
-  useEffect(() => {
-    if (startupUpdateCheckStarted) return;
-    startupUpdateCheckStarted = true;
-
-    let cancelled = false;
-
-    const checkStartupUpdate = async () => {
-      try {
-        const result = await updateApi.checkUpdate();
-
-        if (!cancelled && result.available) {
-          setStartupUpdateInfo({
-            version: result.version,
-            body: result.body || "",
-          });
-          setShowStartupUpdateModal(true);
-        }
-      } catch (err) {
-        console.error("启动时检查更新失败:", err);
-      }
-    };
-
-    checkStartupUpdate();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const installStartupUpdate = async () => {
-    setStartupInstalling(true);
+  const installUpdate = async () => {
+    setInstalling(true);
     try {
       await updateApi.installUpdate();
       toast.success("更新下载完成，正在重启应用...");
@@ -111,7 +80,7 @@ function App() {
       console.error("安装更新失败:", err);
       toast.error(`安装更新失败: ${err}`);
     } finally {
-      setStartupInstalling(false);
+      setInstalling(false);
     }
   };
 
@@ -197,9 +166,29 @@ function App() {
 
         {/* 版本 */}
         <div className="border-t border-white/40 px-6 py-4 text-center dark:border-white/10">
-          <p className="text-[11px] font-medium tracking-wide text-slate-400 dark:text-slate-500">
-            v{appVersion}
-          </p>
+          <div className="flex items-center justify-center gap-1.5">
+            <p className="text-[11px] font-medium tracking-wide text-slate-400 dark:text-slate-500">
+              v{appVersion}
+            </p>
+            {availableUpdate && (
+              <Pressable
+                ref={versionBadgeRef}
+                onClick={() => {
+                  setUpdateAnchor(versionBadgeRef.current);
+                  setShowUpdateModal(true);
+                }}
+                className="-m-1 flex items-center gap-1 rounded-full bg-[#0A84FF]/10 px-2 py-1 text-[11px] font-medium text-[#0A84FF] transition-colors hover:bg-[#0A84FF]/20 dark:bg-[#0A84FF]/15 dark:text-[#5AC8FA] dark:hover:bg-[#0A84FF]/30"
+                title={`发现新版本 v${availableUpdate.version}，点击查看`}
+                aria-label={`发现新版本 v${availableUpdate.version}，点击查看`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full bg-current ${reduced ? "" : "animate-pulse"}`}
+                  aria-hidden="true"
+                />
+                更新
+              </Pressable>
+            )}
+          </div>
         </div>
       </aside>
 
@@ -226,7 +215,7 @@ function App() {
                 <ChangelogPanel />
               </Suspense>
             )}
-            {activeTab === "settings" && <SettingsTab theme={theme} />}
+            {activeTab === "settings" && <SettingsTab theme={theme} installUpdate={installUpdate} installing={installing} />}
             {activeTab === "about" && <AboutTab />}
           </motion.div>
         </AnimatePresence>
@@ -246,26 +235,30 @@ function App() {
       />
 
       <UpdateModal
-        open={showStartupUpdateModal}
-        onClose={() => setShowStartupUpdateModal(false)}
-        version={startupUpdateInfo?.version || ""}
-        body={startupUpdateInfo?.body || ""}
-        onInstall={installStartupUpdate}
-        installing={startupInstalling}
+        open={showUpdateModal}
+        onClose={() => setShowUpdateModal(false)}
+        version={availableUpdate?.version || ""}
+        body={availableUpdate?.body || ""}
+        onInstall={installUpdate}
+        installing={installing}
+        anchor={updateAnchor}
       />
     </div>
   );
 }
 
 // 设置标签页
-const SettingsTab: React.FC<{ theme: ReturnType<typeof useTheme> }> = ({ theme }) => {
+const SettingsTab: React.FC<{
+  theme: ReturnType<typeof useTheme>;
+  installUpdate: () => Promise<void>;
+  installing: boolean;
+}> = ({ theme, installUpdate, installing }) => {
   const [checking, setChecking] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<{
     version: string;
     body: string;
   } | null>(null);
   const [isLatest, setIsLatest] = useState(false);
-  const [installing, setInstalling] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const { installedAgents } = useInstalledTools();
   const apps = installedAgents.map(agent => ({
@@ -350,35 +343,21 @@ const SettingsTab: React.FC<{ theme: ReturnType<typeof useTheme> }> = ({ theme }
     setUpdateInfo(null);
     setIsLatest(false);
     try {
-      const result = await updateApi.checkUpdate();
-      if (result.available) {
-        setUpdateInfo({
-          version: result.version,
-          body: result.body || "",
-        });
+      // 与后台检查共用同一次结果，手动查到新版本后左下角徽标也会同步。
+      const update = await checkNow();
+      if (update) {
+        setUpdateInfo(update);
         setShowModal(true);
       } else {
         setIsLatest(true);
         setTimeout(() => setIsLatest(false), 3000);
       }
     } catch (err) {
-      console.error("检查更新失败:", err);
-      toast.error(`检查更新失败: ${err}`);
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("检查更新失败:", message);
+      toast.error(`检查更新失败: ${message}`);
     } finally {
       setChecking(false);
-    }
-  };
-
-  const installUpdate = async () => {
-    setInstalling(true);
-    try {
-      await updateApi.installUpdate();
-      toast.success("更新下载完成，正在重启应用...");
-    } catch (err) {
-      console.error("安装更新失败:", err);
-      toast.error(`安装更新失败: ${err}`);
-    } finally {
-      setInstalling(false);
     }
   };
 
