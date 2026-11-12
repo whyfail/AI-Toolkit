@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release Version (e.g., 2.2.4)'
+        description: 'Release Version (e.g., 2.2.5)'
         required: true
-        default: '2.2.4'
+        default: '2.2.5'
       publish:
         description: 'Publish the release after building both platforms'
         type: boolean
@@ -427,11 +427,11 @@ jobs:
 
             **Note**: Auto-updater uses `.app.tar.gz` (macOS) and `.msi` (Windows) bundles which are included in this release.
 
-            ### New in v2.2.4
+            ### New in v2.2.5
 
-            - Claim history shows the pre-claim balance, first readback, timestamps, and net balance change
-            - Automatic claims use per-account backoff, respect Retry-After, and resume after explicit credential recovery
-            - Messages tool definitions accept and validate boolean eager_input_streaming hints with JSON/SSE regression coverage
+            - Silent startup checks with a sidebar update badge, cached release notes, and user-confirmed installation
+            - Shared manual and background checks with a 6-hour interval, 15-minute failure retry, and recovery on reconnect
+            - Installed-version filtering and in-memory scheduling when persistent storage is unavailable, covered by update-check regressions
 
             MiniMax CN identity, credits, catalog, and selected short text/tool inference have prior live validation. Global accounts, image understanding, complete browser login, and real claims remain unverified. International support remains experimental; TRAE international catalog and chat remain disabled (HTTP 501). See the [support and verification matrix](https://github.com/whyfail/AI-Toolkit/blob/main/docs/credits-international.md).
 

@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.2.4-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.2.5-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,11 +16,10 @@
 
 AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and a local model proxy**. The current version has six panels: Skills, MCP Servers, Credits & Proxy, Changelog, Settings, and About, with local installation detection and configuration adapters for 25 AI programming tools.
 
-## 🆕 What's New in v2.2.4
+## 🆕 What's New in v2.2.5
 
-- Claim history shows the balance before a claim, the first balance readback, and the net change to help reconcile platform credits.
-- Automatic claims use per-account backoff, respect upstream retry delays, and resume credential failures after an explicit refresh or sign-in.
-- Messages tool definitions accept boolean `eager_input_streaming` hints, with validation and JSON/SSE tool-call regression coverage. See [Credits & Model Proxy](docs/credits-proxy.md).
+- Startup checks run silently and show an update badge beside the sidebar version. Click it to read the notes and confirm installation. Manual checks in Settings share the result and installation state.
+- Checks repeat every 6 hours, retry after 15 minutes on failure, and retry when connectivity returns after a failed check. Regressions cover cached results, installed-version filtering, concurrent requests, and unavailable storage.
 
 See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/security-hardening.md) for security changes and validation scope.
 
@@ -50,7 +49,7 @@ See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/
 
 v2.2.2 includes **experimental international adapters** and MiniMax Code CN/global accounts, with independent regional routing. WorkBuddy international billing and catalog have prior live read-only validation; inference lacks complete live validation. Qoder and MiniMax Code international accounts remain **untested live**. TRAE international desktop import, identity and billing passed a read-only check. Official catalog and tool-loop responses were captured, but authentication headers and request bodies remain unverified; international catalog and chat are not enabled. See the [support and verification matrix](docs/credits-international.md#english-status).
 
-- **Multi-Platform Accounts**: Connect WorkBuddy, TRAE CN, and Qoder accounts via the official authorization flow or by importing existing Token/credential JSON; credentials are stored in the system credential store
+- **Multi-Platform Accounts** — Connect WorkBuddy, TRAE CN, Qoder, and MiniMax Code accounts via the official authorization flow or by importing existing Token/credential JSON. Credentials are stored in the system credential store
 - **TRAE CN One-Click Import**: Prefers the local desktop app's login state and falls back to CLI keychain credentials; identity is verified and credits synced after import
 - **Credit Display & Claiming**: Shows platform-native balances, update times, credit packs, and claim eligibility; claim available credits in one click, with coupons listed separately
 - **Qoder Daily Event**: Claims credits directly through the official daily credit event API; if the official device-verification helper is installed, no need to open the Qoder app
@@ -80,7 +79,7 @@ Platform APIs and account permissions determine the actual availability of balan
 - See [Agent adapter paths and official sources](docs/agent-adapters.md)
 
 ### 🔄 App Updates & Sharing
-- **Startup Update Check**: Automatically checks for new releases on first launch and lets users decide whether to install
+- **Update Notifications & Checks** — Silently checks on startup and shows an update badge in the sidebar. Click to read the notes and confirm installation. Background checks repeat every 6 hours, failures retry after 15 minutes, and Settings provides a manual check
 - **One-Click Sharing**: Copy the official website URL from Settings to share the app easily
 
 ### 📌 System Tray

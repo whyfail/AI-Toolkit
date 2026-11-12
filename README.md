@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.2.4-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.2.5-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,11 +16,10 @@
 
 AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MCP 服务器、Skills 技能、平台积分与本地模型代理**。当前版本提供 Skills 管理、MCP 服务器、积分与代理、更新日志、设置、关于六个面板，支持 25 种工具的本地安装检测与配置适配。
 
-## 🆕 v2.2.4 更新
+## 🆕 v2.2.5 更新
 
-- 领取记录展示领取前余额、首次回查余额及净变化，便于核对平台到账情况。
-- 自动领取按账户退避重试，遵守限流等待时间，凭据异常可在主动刷新或重新登录后恢复。
-- Messages 工具定义兼容布尔类型的 `eager_input_streaming` 提示，覆盖参数校验和 JSON／SSE 工具调用回归。详见 [积分与模型代理](docs/credits-proxy.md)。
+- 启动时静默检查更新，侧栏版本旁显示可用更新提示，点击后查看说明并确认安装。设置页手动检查与侧栏共享结果和安装状态。
+- 更新检查按 6 小时间隔复查，失败后 15 分钟重试，检查失败后网络恢复可立即补查。缓存恢复、已安装版本过滤、并发请求和存储不可用场景均有回归覆盖。
 
 完整变更见 [更新记录](CHANGELOG.md)，安全加固与验证边界见 [安全加固记录](docs/security-hardening.md)。
 
@@ -50,7 +49,7 @@ AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MC
 
 v2.2.2 包含国际版**实验性适配**和 MiniMax Code 国内／国际账号。WorkBuddy 国际真实账号余额和目录只读查询已有通过记录，推理调用未完整实测；Qoder、MiniMax Code 国际账号**未实测**。TRAE 已取得目录和工具闭环响应样本，仍缺请求体与认证头，暂未开放国际模型目录和代理。详见 [支持与验证矩阵](docs/credits-international.md)。
 
-- **多平台账户**：连接 WorkBuddy、TRAE CN、Qoder 账户，支持官方授权入口与已有 Token/凭据 JSON 导入；凭据保存到系统凭据库
+- **多平台账户**：连接 WorkBuddy、TRAE CN、Qoder、MiniMax Code 账户，支持官方授权入口与已有 Token/凭据 JSON 导入；凭据保存到系统凭据库
 - **TRAE CN 一键导入**：优先读取本机新版桌面应用的登录态，未找到时兼容 CLI 钥匙串凭据；导入后验证身份并同步积分
 - **积分展示与领取**：分别显示平台原生额度、更新时间、额度包与领取资格；一键检查并领取可用积分，优惠券单独展示
 - **Qoder 每日活动**：直接调用官方每日积分活动接口完成领取，本机装有官方设备校验助手时无需打开 Qoder 界面
@@ -80,7 +79,7 @@ v2.2.2 包含国际版**实验性适配**和 MiniMax Code 国内／国际账号�
 - 路径与官方来源见 [Agent 适配说明](docs/agent-adapters.md)
 
 ### 🔄 应用更新与分享
-- **启动检查更新**：首次打开自动检测新版本，有更新时弹窗提示，由用户决定是否安装
+- **更新提示与检查** — 启动时静默检查新版本，侧栏显示可用更新入口，点击查看说明并确认安装。后台每 6 小时复查，失败后 15 分钟重试，设置页可手动检查
 - **一键分享**：设置页可复制官方站点地址，方便分享给其他用户
 
 ### 📌 托盘常驻
