@@ -635,6 +635,8 @@ async fn claim_at(
             kind: "credits".into(),
             message: "当前账号暂无已明确可领取的积分活动".into(),
             created_at: now_ms(),
+            retry_after_ms: None,
+            balance_check: None,
         });
     }
     Ok(out)

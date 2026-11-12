@@ -2,6 +2,7 @@ pub mod gateway;
 pub mod providers;
 mod secrets;
 mod refresh;
+mod claims;
 pub mod store;
 pub mod types;
 
@@ -25,6 +26,7 @@ pub struct CreditManager {
     key_gate: Mutex<()>,
     cancellation: CancellationToken,
     refresh_schedule: Mutex<refresh::RefreshSchedule>,
+    claim_schedule: Mutex<claims::ClaimSchedule>,
     refresh_slots: Semaphore,
     refresh_wake: Notify,
     scheduler_started: AtomicBool,
@@ -43,6 +45,7 @@ impl CreditManager {
             key_gate: Mutex::new(()),
             cancellation: CancellationToken::new(),
             refresh_schedule: Mutex::new(refresh::RefreshSchedule::new(now_ms())),
+            claim_schedule: Mutex::new(claims::ClaimSchedule::default()),
             refresh_slots: Semaphore::new(3),
             refresh_wake: Notify::new(),
             scheduler_started: AtomicBool::new(false),
@@ -65,6 +68,7 @@ impl CreditManager {
             key_gate: Mutex::new(()),
             cancellation: CancellationToken::new(),
             refresh_schedule: Mutex::new(refresh::RefreshSchedule::new(now_ms())),
+            claim_schedule: Mutex::new(claims::ClaimSchedule::default()),
             refresh_slots: Semaphore::new(3),
             refresh_wake: Notify::new(),
             scheduler_started: AtomicBool::new(false),
@@ -87,6 +91,7 @@ impl CreditManager {
     pub fn retry_secret_access(&self) -> Result<(), String> {
         self.secrets.retry_access()?;
         self.refresh_schedule.lock().resume();
+        self.claim_schedule.lock().resume(now_ms());
         Ok(())
     }
     pub fn retry_gateway_key_access(&self) -> Result<(), String> {
@@ -254,6 +259,7 @@ impl CreditManager {
         }
         drop(_guard);
         drop(_import);
+        self.claim_schedule.lock().resume(now_ms());
         self.refresh_account(&id).await
     }
 
@@ -317,13 +323,31 @@ impl CreditManager {
     }
 
     async fn claim_account(self: &Arc<Self>, id: &str) -> Result<Vec<RewardOutcome>, String> {
+        if !self.store.account(id)?.enabled {
+            return Ok(Vec::new());
+        }
+        // Capture a fresh baseline even when periodic balance refresh is disabled.
+        let baseline_started = now_ms();
+        let _ = self.refresh_scope(id, refresh::Scope::BALANCE, true).await;
         let gate = self.gate(id);
         let guard = gate.lock().await;
         let account = self.store.account(id)?;
         if !account.enabled {
             return Ok(Vec::new());
         }
-        let result = match self.credentials_unlocked(&account, false).await {
+        if self.cancellation.is_cancelled() {
+            return Err("应用正在退出".into());
+        }
+        let started_at = now_ms();
+        let limited_until = self.refresh_schedule.lock().account(&account).rate_limit_until();
+        let credentials = if limited_until > started_at {
+            let mut error = providers::http_error(429);
+            error.retry_after_ms = Some(limited_until - started_at);
+            Err(error)
+        } else {
+            self.credentials_unlocked(&account, false).await
+        };
+        let result = match credentials {
             Ok(credentials) => {
                 let mut result = self.provider.claim(&account, &credentials).await;
                 if result
@@ -335,11 +359,12 @@ impl CreditManager {
                         Err(error) => Err(error),
                     };
                 }
-                result.map_err(|e| e.message)
+                result
             }
-            Err(error) => Err(error.message),
+            Err(error) => Err(error),
         };
-        let outcomes = result.unwrap_or_else(|error| {
+        self.claim_schedule.lock().finish(id, started_at, now_ms(), &result);
+        let mut outcomes = result.unwrap_or_else(|error| {
             vec![RewardOutcome {
                 account_id: id.into(),
                 reward_id: "claim".into(),
@@ -347,11 +372,20 @@ impl CreditManager {
                 status: "failed".into(),
                 amount: None,
                 kind: "credits".into(),
-                message: error,
+                retry_after_ms: error.claim_retry_after_ms(),
+                message: error.message,
                 created_at: now_ms(),
+                balance_check: None,
             }]
         });
-        for outcome in &outcomes {
+        for outcome in &mut outcomes {
+            if matches!(outcome.status.as_str(), "claimed" | "success" | "pending") {
+                outcome.balance_check = Some(ClaimBalanceCheck {
+                    before: account.snapshot.as_ref().filter(|snapshot| snapshot.fetched_at >= baseline_started)
+                        .and_then(BalanceObservation::from_snapshot),
+                    after: None,
+                });
+            }
             self.store.record_reward(outcome)?;
         }
         drop(guard);
@@ -364,6 +398,9 @@ impl CreditManager {
                     == updated.snapshot.as_ref().and_then(|snapshot| snapshot.balance))) {
             self.refresh_schedule.lock().account(&updated).recheck_claim(now_ms() + refresh::CLAIM_RECHECK_DELAY);
             self.refresh_wake.notify_one();
+        }
+        for outcome in &mut outcomes {
+            let _ = self.store.fill_balance_check(outcome);
         }
         Ok(outcomes)
     }
@@ -474,29 +511,7 @@ impl CreditManager {
     pub fn start_scheduler(self: &Arc<Self>) {
         if self.scheduler_started.swap(true, Ordering::SeqCst) { return; }
         self.start_refresh_scheduler();
-        let manager = self.clone();
-        tokio::spawn(async move {
-            let mut last_day: Option<i64> = None;
-            // The first tick is immediate, so startup catch-up follows the same schedule.
-            let mut interval = tokio::time::interval(Duration::from_secs(30));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            loop {
-                tokio::select! {
-                    _ = manager.cancellation.cancelled() => break,
-                    _ = interval.tick() => {
-                        let now = now_ms();
-                        let (day, due) = claim_schedule(now);
-                        if due && last_day != Some(day) && manager.store.settings().is_ok_and(|s| s.auto_claim) {
-                            last_day = Some(day);
-                            tokio::select! {
-                                _ = manager.cancellation.cancelled() => break,
-                                _ = manager.claim(None) => {},
-                            }
-                        }
-                    }
-                }
-            }
-        });
+        self.start_claim_scheduler();
     }
     pub async fn shutdown(&self) {
         self.cancellation.cancel();
@@ -689,6 +704,55 @@ mod tests {
         assert_eq!(claim_schedule(57_600_000), (1, false));
         assert_eq!(claim_schedule(95_399_999), (1, false));
         assert_eq!(claim_schedule(95_400_000), (1, true));
+    }
+
+    #[tokio::test]
+    async fn claim_entry_records_credential_failure_and_resumes_after_user_refresh() {
+        let manager = CreditManager::test();
+        let account = saved_snapshot_account("claim-credentials");
+        manager.store.save_account(&account).unwrap();
+        let outcomes = manager.claim(Some(&account.id)).await.unwrap();
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].status, "failed");
+        assert!(outcomes[0].retry_after_ms.is_none());
+        assert_eq!(manager.store.rewards().unwrap().len(), 1);
+        let next_check = now_ms() + 60_000;
+        assert!(!manager.claim_schedule.lock().due(&account.id, next_check));
+        manager.retry_secret_access().unwrap();
+        // The Beijing 10:30 gate still applies after an explicit credential retry.
+        assert_eq!(manager.claim_schedule.lock().due(&account.id, next_check), claim_schedule(next_check).1);
+        assert!(manager.provider.test_inspection_calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn disabled_claims_do_not_refresh_or_access_credentials() {
+        let manager = CreditManager::test();
+        let mut account = saved_snapshot_account("disabled-claim");
+        account.enabled = false;
+        manager.store.save_account(&account).unwrap();
+        assert!(manager.claim(Some(&account.id)).await.unwrap().is_empty());
+        assert!(manager.provider.test_inspection_calls().is_empty());
+        assert!(manager.store.rewards().unwrap().is_empty());
+        assert_eq!(manager.store.account(&account.id).unwrap().status, "ready");
+    }
+
+    #[tokio::test]
+    async fn a_rate_limited_baseline_defers_the_claim_without_submitting() {
+        let manager = CreditManager::test();
+        let account = saved_snapshot_account("limited-claim");
+        manager.store.save_account(&account).unwrap();
+        let mut credentials = providers::empty_credentials();
+        credentials.access_token = "synthetic-test-token".into();
+        manager.save_credentials(&account.id, &credentials).unwrap();
+        let mut error = providers::http_error(429);
+        error.retry_after_ms = Some(600_000);
+        manager.provider.queue_test_inspection(&account.id,
+            providers::Inspection::failed(refresh::Scope::BALANCE, error));
+        let outcomes = manager.claim(Some(&account.id)).await.unwrap();
+        assert_eq!(outcomes[0].status, "failed");
+        assert!(outcomes[0].retry_after_ms.is_some_and(|delay| delay > 590_000));
+        assert_eq!(manager.provider.test_inspection_calls().len(), 1);
+        assert!(!manager.claim_schedule.lock().due(&account.id, now_ms() + 60_000));
     }
     #[test]
     fn gateway_keys_persist_and_do_not_enter_dashboard() {

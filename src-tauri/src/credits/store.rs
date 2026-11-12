@@ -24,6 +24,11 @@ impl CreditStore {
             CREATE TABLE IF NOT EXISTS credit_snapshots (
                 account_id TEXT PRIMARY KEY, snapshot TEXT NOT NULL, updated_at INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS credit_balance_history (
+                account_id TEXT NOT NULL, fetched_at INTEGER NOT NULL,
+                balance REAL NOT NULL, unit TEXT NOT NULL,
+                PRIMARY KEY(account_id, fetched_at)
+            );
             CREATE TABLE IF NOT EXISTS credit_rewards (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL,
                 outcome TEXT NOT NULL, created_at INTEGER NOT NULL
@@ -79,6 +84,10 @@ impl CreditStore {
         if tx.changes() != 1 { return Err("不能更改已保存账号的身份或区域".into()); }
         if let Some(snapshot) = &account.snapshot {
             tx.execute("INSERT INTO credit_snapshots(account_id,snapshot,updated_at) VALUES(?1,?2,?3) ON CONFLICT(account_id) DO UPDATE SET snapshot=excluded.snapshot,updated_at=excluded.updated_at", params![account.id, serde_json::to_string(snapshot).map_err(json_error)?, snapshot.fetched_at]).map_err(db_error)?;
+            if let Some(observation) = BalanceObservation::from_snapshot(snapshot) {
+                tx.execute("INSERT OR IGNORE INTO credit_balance_history(account_id,fetched_at,balance,unit) VALUES(?1,?2,?3,?4)",
+                    params![account.id, observation.fetched_at, observation.balance, observation.unit]).map_err(db_error)?;
+            }
         }
         tx.commit().map_err(db_error)
     }
@@ -86,7 +95,7 @@ impl CreditStore {
     pub fn delete_account(&self, id: &str) -> Result<(), String> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction().map_err(db_error)?;
-        for table in ["credit_snapshots", "credit_rewards", "credit_requests"] {
+        for table in ["credit_snapshots", "credit_balance_history", "credit_rewards", "credit_requests"] {
             tx.execute(&format!("DELETE FROM {table} WHERE account_id=?1"), [id])
                 .map_err(db_error)?;
         }
@@ -150,7 +159,22 @@ impl CreditStore {
     }
 
     pub fn rewards(&self) -> Result<Vec<RewardOutcome>, String> {
-        self.history("credit_rewards", "outcome")
+        let mut outcomes: Vec<RewardOutcome> = self.history("credit_rewards", "outcome")?;
+        for outcome in &mut outcomes {
+            self.fill_balance_check(outcome)?;
+        }
+        Ok(outcomes)
+    }
+
+    pub fn fill_balance_check(&self, outcome: &mut RewardOutcome) -> Result<(), String> {
+        let Some(check) = &mut outcome.balance_check else { return Ok(()) };
+        // Keep the first post-claim observation stable as later usage changes the balance.
+        check.after = self.conn.lock().query_row(
+            "SELECT balance,unit,fetched_at FROM credit_balance_history WHERE account_id=?1 AND fetched_at>?2 ORDER BY fetched_at LIMIT 1",
+            params![outcome.account_id, outcome.created_at],
+            |row| Ok(BalanceObservation { balance: row.get(0)?, unit: row.get(1)?, fetched_at: row.get(2)? }),
+        ).optional().map_err(db_error)?;
+        Ok(())
     }
     pub fn requests(&self) -> Result<Vec<RequestSummary>, String> {
         self.history("credit_requests", "summary")
@@ -237,6 +261,63 @@ mod tests {
             last_error: None,
             snapshot: None,
         }
+    }
+
+    fn balance_account(balance: f64, fetched_at: i64) -> Account {
+        let mut value = account();
+        let mut snapshot = crate::credits::providers::snapshot(vec![], vec![], vec![], None);
+        snapshot.balance = Some(balance);
+        snapshot.fetched_at = fetched_at;
+        value.snapshot = Some(snapshot);
+        value
+    }
+
+    #[test]
+    fn balance_history_preserves_observations_and_first_claim_readback_after_reopening() {
+        let s = store();
+        let before = balance_account(100.0, 1000);
+        s.save_account(&before).unwrap();
+        s.save_account(&before).unwrap();
+        let mut outcome: RewardOutcome = serde_json::from_value(serde_json::json!({
+            "accountId":"one", "rewardId":"daily", "name":"签到", "status":"claimed",
+            "amount":100, "kind":"credits", "message":"confirmed", "createdAt":1500
+        })).unwrap();
+        assert!(outcome.balance_check.is_none());
+        outcome.balance_check = Some(ClaimBalanceCheck {
+            before: BalanceObservation::from_snapshot(before.snapshot.as_ref().unwrap()), after: None,
+        });
+        s.record_reward(&outcome).unwrap();
+        assert!(s.rewards().unwrap()[0].balance_check.as_ref().unwrap().after.is_none());
+        s.save_account(&balance_account(200.0, 2000)).unwrap();
+        s.save_account(&balance_account(190.0, 3000)).unwrap();
+        let reopened = CreditStore::new(s.conn.clone()).unwrap();
+        let rewards = reopened.rewards().unwrap();
+        let check = rewards[0].balance_check.as_ref().unwrap();
+        assert_eq!(check.before.as_ref().unwrap().balance, 100.0);
+        assert_eq!(check.after.as_ref().unwrap().balance, 200.0);
+        assert_eq!(check.after.as_ref().unwrap().fetched_at, 2000);
+        assert_eq!(reopened.conn.lock().query_row("SELECT count(*) FROM credit_balance_history", [], |row| row.get::<_, i64>(0)).unwrap(), 3);
+        reopened.delete_account("one").unwrap();
+        assert_eq!(reopened.conn.lock().query_row("SELECT count(*) FROM credit_balance_history", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn stale_and_unknown_balances_are_excluded_and_history_writes_are_atomic() {
+        let s = store();
+        s.save_account(&balance_account(0.0, 1000)).unwrap();
+        let mut stale = balance_account(100.0, 2000);
+        stale.snapshot.as_mut().unwrap().stale = true;
+        s.save_account(&stale).unwrap();
+        stale.snapshot.as_mut().unwrap().stale = false;
+        stale.snapshot.as_mut().unwrap().balance = None;
+        s.save_account(&stale).unwrap();
+        assert_eq!(s.conn.lock().query_row("SELECT count(*) FROM credit_balance_history", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+        s.conn.lock().execute_batch("CREATE TRIGGER reject_history BEFORE INSERT ON credit_balance_history BEGIN SELECT RAISE(ABORT,'test'); END;").unwrap();
+        let mut changed = balance_account(50.0, 3000);
+        changed.label = "partial".into();
+        assert!(s.save_account(&changed).is_err());
+        assert_eq!(s.account("one").unwrap().label, "测试");
+        assert_eq!(s.account("one").unwrap().snapshot.unwrap().fetched_at, 2000);
     }
     #[test]
     fn migration_is_repeatable_and_does_not_touch_existing_tables() {

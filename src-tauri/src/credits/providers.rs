@@ -46,6 +46,14 @@ impl std::fmt::Display for ProviderError {
 }
 impl std::error::Error for ProviderError {}
 impl ProviderError {
+    pub(super) fn claim_retry_after_ms(&self) -> Option<i64> {
+        if self.pause_auto || matches!(self.status, 401 | 403) {
+            return None;
+        }
+        matches!(self.status, 408 | 425 | 429 | 500..=599)
+            .then_some(self.retry_after_ms.unwrap_or(0).max(0))
+    }
+
     pub fn new(status: u16, message: impl Into<String>) -> Self {
         Self {
             status,
@@ -687,6 +695,8 @@ pub(super) fn outcome(
         kind: r.kind.clone(),
         message: message.into(),
         created_at: now_ms(),
+        retry_after_ms: None,
+        balance_check: None,
     }
 }
 pub(super) fn reconcile_claim(
@@ -702,7 +712,11 @@ pub(super) fn reconcile_claim(
         return outcome(a, r, "claimed", "回查上游确认权益已领取", r.amount);
     }
     match submitted {
-        Err(e) if e.rejected => outcome(a, r, "failed", e.message.clone(), None),
+        Err(e) if e.rejected => {
+            let mut result = outcome(a, r, "failed", e.message.clone(), None);
+            result.retry_after_ms = e.claim_retry_after_ms();
+            result
+        }
         _ => outcome(
             a,
             r,
@@ -889,6 +903,18 @@ mod tests {
         );
         assert_eq!(o.status, "pending");
         assert_eq!(o.amount, None);
+        assert!(o.retry_after_ms.is_none());
+    }
+
+    #[test]
+    fn explicitly_rate_limited_claims_preserve_the_upstream_retry_delay() {
+        let mut error = http_error(429);
+        error.retry_after_ms = Some(600_000);
+        let result = reconcile_claim(&claim_account(), &claim_reward("claimable"), &Err(error),
+            Ok(vec![claim_reward("claimable")]));
+        assert_eq!(result.status, "failed");
+        assert_eq!(result.retry_after_ms, Some(600_000));
+        assert!(http_error(403).claim_retry_after_ms().is_none());
     }
     #[test]
     fn unknown_balance_is_not_zero() {

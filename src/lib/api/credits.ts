@@ -88,6 +88,17 @@ export interface RewardOutcome {
   kind: string;
   message: string;
   createdAt: number;
+  retryAfterMs?: number | null;
+  balanceCheck?: {
+    before: BalanceObservation | null;
+    after: BalanceObservation | null;
+  } | null;
+}
+
+export interface BalanceObservation {
+  balance: number;
+  unit: string;
+  fetchedAt: number;
 }
 
 export interface ProxySettings {

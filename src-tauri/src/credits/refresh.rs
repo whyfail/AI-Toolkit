@@ -29,7 +29,6 @@ impl Part {
 pub(super) struct Scope(pub [bool; 3]);
 impl Scope {
     pub const FULL: Self = Self([true; 3]);
-    #[cfg(test)]
     pub const BALANCE: Self = Self([true, false, false]);
     pub fn contains(self, part: Part) -> bool {
         self.0[part as usize]

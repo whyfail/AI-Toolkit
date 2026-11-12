@@ -170,6 +170,32 @@ pub struct RewardOutcome {
     pub kind: String,
     pub message: String,
     pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub balance_check: Option<ClaimBalanceCheck>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BalanceObservation {
+    pub balance: f64,
+    pub unit: String,
+    pub fetched_at: i64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaimBalanceCheck {
+    pub before: Option<BalanceObservation>,
+    pub after: Option<BalanceObservation>,
+}
+
+impl BalanceObservation {
+    pub fn from_snapshot(snapshot: &ProviderSnapshot) -> Option<Self> {
+        snapshot.balance.filter(|balance| balance.is_finite() && !snapshot.stale && snapshot.fetched_at > 0)
+            .map(|balance| Self { balance, unit: snapshot.unit.clone(), fetched_at: snapshot.fetched_at })
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

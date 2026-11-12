@@ -159,6 +159,27 @@ test("领取结果不明确时显示待确认，不显示已到账金额", () =>
   assert.doesNotMatch(html, /等待授权|\+100/);
 });
 
+test("领取历史展示两次余额查询与净变化，兼容旧记录及单位变化", () => {
+  const outcome = {
+    accountId: "qoder", rewardId: "today", name: "每日积分", kind: "credits", status: "claimed",
+    amount: 100, message: "confirmed", createdAt: 1500,
+  };
+  const render = () => renderToStaticMarkup(createElement(AccountsView, {
+    data: { accounts: [], settings: { autoClaim: false, port: 17860 }, rewards: [outcome] }, onAdd() {},
+  }));
+  assert.doesNotMatch(render(), /领取余额核对/);
+  outcome.balanceCheck = { before: { balance: 0, unit: "credits", fetchedAt: 1000 }, after: null };
+  assert.match(render(), /领取前余额 0 积分/);
+  assert.match(render(), /首次回查余额 待查询/);
+  outcome.balanceCheck.after = { balance: 100, unit: "credits", fetchedAt: 2000 };
+  assert.match(render(), /余额净变化 \+100 积分/);
+  assert.match(render(), /含同期消费及其他入账/);
+  outcome.balanceCheck.after.balance = 90;
+  assert.match(render(), /余额净变化 \+90 积分/);
+  outcome.balanceCheck.after.unit = "usd";
+  assert.doesNotMatch(render(), /余额净变化/);
+});
+
 test("其他平台保留原有领取按钮，不显示 Qoder 活动", () => {
   const html = renderAccount({ platform: "traework", snapshot: snapshot() });
   assert.doesNotMatch(html, /每日 100 积分|去 Qoder CN 领取/);
