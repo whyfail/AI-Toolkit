@@ -2,7 +2,7 @@
 
 AI-Toolkit 的「积分与代理」页面管理 WorkBuddy、TRAE、Qoder、MiniMax Code 账号。当前版本包含 MiniMax Code 账号、签到与模型代理，并延续国际版实验性适配；区域、路由及验证边界见 [国际版适配状态](credits-international.md)。TRAE 国际模型协议仍待完整验证，当前未开放其模型目录与代理。账号积分保留在来源平台；本地网关转发模型请求并消耗对应账号的额度。
 
-v2.2.3 的 Messages 代理支持会话内追加的 `system` 消息，按会话顺序转换系统文本和工具历史。模型目录容量、MiniMax Code、区域隔离、思考内容、工具定义预检和后台刷新等功能的完整变更见 [更新记录](../CHANGELOG.md)。
+v2.2.4 新增领取前后余额核对和逐账户自动领取退避重试，Messages 工具定义兼容 `eager_input_streaming` 布尔提示。系统消息、模型目录容量、MiniMax Code、区域隔离、思考内容、工具定义预检和后台刷新等功能的完整变更见 [更新记录](../CHANGELOG.md)。
 
 下图为 macOS v2.0.0 实际窗口截图，昵称和账号 ID 已打码。余额、领取状态和模型数量仅代表截图时的账户状态。
 
@@ -35,6 +35,10 @@ MiniMax Code 的模型 ID 形如 `minimax-code/MiniMax-M3`；国际账号使用 
 MiniMax-M3.1-Flash 强制使用 adaptive 思考，不接受 `thinking.type=disabled` 或 `reasoning_effort=none`。ZCode 3.17.2 的连接测试会取模型支持列表的第一个推理档位；自定义模型未声明档位时会发送 `disabled`，造成参数冲突。该模型需配置 `low`、`medium`、`high`、`xhigh`、`max` 等有效档位；连接测试使用 `low`。代理保留关闭请求的明确校验错误，不擅自将关闭改成开启；界面也会提示思考不可关闭。此类本地校验返回 `invalid_request` 与 `validation` 阶段，不再误报成上游响应失败。
 
 「一键领取积分」逐账号处理当前符合条件的奖励。自动领取默认关闭；开启后仅在应用运行期间按北京时间每日 10:30 检查并领取，10:30 前启动会等待到点，当天 10:30 后启动会补做检查，从托盘退出应用后停止。同一账号的任务串行执行，超时或状态不明确时先查询，不盲目重复领取。
+
+自动领取按账户记录当天执行状态，临时故障按 1、2、5、15、30 分钟退避，限流遵守上游 `Retry-After`。凭据异常暂停该账户，主动刷新或重新登录后恢复检查。结果待确认时进入回查流程，跨越北京时间零点的执行归属开始当天。
+
+领取前会主动查询一次余额，包括关闭自动刷新时。「最近领取」展示有效的领取前余额、领取后的首次有效回查余额及各自时间，相同单位下显示净变化，净变化包含同期消费及其他入账。余额观察记录持久化保存，以有效且已知的余额进行核对，首次回查结果可在应用重启后查看。
 
 ## 自动刷新
 
@@ -101,6 +105,8 @@ Qoder 通道会将 Chat Completions 的 `developer` 消息转为上游支持的 
 
 Messages 请求支持顶层 `system`，也接受 `messages` 数组中的 `system` 消息。会话内系统内容可为字符串或文本块数组，文本块按顺序拼接并保留在共享请求中的原始位置。文本与标准 `ephemeral` 缓存提示均进行格式校验，非法角色或系统内容返回 HTTP 400。本地网关回归覆盖系统消息与工具历史组合的 JSON 和 SSE 请求。
 
+Messages 的工具定义接受布尔类型的 `eager_input_streaming` 提示，代理在本地校验并消费该字段，工具参数在完整 JSON 组装后输出。字段值为其他类型时，在调用平台前返回 HTTP 400。
+
 WorkBuddy 适配器对两段已实测触发通道拒绝的固定 DeepSeek Harness 系统模板做定点措辞调整：身份首句由 `powered by` 改为 `running on`，Web GUI 固定句中的 `the DeepSeek Harness Web GUI` 改为 `the Web GUI`。Harness 名称、运行时 URL 引用和其余系统指令保留，消息继续使用 `system` 优先级；用户消息、助手历史、工具定义与工具结果保持原样。这两处兼容只作用于 WorkBuddy 国内版的系统文本，覆盖字符串和文本块数组；社区定位见 [身份首句 PR #280](https://github.com/magpie-community/plugins/pull/280) 与 [Web GUI 模板 PR #293](https://github.com/magpie-community/plugins/pull/293)。
 
 其他 WorkBuddy 请求返回 HTTP 400、代码 `11128` 且明确说明 `Illegal API invocation from an unapproved channel` 或国际网关的 `request illegal` 时，代理返回 `upstream_channel_rejected` 并提示通道校验未通过，不自动重试或轮换账号。此时应使用官方客户端或平台授权的接口，也可自行选择其他可用通道。`11128` 的其他请求格式错误仍按普通上游错误处理，不将全部同码错误视为通道限制。国际网关返回 `11158` 时提示当前账号类型不支持该模型，可选择其他可用模型。
@@ -162,6 +168,8 @@ macOS 使用 Keychain，Windows 使用 Credential Manager，Linux 使用 Secret 
 2026-11-05：`GET /v1/models` 增加 `context_window` 与 `max_output_tokens` 扩展字段，分别反映当前路由的上下文和最大输出。相同路由包含多个可用账号时，只返回所有账号都明确声明的容量，并取最小值；任一账号缺失的容量保持未知。供 Harness 等客户端按实际目录配置预算，避免 1M 模型被客户端当作 32K 后将输出预算压到 1 Token。此扩展不改变调用方明确指定的输出预算或真实截断的结束原因。
 
 2026-11-10 的 v2.2.3 发布检查通过前端 42 项和 Rust 329 项测试，6 项真实账号或诊断测试按默认设置忽略，生产构建成功。Messages 会话内系统消息的回归覆盖文本块、缓存提示校验、工具历史、JSON 与 SSE 响应。
+
+2026-11-12 的 v2.2.4 发布检查通过前端 43 项和 Rust 342 项测试，6 项真实账号或诊断测试按默认设置忽略，生产构建成功。回归覆盖领取余额核对、历史记录兼容与持久化、按账户退避、限流等待、凭据恢复、跨日调度，以及 `eager_input_streaming` 类型校验和 JSON／SSE 工具调用。
 
 ## 系统凭据授权弹窗
 

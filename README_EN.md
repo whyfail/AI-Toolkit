@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.2.3-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.2.4-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,10 +16,11 @@
 
 AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and a local model proxy**. The current version has six panels: Skills, MCP Servers, Credits & Proxy, Changelog, Settings, and About, with local installation detection and configuration adapters for 25 AI programming tools.
 
-## 🆕 What's New in v2.2.3
+## 🆕 What's New in v2.2.4
 
-- Messages requests accept `system` messages appended within the conversation, preserving their role and order alongside tool history in the shared request representation.
-- System content supports strings and text block arrays with text and cache-hint validation. Local gateway regressions cover JSON and SSE responses. See [Credits & Model Proxy](docs/credits-proxy.md).
+- Claim history shows the balance before a claim, the first balance readback, and the net change to help reconcile platform credits.
+- Automatic claims use per-account backoff, respect upstream retry delays, and resume credential failures after an explicit refresh or sign-in.
+- Messages tool definitions accept boolean `eager_input_streaming` hints, with validation and JSON/SSE tool-call regression coverage. See [Credits & Model Proxy](docs/credits-proxy.md).
 
 See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/security-hardening.md) for security changes and validation scope.
 
