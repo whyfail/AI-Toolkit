@@ -159,6 +159,23 @@ test("领取结果不明确时显示待确认，不显示已到账金额", () =>
   assert.doesNotMatch(html, /等待授权|\+100/);
 });
 
+test("旧签到记录按已领取状态显示明确说明，并保留其他状态的原始原因", () => {
+  const outcome = {
+    accountId: "workbuddy", rewardId: "daily-checkin", name: "每日签到", kind: "credits",
+    status: "already_claimed", amount: null, message: "当前没有可领取的签到积分", createdAt: 0,
+  };
+  const render = () => renderToStaticMarkup(createElement(AccountsView, {
+    data: { accounts: [], settings: { autoClaim: false, port: 17860 }, rewards: [outcome] }, onAdd() {},
+  }));
+  assert.match(render(), /本轮签到积分已领取/);
+  assert.doesNotMatch(render(), /当前没有可领取的签到积分/);
+  outcome.status = "unavailable";
+  assert.match(render(), /当前没有可领取的签到积分/);
+  outcome.status = "failed";
+  outcome.message = "平台请求限流";
+  assert.match(render(), /平台请求限流/);
+});
+
 test("领取历史展示两次余额查询与净变化，兼容旧记录及单位变化", () => {
   const outcome = {
     accountId: "qoder", rewardId: "today", name: "每日积分", kind: "credits", status: "claimed",

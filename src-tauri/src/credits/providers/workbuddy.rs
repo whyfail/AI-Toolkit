@@ -793,6 +793,18 @@ pub(super) async fn inspect(
     balance.diagnostic = (!diagnostics.is_empty()).then(|| diagnostics.join("；"));
     Ok(balance)
 }
+fn skipped_checkin(a: &Account, r: &Reward) -> Result<RewardOutcome, ProviderError> {
+    let (status, message) = match r.status.as_str() {
+        "claimed" => ("already_claimed", "本轮签到积分已领取"),
+        "unavailable" => ("unavailable", "当前签到活动暂不可领取"),
+        _ => return Err(ProviderError::new(
+            502,
+            "WorkBuddy 未返回明确的签到状态，请刷新后重试",
+        )),
+    };
+    Ok(outcome(a, r, status, message, None))
+}
+
 pub(super) async fn claim(
     client: &ProviderClient,
     a: &Account,
@@ -804,17 +816,7 @@ pub(super) async fn claim(
     let rs = rewards(client, c).await?;
     let r = &rs[0];
     if r.status != "claimable" {
-        return Ok(vec![outcome(
-            a,
-            r,
-            if r.status == "claimed" {
-                "already_claimed"
-            } else {
-                "unavailable"
-            },
-            "当前没有可领取的签到积分",
-            None,
-        )]);
+        return Ok(vec![skipped_checkin(a, r)?]);
     }
     let submitted = client
         .json(
@@ -1338,6 +1340,30 @@ mod tests {
     #[test]
     fn absent_checkin_flag_is_unknown() {
         assert_eq!(reward(&json!({"data":{"active":true}})).status, "unknown");
+    }
+
+    #[test]
+    fn skipped_checkin_explains_claimed_and_unavailable_and_retries_unknown_status() {
+        let account: Account = serde_json::from_value(json!({
+            "id":"fixture", "platform":"workbuddy", "region":"cn", "userId":"fixture-user",
+            "label":"Fixture", "enabled":true, "status":"ready", "lastError":null, "snapshot":null
+        })).unwrap();
+        for (data, status, message) in [
+            (json!({"active":true,"todayCheckedIn":true,"todayCredit":100}),
+                "already_claimed", "本轮签到积分已领取"),
+            (json!({"active":false,"todayCheckedIn":false}),
+                "unavailable", "当前签到活动暂不可领取"),
+        ] {
+            let result = skipped_checkin(&account, &reward(&json!({"data":data}))).unwrap();
+            assert_eq!(result.status, status);
+            assert_eq!(result.message, message);
+            assert!(result.amount.is_none());
+            assert!(result.retry_after_ms.is_none());
+        }
+        let unknown = reward(&json!({"data":{"active":true}}));
+        let error = skipped_checkin(&account, &unknown).unwrap_err();
+        assert!(error.message.contains("未返回明确的签到状态"));
+        assert!(error.claim_retry_after_ms().is_some());
     }
     #[test]
     fn chat_body_translates_developer_without_rewriting_content() {
