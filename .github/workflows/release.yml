@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release Version (e.g., 2.2.5)'
+        description: 'Release Version (e.g., 2.2.6)'
         required: true
-        default: '2.2.5'
+        default: '2.2.6'
       publish:
         description: 'Publish the release after building both platforms'
         type: boolean
@@ -427,11 +427,14 @@ jobs:
 
             **Note**: Auto-updater uses `.app.tar.gz` (macOS) and `.msi` (Windows) bundles which are included in this release.
 
-            ### New in v2.2.5
+            ### New in v2.2.6
 
-            - Silent startup checks with a sidebar update badge, cached release notes, and user-confirmed installation
-            - Shared manual and background checks with a 6-hour interval, 15-minute failure retry, and recovery on reconnect
-            - Installed-version filtering and in-memory scheduling when persistent storage is unavailable, covered by update-check regressions
+            - Credit-rate labels in account and proxy model lists, with promotion priorities, daily schedules and time-zone-aware calculation
+            - WorkBuddy prefix and credit-unit parsing, existing-label recovery, and TRAE CN catalog rate discovery
+            - Credit-rate and reasoning metadata in `/v1/models` for DSH plugin 0.2.5, with original TRAE effort names forwarded upstream
+            - A private gateway-key mirror for local clients, reducing repeated Keychain authorization after app updates and reinstalls
+
+            Known limitations include account-order-dependent aggregation of missing catalog fields and render-driven promotion updates. TRAE accepts reasoning-effort parameters, while their effect remains unconfirmed. See the [v2.2.6 changelog](https://github.com/whyfail/AI-Toolkit/blob/main/CHANGELOG.md) for the full validation scope and remaining work.
 
             MiniMax CN identity, credits, catalog, and selected short text/tool inference have prior live validation. Global accounts, image understanding, complete browser login, and real claims remain unverified. International support remains experimental; TRAE international catalog and chat remain disabled (HTTP 501). See the [support and verification matrix](https://github.com/whyfail/AI-Toolkit/blob/main/docs/credits-international.md).
 

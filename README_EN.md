@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.2.5-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.2.6-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,12 +16,12 @@
 
 AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and a local model proxy**. The current version has six panels: Skills, MCP Servers, Credits & Proxy, Changelog, Settings, and About, with local installation detection and configuration adapters for 25 AI programming tools.
 
-## 🆕 What's New in v2.2.5
+## 🆕 What's New in v2.2.6
 
-- Startup checks run silently and show an update badge beside the sidebar version. Click it to read the notes and confirm installation. Manual checks in Settings share the result and installation state.
-- Checks repeat every 6 hours, retry after 15 minutes on failure, and retry when connectivity returns after a failed check. Regressions cover cached results, installed-version filtering, concurrent requests, and unavailable storage.
-
-See the [Changelog](CHANGELOG.md) for all changes and [Security hardening](docs/security-hardening.md) for security changes and validation scope.
+- Account and proxy model lists show credit rates, with base rates, promotions and catalog sources in model details. Promotion calculation supports priorities, multiple daily windows, overnight periods and time zones.
+- WorkBuddy rate parsing supports `x0.50`, `x0.18 credits` and existing cached labels. TRAE CN reads rates from the current catalog field.
+- `GET /v1/models` adds credit rates and reasoning metadata for DSH plugin 0.2.5. Its conversation picker shows rates and declared tiers, and TRAE receives each tier's original platform name.
+- A private gateway-key mirror reduces repeated Keychain authorization after application updates and reinstalls. Validation scope and known limitations are recorded in the [Changelog](CHANGELOG.md).
 
 ## ✨ Key Features
 

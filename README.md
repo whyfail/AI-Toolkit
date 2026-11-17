@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.2.5-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
+[![Version](https://img.shields.io/badge/version-2.2.6-blue.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B%20%7C%20Windows%2010%2B-lightgrey.svg)](https://github.com/whyfail/AI-Toolkit/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
 
@@ -16,10 +16,12 @@
 
 AI Toolkit 是一款面向 AI 编程工具的桌面管理器，集中管理 **MCP 服务器、Skills 技能、平台积分与本地模型代理**。当前版本提供 Skills 管理、MCP 服务器、积分与代理、更新日志、设置、关于六个面板，支持 25 种工具的本地安装检测与配置适配。
 
-## 🆕 v2.2.5 更新
+## 🆕 v2.2.6 更新
 
-- 启动时静默检查更新，侧栏版本旁显示可用更新提示，点击后查看说明并确认安装。设置页手动检查与侧栏共享结果和安装状态。
-- 更新检查按 6 小时间隔复查，失败后 15 分钟重试，检查失败后网络恢复可立即补查。缓存恢复、已安装版本过滤、并发请求和存储不可用场景均有回归覆盖。
+- 账户与代理模型列表新增积分倍率，详情展示基准倍率、优惠信息和目录来源，支持活动优先级、多时段、跨零点及指定时区。
+- 修复 WorkBuddy 的 `x0.50`、`x0.18 credits` 等格式及旧缓存展示，修复 TRAE CN 的倍率字段读取。
+- `GET /v1/models` 增加倍率和推理能力字段，配套 DSH 插件 0.2.5 可在对话模型选择器展示倍率与声明的档位，TRAE 档位以平台原词透传。
+- 代理密钥增加私有文件镜像，减少更新、重装应用后的重复钥匙串授权。验证范围与已知限制见更新记录。
 
 完整变更见 [更新记录](CHANGELOG.md)，安全加固与验证边界见 [安全加固记录](docs/security-hardening.md)。
 

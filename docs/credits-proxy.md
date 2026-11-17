@@ -2,7 +2,7 @@
 
 AI-Toolkit 的「积分与代理」页面管理 WorkBuddy、TRAE、Qoder、MiniMax Code 账号。当前版本包含 MiniMax Code 账号、签到与模型代理，并延续国际版实验性适配；区域、路由及验证边界见 [国际版适配状态](credits-international.md)。TRAE 国际模型协议仍待完整验证，当前未开放其模型目录与代理。账号积分保留在来源平台；本地网关转发模型请求并消耗对应账号的额度。
 
-v2.2.4 新增领取前后余额核对和逐账户自动领取退避重试，Messages 工具定义兼容 `eager_input_streaming` 布尔提示。系统消息、模型目录容量、MiniMax Code、区域隔离、思考内容、工具定义预检和后台刷新等功能的完整变更见 [更新记录](../CHANGELOG.md)。
+v2.2.6 新增模型倍率展示与优惠计算，修复 WorkBuddy 倍率格式和 TRAE CN 倍率读取，并向 `GET /v1/models` 提供倍率及推理能力字段，配套 DSH 插件版本为 0.2.5。TRAE 档位原词随请求转发，代理密钥增加本机私有文件镜像。完整变更、验证范围和已知限制见 [更新记录](../CHANGELOG.md)。
 
 下图为 macOS v2.0.0 实际窗口截图，昵称和账号 ID 已打码。余额、领取状态和模型数量仅代表截图时的账户状态。
 
@@ -72,7 +72,9 @@ MiniMax-M3.1-Flash 强制使用 adaptive 思考，不接受 `thinking.type=disab
 
 在账户的「可用模型」和代理的「查看模型」列表中，悬浮、聚焦或点击任意模型可展开信息卡，查看该账号通道的上下文窗口、最大输出 Token、图片输入、工具调用与思考输出标注。浮层会避开窗口边缘；按 Escape 或点击外部可关闭。数据来自账户模型目录，旧快照或平台未提供的字段显示“未知”，刷新账户后更新；不会把上下文窗口当作最大输出，也不按模型名称套用固定参数。视频与 PDF 当前显示“代理未开放”，避免与模型自身能力混淆。
 
-信息卡还展示「推理等级」及目录默认值，保留 `low`、`high`、`max`、`light`、`extra_high` 等通道原始名称并配中文说明。档位分别读取 WorkBuddy 的 `reasoning.supportedEfforts`、TRAE 的 `reasoning_effort_config.options` 和 Qoder 的 `thinking_config.enabled.efforts`；仅有思考输出标记或默认值时，不据此补出支持列表。此处展示通道目录能力，不修改客户端请求或代理的推理参数。
+信息卡同时展示「积分倍率」。倍率取自账号目录：WorkBuddy 的倍率文本与限时活动、TRAE 的 `consumption_rate`、Qoder 的 `price_factor`、MiniMax Code 的 `credit_rate`。存在当前生效的限时优惠时显示优惠倍率并标注「优惠中」，同时列出基准倍率、活动名称、时段与来源；每日时段按活动声明的时区或偏移计算，左闭右开，支持跨零点窗口，并按优先级选择生效活动。目录未提供倍率时显示“倍率未知”，不按 1× 计费。代理的 `GET /v1/models` 以 `credit_rate` 字段提供同一份数据，供 DeepSeek Harness 插件在模型列表展示倍率；同一路由下多个账号的倍率或缺失情况不一致时返回空值，避免把某个账号的优惠显示为该路由的价格。
+
+信息卡还展示「推理等级」及目录默认值，保留 `low`、`high`、`max`、`light`、`extra_high` 等通道原始名称并配中文说明。档位分别读取 WorkBuddy 的 `reasoning.supportedEfforts`、TRAE 的 `reasoning_effort_config.options` 和 Qoder 的 `thinking_config.enabled.efforts`；仅有思考输出标记或默认值时，不据此补出支持列表。TRAE 开启推理但未列出档位的模型保持无档位，不据推断补列表；请求改写时保留 `reasoning_effort` 原词透传。此处展示通道目录能力。代理的 `GET /v1/models` 以 `supports_reasoning`、`reasoning_effort_options`、`default_reasoning_effort` 输出同一份声明，客户端据此提供等级选择；代理只校验并转发调用方显式选择的等级，不自行推断。
 
 各平台默认选择当前账号目录声明的最高上下文档位。WorkBuddy 国内、国际版与 MiniMax Code 从账号可选档位和已声明窗口中取最大值；不使用其他账号或固定猜测的档位。Qoder 优先从 `context_config` 或 `available_context_windows` 读取可选档位，选取最大值，并通过原生请求的 `parameters.context_length` 实际启用；不再仅使用旧的 `max_input_tokens` 输入预算。WorkBuddy 优先读取完整上下文字段，TRAE 优先读取 `context_window_tokens.max`。只有固定窗口的通道使用其已声明上限；没有目录数据时仍显示“未知”。更新应用后刷新账户目录，模型信息卡和代理请求使用同一份最大窗口配置。上下文选择不改变客户端的输出 Token 预算。
 
@@ -80,7 +82,7 @@ MiniMax-M3.1-Flash 强制使用 adaptive 思考，不接受 `thinking.type=disab
 
 开启代理后默认地址为 `http://127.0.0.1:17860/v1`。接口包括 `GET /health`、`GET /v1/models`、OpenAI Chat Completions 的 `POST /v1/chat/completions` 和 Anthropic Messages 的 `POST /v1/messages`。使用网关生成的 API Key：OpenAI 接口使用 `Authorization: Bearer <key>`；Messages 接口支持 `x-api-key` 或 Bearer。修改端口前停止代理；轮换密钥后更新客户端中的密钥。
 
-`GET /v1/models` 的每个路由可包含 `context_window` 与 `max_output_tokens` 扩展字段，分别表示上下文和最大输出 Token。仅返回所有可用账号都明确声明的正数容量，并取最小值；任一账号缺失时省略对应字段。平台前缀路由和已验证通用别名遵循同一规则，供客户端配置预算，不改写调用方指定的输出预算或真实截断原因。
+`GET /v1/models` 的每个路由可包含 `context_window` 与 `max_output_tokens` 扩展字段，分别表示上下文和最大输出 Token。仅返回所有可用账号都明确声明的正数容量，并取最小值；任一账号缺失时省略对应字段。平台前缀路由和已验证通用别名遵循同一规则，供客户端配置预算，不改写调用方指定的输出预算或真实截断原因。同一条目还可包含 `supports_reasoning`、`reasoning_effort_options` 与 `default_reasoning_effort`，同样只在所有可用账号声明一致时返回，任一账号缺失或不同即视为未知。
 
 `workbuddy/<实际模型ID>`、`traework/<实际模型ID>`、`qoder/<实际模型ID>` 固定来源平台及国内区域；国际版使用对应的 `-intl/` 前缀，详见国际适配状态。准确的 `glm-<版本>` 别名在已验证支持同一型号的国内账号间调度，优先使用即将到期的积分。不同 GLM 版本不会合并。只有确认未执行的认证、限流或额度错误可以切换账号；开始返回内容后不重试。网络超时不会被当作尚未执行。
 
@@ -171,6 +173,10 @@ macOS 使用 Keychain，Windows 使用 Credential Manager，Linux 使用 Secret 
 
 2026-11-12 的 v2.2.4 发布检查通过前端 43 项和 Rust 342 项测试，6 项真实账号或诊断测试按默认设置忽略，生产构建成功。回归覆盖领取余额核对、历史记录兼容与持久化、按账户退避、限流等待、凭据恢复、跨日调度，以及 `eager_input_streaming` 类型校验和 JSON／SSE 工具调用。
 
+2026-11-17：`GET /v1/models` 增加 `supports_reasoning`、`reasoning_effort_options` 与 `default_reasoning_effort` 扩展字段，供 DeepSeek Harness 在对话窗口展示推理等级。字段沿用容量与倍率的一致规则：任一可用账号缺失或声明不同即视为未知。客户端选择的等级以 `reasoning_effort` 提交，代理校验请求结构后原样转发，不改变平台默认档位。
+
+2026-11-17：TRAE 聊天请求不再丢弃 `reasoning_effort`，选中的档位以平台原词（`light`／`high`／`extra_high`）发给 TRAE，仅对目录自己声明了档位的模型提供选择。真实调用实测：`traework/deepseek-v4.1-flash`、`traework/glm-5.3-flash` 与 `traework/minimax-m3.1-flash` 在 `light`／`high`／`extra_high` 乃至非法值 `bogus` 下均返回 HTTP 200，思考内容长度无系统差异（例如 minimax-m3.1-flash 长任务：light 3471／3742 字符，extra_high 2633／3872 字符），因此判定该字段被接受但无可观察效果，不据此为未声明档位的模型补列表。
+
 ## 系统凭据授权弹窗
 
 凭据首次读取成功后只缓存在 Rust 后端内存中，退出应用后释放；macOS 共享凭据条目只读取、解码一次。启动、后台刷新、自动领取和代理请求均禁止钥匙串交互，需要授权时返回明确错误。只有点击“刷新”、登录等主动操作，才允许为共享条目请求一次授权。
@@ -179,10 +185,12 @@ macOS 使用 Keychain，Windows 使用 Credential Manager，Linux 使用 Secret 
 
 本地代理 API Key 不属于平台账号。点击“一键开启代理”“复制 API Key”或“检测连接”时，只针对该密钥授权并迁移旧版记录；拒绝或取消后，可再次点击同一按钮重试。授权或写入失败时保留原密钥，不自动轮换，不要求重新登录平台账号，也不会读取其他账号的旧分块。迁移完成后复用内存缓存，后台请求仍禁止钥匙串交互。
 
+本地代理 API Key 在写入钥匙串的同时，会以 `0600` 权限镜像到 `~/.ai-toolkit/gateway-key`（先写同目录临时文件再原子替换，不需要交互授权）。应用开启代理时优先读取该镜像，只有文件缺失或格式不符才回退钥匙串；本地客户端（如 DSH 插件）同样优先读取该文件。因此重装、升级或重新构建后，无论应用自身还是本地客户端都不再为这个密钥要求授权。钥匙串仍是密钥的原始存放处：镜像缺失时从钥匙串恢复，轮换时同时写回两处；文件只放在 `0700` 的应用数据目录内，删除后下次开启代理会重新生成。
+
 Token 更新使用 SecItemAdd/Update，删除通过元数据查询条目名称后调用 SecItemDelete，避免旧 keyring 实现更新／删除前先读取秘密数据而再次触发授权。静默访问使用 macOS 原生交互开关，进程内所有钥匙串调用串行化，结束后恢复开关，避免影响主动导入 TRAE CLI 凭据。Windows/Linux 保持原有系统凭据后端与分块布局。
 
-共享凭据库不可用或用户拒绝授权后，本次运行暂停系统凭据访问，直到下一次主动操作才重试。回归测试覆盖启动零授权请求、共享条目单次授权、旧分块失败隔离、重新登录及回滚、删除时不读取旧秘密数据；本机原生测试使用独立测试钥匙串验证锁定后连续 8 次读取直接返回权限错误，并检查交互开关及错误退出后的恢复。缓存不写入数据库或明文文件。这些修改需要重新构建的应用或更新安装包才会生效。
+共享凭据库不可用或用户拒绝授权后，本次运行暂停系统凭据访问，直到下一次主动操作才重试。回归测试覆盖启动零授权请求、共享条目单次授权、旧分块失败隔离、重新登录及回滚、删除时不读取旧秘密数据；本机原生测试使用独立测试钥匙串验证锁定后连续 8 次读取直接返回权限错误，并检查交互开关及错误退出后的恢复。账号凭据缓存不写入数据库或明文文件；代理 API Key 的镜像文件只供本机客户端读取，权限 `0600`，用户可随时删除。这些修改需要重新构建的应用或更新安装包才会生效。
 
-macOS 的“始终允许”与应用的代码签名身份有关。已检查的本机开发程序和现装应用均使用 ad-hoc 签名，重新编译或更换安装包后仍可能需要首次授权；要让正式版本升级后继续被识别为同一应用，应使用稳定的 Developer ID Application 身份签名。`TAURI_SIGNING_PRIVATE_KEY` 只负责更新包校验，不能代替 macOS 应用签名；正式构建时安装相应证书并设置 `APPLE_SIGNING_IDENTITY`。见 [Apple 代码身份说明](https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/AboutCS/AboutCS.html)和 [Tauri macOS 签名配置](https://v2.tauri.app/distribute/sign/macos/)。
+有了密钥镜像后，代理和插件在正常启动时都不再读取钥匙串，重新构建不会再要求授权；账号登录等主动操作仍走钥匙串。macOS 的“始终允许”仍与应用的代码签名身份有关。已检查的本机开发程序和现装应用均使用 ad-hoc 签名，重新编译或更换安装包后仍可能需要首次授权；要让正式版本升级后继续被识别为同一应用，应使用稳定的 Developer ID Application 身份签名。`TAURI_SIGNING_PRIVATE_KEY` 只负责更新包校验，不能代替 macOS 应用签名；正式构建时安装相应证书并设置 `APPLE_SIGNING_IDENTITY`。见 [Apple 代码身份说明](https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/AboutCS/AboutCS.html)和 [Tauri macOS 签名配置](https://v2.tauri.app/distribute/sign/macos/)。
 
 Windows 通过 [CredRead](https://learn.microsoft.com/windows/win32/api/wincred/nf-wincred-credreadw) 读取当前登录会话的凭据，正常读取不使用 macOS 的逐应用授权机制。Linux 的 Secret Service 在密钥环锁定时[可以弹出解锁窗口](https://specifications.freedesktop.org/secret-service/latest/unlocking.html)，是否自动解锁取决于桌面环境和登录配置。此处验证了缓存与失败暂停逻辑，没有在 Windows/Linux 实机验证系统弹窗行为。
