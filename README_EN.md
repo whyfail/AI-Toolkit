@@ -20,7 +20,7 @@ AI Toolkit is a desktop manager for **MCP servers, Skills, platform credits, and
 
 - Account and proxy model lists show credit rates, with base rates, promotions and catalog sources in model details. Promotion calculation supports priorities, multiple daily windows, overnight periods and time zones.
 - WorkBuddy rate parsing supports `x0.50`, `x0.18 credits` and existing cached labels. TRAE CN reads rates from the current catalog field.
-- `GET /v1/models` adds credit rates and reasoning metadata for DSH plugin 0.2.5. Its conversation picker shows rates and declared tiers, and TRAE receives each tier's original platform name.
+- `GET /v1/models` adds credit rates and reasoning metadata for DSH plugin 0.2.6. Its conversation picker shows rates and declared tiers, and TRAE receives each tier's original platform name.
 - A private gateway-key mirror reduces repeated Keychain authorization after application updates and reinstalls. Validation scope and known limitations are recorded in the [Changelog](CHANGELOG.md).
 
 ## ✨ Key Features

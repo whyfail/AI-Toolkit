@@ -431,7 +431,7 @@ jobs:
 
             - Credit-rate labels in account and proxy model lists, with promotion priorities, daily schedules and time-zone-aware calculation
             - WorkBuddy prefix and credit-unit parsing, existing-label recovery, and TRAE CN catalog rate discovery
-            - Credit-rate and reasoning metadata in `/v1/models` for DSH plugin 0.2.5, with original TRAE effort names forwarded upstream
+            - Credit-rate and reasoning metadata in `/v1/models` for DSH plugin 0.2.6, with original TRAE effort names forwarded upstream
             - A private gateway-key mirror for local clients, reducing repeated Keychain authorization after app updates and reinstalls
 
             Known limitations include account-order-dependent aggregation of missing catalog fields and render-driven promotion updates. TRAE accepts reasoning-effort parameters, while their effect remains unconfirmed. See the [v2.2.6 changelog](https://github.com/whyfail/AI-Toolkit/blob/main/CHANGELOG.md) for the full validation scope and remaining work.
