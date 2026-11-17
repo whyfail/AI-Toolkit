@@ -8,11 +8,17 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 
 const require = createRequire(import.meta.url);
+const rateSource = readFileSync(new URL("../src/lib/credits/creditRate.ts", import.meta.url), "utf8");
+const rateModule = { exports: {} };
+runInNewContext(ts.transpileModule(rateSource, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText, { require, module: rateModule, exports: rateModule.exports });
 let state;
 const toast = Object.assign(() => {}, { error() {}, success() {} });
 const stubs = {
   sonner: { toast },
   "./ModelInfoPopover": { ModelInfoPopover: () => null },
+  "@/lib/credits/creditRate": rateModule.exports,
   "@tauri-apps/plugin-shell": { open: async (url) => { state.opened.push(url); } },
   "@/components/ui/Modal": { Modal: () => null },
   "@/components/ui/AgentIcon": { AgentIcon: ({ name }) => createElement("span", { role: "img", "aria-label": name, title: name }) },

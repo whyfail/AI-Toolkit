@@ -72,6 +72,68 @@ pub struct CreditPack {
 }
 fn credits_unit() -> String { "credits".into() }
 
+/// Normalized promotion window declared by the platform catalog.
+/// `starts_at`/`ends_at` are epoch milliseconds; `None` marks an open bound.
+/// Daily time windows use minutes from midnight in the declared timezone.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CreditPromotion {
+    pub id: String,
+    pub name: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// Explicit promotional multiplier when the platform provides one.
+    pub discounted_credits: Option<f64>,
+    /// Multiplicative discount factor applied to the base multiplier (0 < factor < 1).
+    pub discount_factor: Option<f64>,
+    pub priority: f64,
+    pub starts_at: Option<i64>,
+    pub ends_at: Option<i64>,
+    /// Daily window in minutes from midnight; both bounds are required together.
+    pub daily_start_minute: Option<u32>,
+    pub daily_end_minute: Option<u32>,
+    pub timezone_offset_seconds: Option<i32>,
+    #[serde(default)]
+    pub timezone: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub daily_windows: Vec<CreditTimeWindow>,
+    pub enabled: Option<bool>,
+    /// Platform wording for conditions the adapter cannot interpret.
+    pub note: Option<String>,
+    /// Catalog endpoint that supplied this promotion.
+    pub source: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CreditTimeWindow {
+    pub start_minute: u32,
+    pub end_minute: u32,
+}
+
+/// Platform-declared credit rate for a model. Stored verbatim in snapshots;
+/// the displayed value is computed on the frontend from these fields.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CreditRate {
+    /// Original rate text from the platform, preserving precision and wording.
+    pub declared_text: Option<String>,
+    /// Unambiguous non-negative numeric multiplier; `0` is valid.
+    pub multiplier: Option<f64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub promotions: Vec<CreditPromotion>,
+    /// Catalog endpoint that supplied this rate.
+    pub source: Option<String>,
+    /// Usage hints or applicability conditions (e.g. "1M tier costs more").
+    pub note: Option<String>,
+}
+
+impl CreditRate {
+    pub fn valid_multiplier(value: f64) -> bool {
+        value.is_finite() && value >= 0.0
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelInfo {
@@ -100,6 +162,9 @@ pub struct ModelInfo {
     pub reasoning_effort_options: Vec<String>,
     #[serde(default)]
     pub default_reasoning_effort: Option<String>,
+    /// Platform-declared credit rate; absent means the platform exposes none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credit_rate: Option<CreditRate>,
     pub verified: bool,
     pub verification_note: Option<String>,
 }
@@ -306,5 +371,30 @@ mod tests {
         assert!(exported["supportsImages"].is_null());
         assert!(exported["supportsReasoning"].is_null());
         assert!(exported["defaultReasoningEffort"].is_null());
+        assert!(exported["creditRate"].is_null());
+    }
+
+    #[test]
+    fn credit_rate_roundtrips_and_rejects_invalid_multipliers() {
+        let saved = serde_json::json!({
+            "declaredText": "0.6x", "multiplier": 0.6, "source": "v3/config",
+            "note": "限时优惠", "promotions": [{
+                "id": "p1", "name": "双十二", "discountedCredits": 0.3,
+                "priority": 10, "startsAt": 1000, "endsAt": 2000,
+                "dailyStartMinute": 480, "dailyEndMinute": 600,
+                "timezoneOffsetSeconds": 28800, "enabled": true
+            }]
+        });
+        let rate: CreditRate = serde_json::from_value(saved).unwrap();
+        assert_eq!(rate.multiplier, Some(0.6));
+        assert_eq!(rate.promotions.len(), 1);
+        assert_eq!(rate.promotions[0].discounted_credits, Some(0.3));
+        let old: CreditRate = serde_json::from_value(serde_json::json!({"multiplier": null})).unwrap();
+        assert!(old.multiplier.is_none() && old.promotions.is_empty());
+        // Out-of-range or non-finite multipliers are unusable; callers must drop them.
+        for value in [-0.5, f64::NAN, f64::INFINITY] {
+            assert!(!CreditRate::valid_multiplier(value));
+        }
+        assert!(CreditRate::valid_multiplier(0.0));
     }
 }

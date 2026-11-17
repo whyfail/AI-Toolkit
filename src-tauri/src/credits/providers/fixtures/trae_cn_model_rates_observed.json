@@ -1,0 +1,39 @@
+{
+  "provenance": {
+    "synthetic": false,
+    "capturedAt": "2026-11-16",
+    "source": "Read-only official TRAE CN get_detail_param response using an existing desktop login",
+    "redaction": "Only three public model identities, display fields and consumption_rate features retained; credentials, account information, prompts and other configuration omitted"
+  },
+  "data": {
+    "config_info_list": [
+      {
+        "config_name": "glm-5.3",
+        "config_switch": true,
+        "display_config": {
+          "display_name": "GLM-5.3",
+          "commercial_info": { "info": "" }
+        },
+        "display_contact_config": "{\"consumption_rate\":{\"enable\":true,\"data\":{\"rate\":0.78}}}"
+      },
+      {
+        "config_name": "glm-5.3-flash",
+        "config_switch": true,
+        "display_config": {
+          "display_name": "GLM-5.3-Flash",
+          "commercial_info": { "info": "" }
+        },
+        "display_contact_config": "{\"consumption_rate\":{\"enable\":true,\"data\":{\"rate\":0.08}}}"
+      },
+      {
+        "config_name": "deepseek-v4.1-flash",
+        "config_switch": true,
+        "display_config": {
+          "display_name": "DeepSeek-V4.1-Flash",
+          "commercial_info": { "info": "" }
+        },
+        "display_contact_config": "{\"consumption_rate\":{\"enable\":true,\"data\":{\"rate\":0.06}}}"
+      }
+    ]
+  }
+}

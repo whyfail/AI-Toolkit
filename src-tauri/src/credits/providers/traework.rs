@@ -726,6 +726,27 @@ pub(super) fn parse_models(v: &Value) -> Vec<ModelInfo> {
                     }
                     ids
                 });
+            // The official model selector reads consumption_rate from the
+            // features JSON returned as display_contact_config. commercial_info
+            // is legacy display text and can be empty even when the rate exists.
+            let consumption = &contact["consumption_rate"];
+            let feature_multiplier = consumption["data"]["rate"].as_f64()
+                .filter(|rate| consumption["enable"] == true && CreditRate::valid_multiplier(*rate));
+            let commercial = &m["display_config"]["commercial_info"];
+            let declared = text(commercial, &["info"])
+                .filter(|info| !info.trim().is_empty());
+            let multiplier = if contact.get("consumption_rate").is_some() {
+                feature_multiplier
+            } else {
+                declared.as_ref().and_then(|info| credit_multiplier(&Value::String(info.clone())))
+            };
+            let credit_rate = (multiplier.is_some() || declared.is_some()).then(|| CreditRate {
+                declared_text: feature_multiplier.map(|rate| format!("{rate:.2}x")).or(declared),
+                multiplier,
+                promotions: vec![],
+                source: Some("get_detail_param".into()),
+                note: None,
+            });
             Some(ModelInfo {
                 upstream_model_ids,
                 // A hidden multimodal badge is not a declaration that the model
@@ -737,8 +758,12 @@ pub(super) fn parse_models(v: &Value) -> Vec<ModelInfo> {
                     }),
                 supports_reasoning: flag(&contact["reasoning"], &["enable"])
                     .filter(|supported| *supported),
+                // Only tiers TRAE itself lists are offered: a live probe showed
+                // reasoning_effort is accepted but never observably applied, so
+                // inferring tiers would promise a selector with no effect.
                 reasoning_effort_options: effort_options(&m["reasoning_effort_config"]["options"]),
                 default_reasoning_effort: text(&m["reasoning_effort_config"], &["default_level"]),
+                credit_rate,
                 ..model(
                     id,
                     name,
@@ -934,6 +959,7 @@ pub(super) fn chat_body(mut b: Value, id: &str) -> Result<Value, ProviderError> 
                 "seed",
                 "n",
                 "stop",
+                "reasoning_effort",
             ]
             .contains(&k.as_str())
         });
@@ -1031,6 +1057,76 @@ mod tests {
             Err(error) => assert_eq!(error.status, 501),
             Ok(_) => panic!("unverified international protocol must not be submitted"),
         }
+    }
+
+    #[test]
+    fn commercial_info_parses_numeric_multipliers_and_keeps_prose_unknown() {
+        let models = parse_models(&json!({"config_info_list":[
+            {"config_name":"m-a","display_config":{"display_name":"A","commercial_info":{"info":"0.12x","manual_usage":0}}},
+            {"config_name":"m-b","display_config":{"display_name":"B","commercial_info":{"info":"0.78 倍"}}},
+            {"config_name":"m-c","display_config":{"display_name":"C","commercial_info":{"info":"","manual_usage":0}}},
+            {"config_name":"m-d","display_config":{"display_name":"D"}}
+        ]}));
+        let rate = models[0].credit_rate.as_ref().unwrap();
+        assert_eq!(rate.multiplier, Some(0.12));
+        assert_eq!(rate.declared_text.as_deref(), Some("0.12x"));
+        assert_eq!(models[1].credit_rate.as_ref().unwrap().multiplier, Some(0.78));
+        // Empty or prose-only commercial info leaves the rate absent, not 1×.
+        assert!(models[2].credit_rate.is_none());
+        assert!(models[3].credit_rate.is_none());
+    }
+
+    #[test]
+    fn observed_cn_catalog_rates_survive_empty_legacy_commercial_info() {
+        let catalog: Value = serde_json::from_str(include_str!("fixtures/trae_cn_model_rates_observed.json")).unwrap();
+        let models = parse_models(&catalog);
+        assert_eq!(models.len(), 3);
+        for (id, multiplier) in [("glm-5.3", 0.78), ("glm-5.3-flash", 0.08), ("deepseek-v4.1-flash", 0.06)] {
+            let model = models.iter().find(|model| model.id == id).unwrap();
+            let rate = model.credit_rate.as_ref().unwrap();
+            assert_eq!(rate.multiplier, Some(multiplier));
+            assert_eq!(rate.source.as_deref(), Some("get_detail_param"));
+        }
+    }
+
+    #[test]
+    fn model_selector_rates_come_from_enabled_contact_features() {
+        let models = parse_models(&json!({"config_info_list":[
+            {"config_name":"glm-5.3","display_config":{"display_name":"GLM-5.3","commercial_info":{"info":"","manual_usage":0}},
+                "display_contact_config":json!({"consumption_rate":{"enable":true,"data":{"rate":0.78}}}).to_string()},
+            {"config_name":"free-model","display_config":{"display_name":"Free"},
+                "display_contact_config":json!({"consumption_rate":{"enable":true,"data":{"rate":0}}}).to_string()},
+            {"config_name":"override","display_config":{"display_name":"Override","commercial_info":{"info":"0.12x"}},
+                "display_contact_config":json!({"consumption_rate":{"enable":true,"data":{"rate":0.06}}}).to_string()}
+        ]}));
+        let rate = models[0].credit_rate.as_ref().unwrap();
+        assert_eq!(rate.multiplier, Some(0.78));
+        assert_eq!(rate.declared_text.as_deref(), Some("0.78x"));
+        assert_eq!(rate.source.as_deref(), Some("get_detail_param"));
+        assert_eq!(models[1].credit_rate.as_ref().unwrap().multiplier, Some(0.0));
+        assert_eq!(models[2].credit_rate.as_ref().unwrap().multiplier, Some(0.06));
+    }
+
+    #[test]
+    fn disabled_or_invalid_contact_rates_remain_unknown() {
+        for consumption in [
+            json!({"enable":false,"data":{"rate":0.78}}),
+            json!({"data":{"rate":0.78}}),
+            json!({"enable":true,"data":{"rate":-1}}),
+            json!({"enable":true,"data":{"rate":"0.78"}}),
+            json!({"enable":true,"data":{}}),
+        ] {
+            let models = parse_models(&json!({"config_info_list":[{
+                "config_name":"fixture","display_config":{"display_name":"Fixture","commercial_info":{"info":"","manual_usage":0.78}},
+                "display_contact_config":json!({"consumption_rate":consumption}).to_string()
+            }]}));
+            assert!(models[0].credit_rate.is_none());
+        }
+        let models = parse_models(&json!({"config_info_list":[{
+            "config_name":"disabled","display_config":{"display_name":"Disabled","commercial_info":{"info":"0.78x"}},
+            "display_contact_config":json!({"consumption_rate":{"enable":false,"data":{"rate":0.78}}}).to_string()
+        }]}));
+        assert!(models[0].credit_rate.as_ref().unwrap().multiplier.is_none());
     }
 
     #[test]
@@ -1138,10 +1234,11 @@ mod tests {
             .is_empty());
     }
     #[test]
-    fn reasoning_levels_keep_native_names_and_do_not_infer_tiers_from_a_badge() {
+    fn reasoning_levels_keep_native_names_and_never_infer_tiers() {
         let models = parse_models(&json!({"config_info_list":[
             {"config_name":"glm-5.3-flash","display_config":{"display_name":"GLM-5.3-Flash"},"reasoning_effort_config":{"support_thinking":true,"options":["light","high","extra_high"],"default_level":"extra_high"}},
-            {"config_name":"unknown","display_config":{"display_name":"Unknown"},"display_contact_config":"{\"reasoning\":{\"enable\":true}}"}
+            {"config_name":"unknown","display_config":{"display_name":"Unknown"},"display_contact_config":"{\"reasoning\":{\"enable\":true}}"},
+            {"config_name":"plain","display_config":{"display_name":"Plain"},"display_contact_config":"{\"reasoning\":{\"enable\":false}}"}
         ]}));
         assert_eq!(
             models[0].reasoning_effort_options,
@@ -1151,8 +1248,12 @@ mod tests {
             models[0].default_reasoning_effort.as_deref(),
             Some("extra_high")
         );
+        // Enabling reasoning is not a tier declaration: TRAE accepts the field
+        // but a probe showed no observable effect, so no tiers are invented.
+        assert_eq!(models[1].supports_reasoning, Some(true));
         assert!(models[1].reasoning_effort_options.is_empty());
         assert_eq!(models[1].default_reasoning_effort, None);
+        assert!(models[2].reasoning_effort_options.is_empty());
     }
 
     #[test]
@@ -1397,6 +1498,37 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires local TRAE CN desktop login; projects model catalog rate fields only"]
+    async fn desktop_catalog_rates_read_only_smoke() {
+        assert_eq!(std::env::var("AI_TOOLKIT_TRAE_DIAGNOSTIC").as_deref(), Ok("read-only"));
+        let c = local_credentials().unwrap().expect("desktop credentials available");
+        let client = ProviderClient::new();
+        let (_, _, authenticated) = authenticate(&client, &c).await.unwrap();
+        let catalog = client.json(headers(client.http.post(format!(
+            "{}/api/ide/v1/get_detail_param", ai_api_base(&authenticated)
+        )), &authenticated, true).json(&json!({
+            "function":"solo_work_lite", "config_names":null, "need_prompt":false,
+            "current_config_info":null, "poly_prompt":true, "mode_type":null
+        }))).await.unwrap();
+        let entries = data(&catalog)["config_info_list"].as_array().expect("model catalog array");
+        assert!(!entries.is_empty());
+        let models = parse_models(&catalog);
+        let mut seen = std::collections::HashSet::new();
+        let projected: Vec<Value> = models.iter().filter(|model| seen.insert(&model.id)).map(|model| {
+            let entry = entries.iter().find(|entry| entry["config_name"].as_str() == Some(&model.id)).unwrap();
+            let contact = entry["display_contact_config"].as_str()
+                .and_then(|raw| serde_json::from_str::<Value>(raw).ok()).unwrap_or(Value::Null);
+            json!({
+                "config_name":model.id,
+                "multiplier":model.credit_rate.as_ref().and_then(|rate| rate.multiplier),
+                "consumption_rate":contact["consumption_rate"]
+            })
+        }).collect();
+        println!("TRAE projected model rate metadata: {}", json!(projected));
+        println!("TRAE model rates parsed: {} / {}", models.iter().filter(|model| model.credit_rate.is_some()).count(), models.len());
+    }
+
+    #[tokio::test]
     #[ignore = "requires the user's local TRAE CN desktop login; read-only identity and billing"]
     async fn desktop_import_read_only_smoke() {
         assert_eq!(
@@ -1546,7 +1678,7 @@ mod tests {
         let b=chat_body(json!({"messages":[{"role":"assistant","content":null,"tool_calls":[{"id":"call1","function":{"name":"read","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call1","content":"ok"}],"tools":[{"function":{"name":"read","parameters":{"type":"object"}}}],"reasoning_effort":"high"}),"glm-5.3").unwrap();
         assert_eq!(b["messages"][1]["tool_call_id"], "call1");
         assert!(b["tools"][0]["function"]["parameters"].is_string());
-        assert!(b.get("reasoning_effort").is_none());
+        assert_eq!(b["reasoning_effort"], "high");
     }
 
     #[test]

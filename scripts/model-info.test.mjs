@@ -18,10 +18,20 @@ function load(path, stubs = {}, extra = "", globals = {}) {
   return module.exports;
 }
 
-const { ModelInfoContent, modelInfoPosition } = load("../src/components/credits/ModelInfoPopover.tsx");
+const { ModelInfoContent, modelInfoPosition } = load("../src/components/credits/ModelInfoPopover.tsx", {
+  "@/lib/credits/creditRate": load("../src/lib/credits/creditRate.ts"),
+});
 const account = { id: "fixture", platform: "qoder", snapshot: { fetchedAt: 1792390604612, stale: false } };
 const model = { id: "glm-5.3-flash", name: "GLM-5.3-Flash", contextWindow: 1000000, maxOutputTokens: 128000, supportsTools: true, supportsImages: true, supportsReasoning: false };
 const render = (overrides = {}, owner = account) => renderToStaticMarkup(React.createElement(ModelInfoContent, { account: owner, model: { ...model, ...overrides }, platformName: "Qoder" })).replace(/<[^>]+>/g, "");
+
+test("倍率详情展示 WorkBuddy 已缓存的 x 前缀目录文本与 TRAE 规范化倍率", () => {
+  assert.match(render({ creditRate: { declaredText: "x0.50", multiplier: null, source: "enterprise-models/v3-config" } }), /积分倍率0\.5×/);
+  assert.match(render({ creditRate: { declaredText: "0.78x", multiplier: 0.78 } }), /积分倍率0\.78×/);
+  assert.match(render({ creditRate: { declaredText: "x0.00", multiplier: null, source: "enterprise-models/v3-config" } }), /积分倍率0×/);
+  assert.match(render({ creditRate: { declaredText: "0.78x", multiplier: null, source: "get_detail_param" } }), /积分倍率未知/);
+  assert.match(render({ id: "minimax-m2.5", creditRate: { declaredText: "x0.18 credits", multiplier: null, source: "enterprise-models/v3-config" } }), /积分倍率0\.18×/);
+});
 
 test("模型信息分别显示通道上下文、输出上限与输入能力", () => {
   const text = render();
@@ -128,7 +138,7 @@ test("同账户同 ID 的目录条目按目录优先级去重", () => {
   const { accountModels } = load("../src/components/credits/CreditsPanel.tsx", {
     "@tauri-apps/plugin-shell": {}, "@/components/ui/Modal": {}, "@/components/ui/AgentIcon": {},
     "@/components/ui/Pressable": {}, "./ModelInfoPopover": {}, "@/hooks/useCredits": {},
-    "@/lib/api/credits": {}, sonner: {},
+    "@/lib/api/credits": {}, "@/lib/credits/creditRate": load("../src/lib/credits/creditRate.ts"), sonner: {},
   }, "\nmodule.exports.accountModels = accountModels;");
   const routed = { ...model, contextWindow: 200000 };
   const duplicate = { ...model, contextWindow: null };
@@ -159,6 +169,7 @@ test("每个模型的悬浮、聚焦与点击均关联详情，复制按钮保�
     "./ModelInfoPopover": {},
     "@/hooks/useCredits": {},
     "@/lib/api/credits": {},
+    "@/lib/credits/creditRate": load("../src/lib/credits/creditRate.ts"),
     sonner: { toast: { success() {}, error() {} } },
   }, "\nmodule.exports.ModelRow = ModelRow;", { navigator: { clipboard: { writeText: async (value) => { copied.push(value); } } } });
   const html = renderToStaticMarkup(React.createElement(ModelRow, {

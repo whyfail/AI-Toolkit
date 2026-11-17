@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, CircleHelp, FileText, Image, Minus, Type, Video } from "lucide-react";
-import type { CreditAccount, CreditModel } from "@/lib/api/credits";
+import type { CreditAccount, CreditModel, CreditPromotion } from "@/lib/api/credits";
+import { displayedCreditRate, formatMultiplier } from "@/lib/credits/creditRate";
 
 interface ModelInfoProps {
   account: CreditAccount;
@@ -17,6 +18,46 @@ const effortLabels: Record<string, string> = {
 };
 const effortOrder = ["none", "off", "disabled", "minimal", "light", "low", "medium", "high", "extra_high", "xhigh", "max"];
 const effortLabel = (effort: string) => typeof effortLabels[effort] === "string" ? `${effortLabels[effort]}（${effort}）` : effort;
+
+const minuteLabel = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+
+function PromotionLine({ promotion }: { promotion: CreditPromotion }) {
+  const discount = promotion.discountedCredits != null
+    ? `${formatMultiplier(promotion.discountedCredits)}${promotion.discountFactor != null ? `（基准 × ${formatMultiplier(promotion.discountFactor)}）` : ""}`
+    : promotion.discountFactor != null ? `基准 × ${formatMultiplier(promotion.discountFactor)}` : null;
+  const window = promotion.dailyStartMinute != null && promotion.dailyEndMinute != null
+    ? `每日 ${minuteLabel(promotion.dailyStartMinute)}–${minuteLabel(promotion.dailyEndMinute)}`
+    : promotion.startsAt != null || promotion.endsAt != null
+      ? `${promotion.startsAt != null ? new Date(promotion.startsAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "不限"} 起 · 至 ${promotion.endsAt != null ? new Date(promotion.endsAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "不限"}`
+      : null;
+  return <li className="leading-relaxed">
+    {promotion.name || promotion.id || "优惠活动"}
+    {discount ? <> · <span className="tabular-nums">{discount}</span></> : null}
+    {window ? <> · {window}</> : null}
+  </li>;
+}
+
+function CreditRateSection({ model }: { model: CreditModel }) {
+  const rate = model.creditRate;
+  const display = displayedCreditRate(model);
+  const promotions = rate?.promotions ?? [];
+  return <dl className="mt-3 rounded-xl border border-slate-500/10 px-3 py-2.5 text-[11px]">
+    <dt className="font-medium">积分倍率</dt>
+    <dd className="mt-2 flex items-baseline gap-2">
+      <span className={`text-lg font-semibold tabular-nums ${display.promotional ? "text-emerald-700 dark:text-emerald-300" : ""}`}>
+        {display.multiplier == null ? "未知" : formatMultiplier(display.multiplier)}
+      </span>
+      {display.promotional ? <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-300">优惠中 · {display.promotion?.name || display.promotion?.id || "活动"}</span> : null}
+    </dd>
+    {display.multiplier != null && display.base != null && display.multiplier !== display.base ? <dd className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">基准倍率 {formatMultiplier(display.base)}</dd> : null}
+    {display.multiplier == null ? <dd className="mt-1 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">{rate?.note || (rate?.declaredText ? `目录标注：${rate.declaredText}` : "通道未提供倍率，不代表按 1× 计费。")}</dd> : null}
+    {promotions.length ? <dd className="mt-2 border-t border-slate-500/10 pt-2">
+      <p className="text-slate-500 dark:text-slate-400">目录优惠（{promotions.length} 项）</p>
+      <ul className="mt-1 list-disc space-y-1 pl-4 text-[10px]">{promotions.map((promotion, index) => <PromotionLine key={promotion.id || index} promotion={promotion} />)}</ul>
+    </dd> : null}
+    {rate?.source ? <dd className="mt-2 text-[10px] text-slate-500 dark:text-slate-400">数据来源：{rate.source}</dd> : null}
+  </dl>;
+}
 
 function TokenLimit({ label, value }: { label: string; value?: number | null }) {
   const known = value != null && Number.isSafeInteger(value) && value > 0;
@@ -74,6 +115,8 @@ export function ModelInfoContent({ account, model, platformName }: ModelInfoProp
       <dd className="mt-2 flex flex-wrap gap-1.5">{contextOptions.map((value) => <span key={value} title={`${tokenNumber.format(value)} Token`} className="rounded-md bg-slate-500/5 px-2 py-1 text-slate-600 dark:text-slate-300">{compactTokens.format(value)}{value === model.contextWindow ? minimaxContexts ? "（默认）" : "（当前）" : "（可选）"}</span>)}</dd>
       {minimaxContexts && contextOptions.includes(1000000) ? <dd className="mt-2 text-[10px] text-slate-500 dark:text-slate-400">1M 档位用量较高。</dd> : null}
     </dl> : null}
+
+    <CreditRateSection model={model} />
 
     <div className="mt-4">
       <p className="text-[11px] font-medium">代理输入类型</p>

@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Pressable } from "@/components/ui/Pressable";
 import { AgentIcon } from "@/components/ui/AgentIcon";
 import { ModelInfoPopover } from "./ModelInfoPopover";
+import { displayedCreditRate, formatMultiplier } from "@/lib/credits/creditRate";
 import { creditsQueryKey, useCreditsAction, useCreditsDashboard } from "@/hooks/useCredits";
 import {
   creditsApi, type CreditAccount, type CreditDashboard,
@@ -107,6 +108,7 @@ interface ModelRowProps extends ModelEntry {
 function ModelRow({ account, model, infoId, onPreview, onToggle, onLeave, onBlur }: ModelRowProps) {
   const row = useRef<HTMLDivElement>(null);
   const id = `${account.platform}${account.region === "intl" ? "-intl" : ""}/${model.id}`;
+  const rate = displayedCreditRate(model);
   return <div ref={row} className={`rounded-xl px-3 py-2.5 transition-colors ${infoId ? "bg-blue-500/10" : "bg-slate-500/5 hover:bg-slate-500/10"}`}
     onPointerEnter={(event) => onPreview({ account, model }, event.currentTarget)} onPointerLeave={onLeave} onBlur={onBlur}>
     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -114,7 +116,13 @@ function ModelRow({ account, model, infoId, onPreview, onToggle, onLeave, onBlur
         aria-label={`查看 ${model.name || model.id} 模型信息`} aria-describedby={infoId} aria-expanded={!!infoId}
         onFocus={() => { if (row.current) onPreview({ account, model }, row.current, true); }}
         onClick={() => { if (row.current) onToggle({ account, model }, row.current); }}>
-        <span className="flex items-center gap-2 text-xs font-medium"><span className="min-w-0 break-all">{model.name || model.id}</span><Info size={13} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium">
+          <span className="min-w-0 break-all">{model.name || model.id}</span>
+          <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-normal tabular-nums ${rate.promotional ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : rate.multiplier == null ? "bg-slate-500/10 text-slate-500 dark:text-slate-400" : "bg-slate-500/10 text-slate-600 dark:text-slate-300"}`}>
+            {rate.multiplier == null ? "倍率未知" : `${formatMultiplier(rate.multiplier)}${rate.promotional ? " · 优惠" : ""}`}
+          </span>
+          <Info size={13} className="shrink-0 text-slate-400" aria-hidden="true" />
+        </span>
         <span className="mt-1 block break-all text-[11px] text-slate-500 dark:text-slate-400">{id}</span>
       </button>
       <div className="flex shrink-0 items-center gap-1.5"><Pressable type="button" className="glass-icon-button" aria-label={`复制模型 ID ${id}`} onClick={() => void copyValue(id, "模型 ID")}><Copy size={13} /></Pressable></div>

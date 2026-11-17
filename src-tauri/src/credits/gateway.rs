@@ -291,6 +291,46 @@ fn insert_catalog_model(
             _ => { entry.as_object_mut().unwrap().remove(field); }
         }
     }
+    // Same rule for every advertised attribute: a promotion or a reasoning
+    // level offered by one account must not be advertised as the route's. A null
+    // records a confirmed disagreement or a missing declaration so later
+    // accounts cannot restore it.
+    insert_catalog_field(
+        entry,
+        "credit_rate",
+        model.credit_rate.as_ref().and_then(|rate| serde_json::to_value(rate).ok()),
+    );
+    insert_catalog_field(entry, "supports_reasoning", model.supports_reasoning.map(Value::Bool));
+    insert_catalog_field(
+        entry,
+        "reasoning_effort_options",
+        (!model.reasoning_effort_options.is_empty()).then(|| json!(model.reasoning_effort_options)),
+    );
+    insert_catalog_field(
+        entry,
+        "default_reasoning_effort",
+        model.default_reasoning_effort.as_ref().map(|effort| json!(effort)),
+    );
+}
+
+/// Merge one advertised field across the accounts behind a route.
+///
+/// The field survives only when every account declares the same value. A null
+/// value records a disagreement and is sticky, so a later agreeing account
+/// cannot resurrect an attribute the route does not guarantee.
+fn insert_catalog_field(entry: &mut Value, field: &str, declared: Option<Value>) {
+    if entry.get(field) == Some(&Value::Null) {
+        return;
+    }
+    let merge = match (entry.get(field).cloned(), declared) {
+        (Some(previous), Some(current)) if previous == current => Some(current),
+        (None, Some(current)) => Some(current),
+        (None, None) => return,
+        _ => Some(Value::Null),
+    };
+    if let Some(merge) = merge {
+        entry[field] = merge;
+    }
 }
 
 async fn models(State(context): State<Arc<GatewayContext>>, headers: HeaderMap) -> Response {
@@ -1240,8 +1280,18 @@ async fn collect_response_for(
 
 #[cfg(test)]
 mod tests {
-    use super::super::types::{CreditPack, CreditRegion, Platform, ProviderSnapshot};
+    use super::super::types::{CreditPack, CreditRate, CreditRegion, Platform, ProviderSnapshot};
     use super::*;
+
+    fn rate(multiplier: f64) -> CreditRate {
+        CreditRate {
+            declared_text: Some(format!("{multiplier}x")),
+            multiplier: Some(multiplier),
+            promotions: vec![],
+            source: Some("enterprise-models/v3-config".into()),
+            note: None,
+        }
+    }
 
     fn account(id: &str, canonical: &str, expiry: i64) -> Account {
         Account {
@@ -1279,6 +1329,7 @@ mod tests {
                     supports_reasoning: None,
                     reasoning_effort_options: vec![],
                     default_reasoning_effort: None,
+                    credit_rate: None,
                     verified: true,
                     verification_note: None,
                 }],
@@ -1497,6 +1548,60 @@ mod tests {
         );
     }
 
+    #[test]
+    fn catalog_advertises_a_rate_only_when_every_account_agrees() {
+        let mut model = account("first", "shared", now_ms()).snapshot.unwrap().models.remove(0);
+        model.credit_rate = Some(rate(0.5));
+        let mut entries = std::collections::BTreeMap::new();
+        insert_catalog_model(&mut entries, "workbuddy/shared".into(), "workbuddy", &model);
+        insert_catalog_model(&mut entries, "workbuddy/shared".into(), "workbuddy", &model);
+        assert_eq!(entries["workbuddy/shared"]["credit_rate"]["multiplier"], 0.5);
+        // A different rate on another eligible account must not be advertised as the route price.
+        let mut divergent = account("second", "shared", now_ms()).snapshot.unwrap().models.remove(0);
+        divergent.credit_rate = Some(rate(0.2));
+        insert_catalog_model(&mut entries, "workbuddy/shared".into(), "workbuddy", &divergent);
+        assert!(entries["workbuddy/shared"]["credit_rate"].is_null());
+        // The disagreement is sticky: a later agreeing account cannot restore the rate.
+        model.credit_rate = Some(rate(0.5));
+        insert_catalog_model(&mut entries, "workbuddy/shared".into(), "workbuddy", &model);
+        assert!(entries["workbuddy/shared"]["credit_rate"].is_null());
+        // An entry that never had a rate stays without the field.
+        let mut plain = account("third", "plain", now_ms()).snapshot.unwrap().models.remove(0);
+        plain.credit_rate = None;
+        insert_catalog_model(&mut entries, "workbuddy/plain".into(), "workbuddy", &plain);
+        assert!(entries["workbuddy/plain"].get("credit_rate").is_none());
+    }
+
+    #[test]
+    fn catalog_advertises_reasoning_only_when_every_account_agrees() {
+        let mut model = account("first", "shared", now_ms()).snapshot.unwrap().models.remove(0);
+        model.supports_reasoning = Some(true);
+        model.reasoning_effort_options = vec!["low".into(), "high".into()];
+        model.default_reasoning_effort = Some("high".into());
+        let mut entries = std::collections::BTreeMap::new();
+        insert_catalog_model(&mut entries, "workbuddy/shared".into(), "workbuddy", &model);
+        insert_catalog_model(&mut entries, "workbuddy/shared".into(), "workbuddy", &model);
+        assert_eq!(entries["workbuddy/shared"]["supports_reasoning"], true);
+        assert_eq!(entries["workbuddy/shared"]["reasoning_effort_options"], json!(["low", "high"]));
+        assert_eq!(entries["workbuddy/shared"]["default_reasoning_effort"], "high");
+        // Different levels or a different default are a disagreement, not the route's offer.
+        let mut divergent = account("second", "shared", now_ms()).snapshot.unwrap().models.remove(0);
+        divergent.supports_reasoning = Some(true);
+        divergent.reasoning_effort_options = vec!["medium".into()];
+        insert_catalog_model(&mut entries, "workbuddy/shared".into(), "workbuddy", &divergent);
+        assert_eq!(entries["workbuddy/shared"]["supports_reasoning"], true);
+        assert!(entries["workbuddy/shared"]["reasoning_effort_options"].is_null());
+        assert!(entries["workbuddy/shared"]["default_reasoning_effort"].is_null());
+        // The disagreement stays after an agreeing account joins again.
+        insert_catalog_model(&mut entries, "workbuddy/shared".into(), "workbuddy", &model);
+        assert!(entries["workbuddy/shared"]["reasoning_effort_options"].is_null());
+        // A model that declares nothing keeps the fields absent.
+        let plain = account("third", "plain", now_ms()).snapshot.unwrap().models.remove(0);
+        insert_catalog_model(&mut entries, "workbuddy/plain".into(), "workbuddy", &plain);
+        assert!(entries["workbuddy/plain"].get("reasoning_effort_options").is_none());
+        assert!(entries["workbuddy/plain"].get("supports_reasoning").is_none());
+    }
+
     #[tokio::test]
     async fn model_catalog_exposes_route_capacities_and_keeps_unknown_output_limits_unknown() {
         let manager = CreditManager::test();
@@ -1505,6 +1610,10 @@ mod tests {
             let model = &mut account.snapshot.as_mut().unwrap().models[0];
             model.context_window = Some(context);
             model.max_output_tokens = Some(output);
+            model.credit_rate = Some(rate(0.5));
+            model.supports_reasoning = Some(true);
+            model.reasoning_effort_options = vec!["low".into(), "high".into()];
+            model.default_reasoning_effort = Some("high".into());
             manager.store.save_account(&account).unwrap();
         }
         let mut minimax = account("minimax", "MiniMax-M3.1-Flash", now_ms() + 60_000);
@@ -1522,6 +1631,10 @@ mod tests {
             let entry = catalog["data"].as_array().unwrap().iter().find(|entry| entry["id"] == id).unwrap();
             assert_eq!(entry["context_window"], 512_000);
             assert_eq!(entry["max_output_tokens"], 8192);
+            assert_eq!(entry["credit_rate"]["multiplier"], 0.5);
+            assert_eq!(entry["supports_reasoning"], true);
+            assert_eq!(entry["reasoning_effort_options"], json!(["low", "high"]));
+            assert_eq!(entry["default_reasoning_effort"], "high");
         }
         let entry = catalog["data"].as_array().unwrap().iter().find(|entry| entry["id"] == "minimax-code/MiniMax-M3.1-Flash").unwrap();
         assert_eq!(entry["context_window"], 1_000_000);
@@ -1534,6 +1647,11 @@ mod tests {
             let entry = catalog["data"].as_array().unwrap().iter().find(|entry| entry["id"] == id).unwrap();
             assert!(entry.get("context_window").is_none());
             assert!(entry.get("max_output_tokens").is_none());
+            // An account without a declared rate also makes the route price unknown.
+            assert!(entry["credit_rate"].is_null());
+            // The same holds for the reasoning levels the route would offer.
+            assert!(entry["reasoning_effort_options"].is_null());
+            assert!(entry["default_reasoning_effort"].is_null());
         }
         manager.gateway.stop().await.unwrap();
     }

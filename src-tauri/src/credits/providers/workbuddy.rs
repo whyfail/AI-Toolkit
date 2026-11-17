@@ -475,6 +475,56 @@ pub(super) async fn rewards(
         .await?;
     Ok(vec![reward(&v)])
 }
+const MODEL_RATE_SOURCE: &str = "enterprise-models/v3-config";
+
+fn parse_credits_rate(m: &Value, id: &str, catalog: &Value, source: &str) -> Option<CreditRate> {
+    let credits = m.get("credits")?;
+    let multiplier = credit_multiplier(credits);
+    let declared_text = credits.as_str().map(str::to_owned).or_else(|| {
+        multiplier.map(|value| {
+            if value.fract() == 0.0 {
+                format!("{value:.0}x")
+            } else {
+                format!("{value}x")
+            }
+        })
+    });
+    let mut rate = credit_rate(Some(declared_text?), multiplier, source);
+    // The official client uses the model's own nonempty promotion list as a
+    // whole. A top-level promotion must not override it, even if its kind is
+    // not understood by this client.
+    if let Some(list) = m["promotions"].as_array().filter(|list| !list.is_empty()) {
+        rate.promotions = list
+            .iter()
+            .filter_map(|p| credit_promotion(p, source))
+            .collect();
+    } else {
+        rate.promotions = catalog["modelPromotions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|promotion| promotion["modelIds"].as_array().is_some_and(|ids| {
+                ids.iter().any(|candidate| candidate.as_str() == Some(id))
+            }))
+            .filter_map(|promotion| credit_promotion(promotion, source))
+            .collect();
+    }
+    Some(rate)
+}
+
+fn fill_credit_rate(primary: &mut Option<CreditRate>, fallback: Option<CreditRate>) {
+    let usable = |rate: &CreditRate| {
+        rate.multiplier.is_some()
+            || rate.promotions.iter().any(|promotion| promotion.discounted_credits.is_some())
+    };
+    if primary.is_none()
+        || (!primary.as_ref().is_some_and(usable) && fallback.as_ref().is_some_and(usable))
+    {
+        // Keep the base and its promotion conditions from the same response.
+        *primary = fallback;
+    }
+}
+
 fn parse_models(v: &Value) -> Vec<ModelInfo> {
     parse_models_for_region(v, CreditRegion::Cn)
 }
@@ -492,7 +542,7 @@ fn parse_models_for_region(v: &Value, region: CreditRegion) -> Vec<ModelInfo> {
                 .filter(|models| !models.is_empty())
         })
         .flatten();
-    data(v)["models"]
+    d["models"]
         .as_array()
         .into_iter()
         .flatten()
@@ -533,6 +583,7 @@ fn parse_models_for_region(v: &Value, region: CreditRegion) -> Vec<ModelInfo> {
             let context_window = token_limit(&m["contextWindow"], &["defaultLength"])
                 .or_else(|| token_limit(m, &["contextWindow", "contextLength", "maxInputTokens"]))
                 .into_iter().chain(context_window_options.iter().copied()).max();
+            let credit_rate = parse_credits_rate(m, &id, d, MODEL_RATE_SOURCE);
             Some(ModelInfo {
                 upstream_model_ids: ["model", "modelId"]
                     .iter()
@@ -554,6 +605,7 @@ fn parse_models_for_region(v: &Value, region: CreditRegion) -> Vec<ModelInfo> {
                 reasoning_effort_options: effort_options(&m["reasoning"]["supportedEfforts"]),
                 default_reasoning_effort: text(&m["reasoning"], &["defaultEffort", "effort"]),
                 supports_tools: flag(m, &["supportsToolCall"]).unwrap_or(true),
+                credit_rate,
                 ..model(
                     id.clone(),
                     text(m, &["displayName", "display_name", "label", "name"]).unwrap_or(id),
@@ -629,6 +681,7 @@ fn international_catalogs(
                 if model.default_reasoning_effort.is_none() {
                     model.default_reasoning_effort = extra.default_reasoning_effort.clone();
                 }
+                fill_credit_rate(&mut model.credit_rate, extra.credit_rate.clone());
             }
         }
     }
@@ -744,6 +797,7 @@ pub(super) async fn models(
                         if existing.default_reasoning_effort.is_none() {
                             existing.default_reasoning_effort = m.default_reasoning_effort;
                         }
+                        fill_credit_rate(&mut existing.credit_rate, m.credit_rate);
                     } else {
                         models.push(m)
                     }
@@ -1483,5 +1537,112 @@ mod tests {
             assert!(body.get("tool_choice").is_none());
             assert!(body.get("tools").is_none());
         }
+    }
+
+    #[test]
+    fn catalog_credits_parse_into_rates_and_model_promotions_attach_by_id() {
+        let models = parse_models(&json!({
+            "models": [
+                {"id":"glm-5.3-flash","credits":0.21,"promotions":[{"id":"p-model","discountedCredits":0.1,"priority":5,"enabled":true,"dailyStartTime":"08:00","dailyEndTime":"22:00"}]},
+                {"id":"text-rate","credits":"0.6x"},
+                {"id":"negative","credits":-1},
+                {"id":"no-rate"}
+            ],
+            "modelPromotions": [
+                {"id":"p-top","name":"限时活动","modelIds":["glm-5.3-flash"],"discount":0.5,"priority":10},
+                {"id":"p-other","modelIds":["no-rate"],"discount":0.5}
+            ]
+        }));
+        let rate = &models[0].credit_rate.as_ref().unwrap();
+        assert_eq!(rate.multiplier, Some(0.21));
+        assert_eq!(rate.declared_text.as_deref(), Some("0.21x"));
+        // A nonempty model-level list takes precedence over all top-level offers.
+        assert_eq!(rate.promotions.len(), 1);
+        assert_eq!(rate.promotions[0].id, "p-model");
+        assert_eq!(rate.promotions[0].discounted_credits, Some(0.1));
+        assert_eq!(rate.promotions[0].daily_start_minute, Some(480));
+        assert_eq!(rate.promotions[0].daily_end_minute, Some(1320));
+        assert_eq!(models[1].credit_rate.as_ref().unwrap().multiplier, Some(0.6));
+        assert_eq!(models[1].credit_rate.as_ref().unwrap().declared_text.as_deref(), Some("0.6x"));
+        // Negative rates are unusable; no-rate models stay absent and never
+        // receive promotions from the top-level list.
+        assert!(models[2].credit_rate.is_none());
+        assert!(models[3].credit_rate.is_none());
+    }
+
+    #[test]
+    fn official_prefixed_credits_and_nested_promotions_match_the_client_contract() {
+        let models = parse_models(&json!({
+            "models": [
+                {"id":"balanced-model","credits":"x0.50"},
+                {"id":"free-model","credits":"x0.00"},
+                {"id":"own-offer","credits":"x0.60","promotions":[{
+                    "id":"own", "kind":"discount", "discount":{"discountedCredits":"x0.30"}
+                }]},
+                {"id":"unknown-offer","credits":"x0.60","promotions":[{
+                    "id":"notice", "kind":"notice", "badge":{"label":"活动"}
+                }]},
+                {"id":"empty-offers","credits":"x0.50","promotions":[]}
+            ],
+            "modelPromotions": [{
+                "id":"night-discount", "modelIds":["balanced-model","own-offer","unknown-offer","empty-offers"],
+                "kind":"discount", "priority":10,
+                "discount":{"factor":0.5,"discountedCredits":"x0.25","displayMode":"strikethrough"},
+                "schedule":{"validFrom":"2026-11-01T00:00:00+08:00","validUntil":"2026-12-01T00:00:00+08:00",
+                    "timezone":"Asia/Shanghai", "daily":[{"start":"22:00","end":"08:00"}]}
+            }]
+        }));
+        let balanced = models[0].credit_rate.as_ref().unwrap();
+        assert_eq!(balanced.multiplier, Some(0.5));
+        assert_eq!(balanced.declared_text.as_deref(), Some("x0.50"));
+        assert_eq!(balanced.promotions.len(), 1);
+        let promotion = &balanced.promotions[0];
+        assert_eq!(promotion.id, "night-discount");
+        assert_eq!(promotion.discount_factor, Some(0.5));
+        assert_eq!(promotion.discounted_credits, Some(0.25));
+        assert_eq!(promotion.timezone.as_deref(), Some("Asia/Shanghai"));
+        assert_eq!(promotion.daily_windows.len(), 1);
+        assert_eq!(promotion.daily_windows[0].start_minute, 1320);
+        assert_eq!(promotion.daily_windows[0].end_minute, 480);
+        assert!(promotion.starts_at.is_some() && promotion.ends_at.is_some());
+        assert_eq!(models[1].credit_rate.as_ref().unwrap().multiplier, Some(0.0));
+        let own = &models[2].credit_rate.as_ref().unwrap().promotions;
+        assert_eq!(own.len(), 1);
+        assert_eq!(own[0].id, "own");
+        assert!(!models[3].credit_rate.as_ref().unwrap().promotions.iter()
+            .any(|promotion| promotion.id == "night-discount"));
+        assert_eq!(models[4].credit_rate.as_ref().unwrap().promotions[0].id, "night-discount");
+    }
+
+    #[test]
+    fn catalog_fallback_replaces_only_unusable_rates_as_complete_objects() {
+        let models = international_catalogs(
+            Ok(json!({"models":[
+                {"id":"declared-only","credits":"按用量计费"},
+                {"id":"primary","credits":"x0.50","promotions":[{
+                    "id":"primary-offer","kind":"discount","discount":{"factor":0.5}
+                }]},
+                {"id":"free","credits":"x0.00"}
+            ]})),
+            Ok(json!({"models":[
+                {"id":"declared-only","credits":"x0.20","promotions":[{
+                    "id":"fallback-offer","kind":"discount","discount":{"factor":0.5}
+                }]},
+                {"id":"primary","credits":"x0.10","promotions":[{
+                    "id":"other-offer","kind":"discount","discount":{"factor":0.1}
+                }]},
+                {"id":"free","credits":"x0.80"},
+                {"id":"excluded","credits":"x0.10"}
+            ]})),
+        ).unwrap();
+        assert_eq!(models.len(), 3);
+        let fallback = models[0].credit_rate.as_ref().unwrap();
+        assert_eq!(fallback.multiplier, Some(0.2));
+        assert_eq!(fallback.promotions[0].id, "fallback-offer");
+        let primary = models[1].credit_rate.as_ref().unwrap();
+        assert_eq!(primary.multiplier, Some(0.5));
+        assert_eq!(primary.promotions.len(), 1);
+        assert_eq!(primary.promotions[0].id, "primary-offer");
+        assert_eq!(models[2].credit_rate.as_ref().unwrap().multiplier, Some(0.0));
     }
 }

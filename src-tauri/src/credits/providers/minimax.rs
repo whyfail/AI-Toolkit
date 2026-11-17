@@ -438,6 +438,27 @@ fn parse_models(value: &Value) -> Result<Vec<ModelInfo>, ProviderError> {
             item.reasoning_effort_options.extend(["off".into(), "on".into()]);
             item.default_reasoning_effort = Some(if entry.pointer("/thinking_config/default_value").and_then(Value::as_str) == Some("false") { "off" } else { "on" }.into());
         }
+        // Only explicit numeric rate fields count; the "1M tier costs more"
+        // hint stays a note so missing values never display as 1×.
+        let rate_multiplier = entry.get("credit_rate")
+            .or_else(|| entry.get("creditRate"))
+            .or_else(|| entry.get("price_factor"))
+            .or_else(|| entry.get("priceFactor"))
+            .and_then(credit_multiplier);
+        let higher_usage = entry.get("higher_usage")
+            .or_else(|| entry.get("higherUsage"))
+            .and_then(Value::as_bool);
+        if rate_multiplier.is_some() || higher_usage == Some(true) {
+            let note = (higher_usage == Some(true) && rate_multiplier.is_none())
+                .then(|| "1M 上下文档位用量较高".to_owned());
+            item.credit_rate = Some(CreditRate {
+                declared_text: None,
+                multiplier: rate_multiplier,
+                promotions: vec![],
+                source: Some("archon-config".into()),
+                note,
+            });
+        }
         item.verification_note = Some("模型来自账号实时目录；缺失的上下文档位及工具、图片能力参考官方共享目录，尚未验证推理身份".into());
         result.push(item);
     }

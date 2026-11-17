@@ -305,6 +305,12 @@ fn parse_models(v: &Value) -> Vec<ModelInfo> {
             let context = windows.last().copied().or_else(|| token_limit(m, &["max_input_tokens"]));
             let upstream_model_ids = underlying_model_id(&m["model"], &key).into_iter().collect();
             let efforts = m["thinking_config"]["enabled"]["efforts"].as_object();
+            // The catalog declares one per-model multiplier; context and thinking
+            // tiers have no separately advertised factors and stay at this value.
+            let credit_rate = m.get("price_factor")
+                .or_else(|| m.get("priceFactor"))
+                .and_then(credit_multiplier)
+                .map(|multiplier| credit_rate(None, Some(multiplier), "algo-model-list"));
             Some(ModelInfo {
                 upstream_id: (id != key).then_some(key),
                 upstream_model_ids,
@@ -316,6 +322,7 @@ fn parse_models(v: &Value) -> Vec<ModelInfo> {
                 default_reasoning_effort: efforts.and_then(|options| {
                     options.iter().find(|(_, config)| config["is_default"] == true).map(|(level, _)| level.clone())
                 }),
+                credit_rate,
                 ..model(
                     id,
                     name,
@@ -746,6 +753,20 @@ pub(super) async fn chat(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn price_factor_parses_into_model_credit_rate() {
+        let models = parse_models(&json!({"chat":[
+            {"key":"k1","display_name":"Model A","enable":true,"price_factor":0.5},
+            {"key":"k2","display_name":"Model B","enable":true,"price_factor":"0.3x"},
+            {"key":"k3","display_name":"Model C","enable":true},
+            {"key":"k4","display_name":"Model D","enable":true,"price_factor":-2}
+        ]}));
+        assert_eq!(models[0].credit_rate.as_ref().unwrap().multiplier, Some(0.5));
+        assert_eq!(models[1].credit_rate.as_ref().unwrap().multiplier, Some(0.3));
+        // Missing or invalid factors leave the rate absent, never 1×.
+        assert!(models[2].credit_rate.is_none());
+        assert!(models[3].credit_rate.is_none());
+    }
     #[test]
     fn account_region_selects_all_official_qoder_origins() {
         let mut c = empty_credentials();

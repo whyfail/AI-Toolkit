@@ -21,6 +21,33 @@ export interface CreditPack {
   expiresAt: number | null;
 }
 
+export interface CreditPromotion {
+  id: string;
+  name?: string | null;
+  kind?: string | null;
+  discountedCredits?: number | null;
+  discountFactor?: number | null;
+  priority: number;
+  startsAt?: number | null;
+  endsAt?: number | null;
+  dailyStartMinute?: number | null;
+  dailyEndMinute?: number | null;
+  timezoneOffsetSeconds?: number | null;
+  timezone?: string | null;
+  dailyWindows?: Array<{ startMinute: number; endMinute: number }>;
+  enabled?: boolean | null;
+  note?: string | null;
+  source?: string | null;
+}
+
+export interface CreditRate {
+  declaredText?: string | null;
+  multiplier?: number | null;
+  promotions?: CreditPromotion[];
+  source?: string | null;
+  note?: string | null;
+}
+
 export interface CreditModel {
   id: string;
   upstreamId?: string | null;
@@ -35,6 +62,7 @@ export interface CreditModel {
   supportsReasoning?: boolean | null;
   reasoningEffortOptions?: string[];
   defaultReasoningEffort?: string | null;
+  creditRate?: CreditRate | null;
   verified: boolean;
   verificationNote: string | null;
 }

@@ -601,6 +601,128 @@ pub(super) fn jwt_claims(token: &str) -> Value {
         .and_then(|s| serde_json::from_slice(&s).ok())
         .unwrap_or(Value::Null)
 }
+
+/// Parse a catalog multiplier; rejects negative, non-finite and non-numeric values.
+/// Accepts prefix/suffix multiplier spellings and WorkBuddy's credit unit labels.
+pub(super) fn credit_multiplier(value: &Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value
+            .as_str()
+            .and_then(|s| {
+                let declared = s.trim();
+                let declared = match declared.rsplit_once(char::is_whitespace) {
+                    Some((number, unit)) if unit.eq_ignore_ascii_case("credit") || unit.eq_ignore_ascii_case("credits") => number.trim_end(),
+                    _ => declared,
+                };
+                let number = declared.strip_prefix(['x', 'X', '×'])
+                    .or_else(|| declared.strip_suffix(['x', 'X', '×', '倍']))
+                    .unwrap_or(declared);
+                number.trim().parse().ok()
+            }))
+        .filter(|rate| CreditRate::valid_multiplier(*rate))
+}
+
+/// Build a rate entry from a declared text and an optional verified multiplier.
+pub(super) fn credit_rate(
+    declared_text: Option<String>,
+    multiplier: Option<f64>,
+    source: &str,
+) -> CreditRate {
+    CreditRate {
+        declared_text,
+        multiplier: multiplier.filter(|m| CreditRate::valid_multiplier(*m)),
+        promotions: vec![],
+        source: Some(source.into()),
+        note: None,
+    }
+}
+
+/// Parse catalog activity metadata, retaining its kind for priority selection.
+pub(super) fn credit_promotion(v: &Value, source: &str) -> Option<CreditPromotion> {
+    let kind = text(v, &["kind"]);
+    let id = text(v, &["id", "activityId", "promotionId"])
+        .or_else(|| text(v, &["name", "title"]))
+        .unwrap_or_else(|| "promotion".into());
+    let discount = v.get("discount").filter(|discount| discount.is_object()).unwrap_or(v);
+    let discounted = ["discountedCredits", "discounted_credits", "promoCredits"]
+        .iter().find_map(|key| discount.get(*key).and_then(credit_multiplier));
+    let factor = num(discount, &["factor", "discountFactor", "discount_factor", "discount"])
+        .filter(|f| f.is_finite() && *f > 0.0 && *f < 1.0);
+    if discounted.is_none() && factor.is_none() && kind.is_none() {
+        return None;
+    }
+    let schedule = v.get("schedule").filter(|schedule| !schedule.is_null()).unwrap_or(v);
+    let start_value = schedule.get("validFrom").or_else(|| schedule.get("startsAt")).or_else(|| schedule.get("startTime"))
+        .filter(|value| !value.is_null());
+    let end_value = schedule.get("validUntil").or_else(|| schedule.get("endsAt")).or_else(|| schedule.get("endTime"))
+        .filter(|value| !value.is_null());
+    let starts_at = start_value.and_then(epoch);
+    let ends_at = end_value.and_then(epoch);
+    let daily = daily_window(schedule);
+    let daily_values = schedule.get("daily").filter(|value| !value.is_null());
+    let daily_windows: Vec<CreditTimeWindow> = daily_values.and_then(Value::as_array)
+        .into_iter().flatten().filter_map(|window| {
+            Some(CreditTimeWindow {
+                start_minute: clock_minute(&window["start"])?,
+                end_minute: clock_minute(&window["end"])?,
+            })
+        }).collect();
+    let malformed_daily = daily_values.is_some_and(|value| {
+        value.as_array().is_none_or(|windows| windows.len() != daily_windows.len())
+    });
+    let has_flat_daily = ["dailyStartTime", "daily_start_time", "dailyStartMinute", "dailyEndTime", "daily_end_time", "dailyEndMinute"]
+        .iter().any(|key| schedule.get(*key).is_some_and(|value| !value.is_null()));
+    let invalid_schedule = !schedule.is_object()
+        || (start_value.is_some() && starts_at.is_none())
+        || (end_value.is_some() && ends_at.is_none())
+        || matches!((starts_at, ends_at), (Some(start), Some(end)) if start >= end)
+        || malformed_daily || (has_flat_daily && daily.is_none());
+    let note = text(v, &["description", "condition", "rule", "info"]);
+    Some(CreditPromotion {
+        id,
+        name: text(v, &["name", "title", "activityName"]),
+        kind,
+        discounted_credits: discounted,
+        discount_factor: factor,
+        priority: num(v, &["priority", "weight"]).unwrap_or(0.0),
+        starts_at,
+        ends_at,
+        daily_start_minute: daily.as_ref().map(|d| d.0),
+        daily_end_minute: daily.map(|d| d.1),
+        timezone_offset_seconds: schedule
+            .get("timezoneOffsetSeconds")
+            .or_else(|| schedule.get("timezone_offset_seconds"))
+            .and_then(Value::as_i64)
+            .filter(|offset| (-86_400..=86_400).contains(offset))
+            .map(|offset| offset as i32),
+        timezone: text(schedule, &["timezone"]),
+        daily_windows,
+        enabled: if invalid_schedule { Some(false) } else { flag(v, &["enabled", "enable", "active"]) },
+        note: if invalid_schedule { Some(note.unwrap_or_else(|| "优惠时段无法解析".into())) } else { note },
+        source: Some(source.to_owned()),
+    })
+}
+
+fn clock_minute(value: &Value) -> Option<u32> {
+    let text = value.as_str()?;
+    let mut parts = text.trim().split(':');
+    let hour: u32 = parts.next()?.parse().ok()?;
+    let minute: u32 = parts.next()?.parse().ok()?;
+    if let Some(second) = parts.next() {
+        if second.parse::<u32>().ok()? >= 60 { return None; }
+    }
+    (hour < 24 && minute < 60 && parts.next().is_none()).then_some(hour * 60 + minute)
+}
+
+/// Parse a "HH:mm" or "HH:mm:ss" daily window into minutes from midnight.
+fn daily_window(v: &Value) -> Option<(u32, u32)> {
+    let start = v.get("dailyStartTime").or_else(|| v.get("daily_start_time")).and_then(clock_minute)
+        .or_else(|| num(v, &["dailyStartMinute"]).filter(|m| (0.0..=1440.0).contains(m) && m.fract() == 0.0).map(|m| m as u32));
+    let end = v.get("dailyEndTime").or_else(|| v.get("daily_end_time")).and_then(clock_minute)
+        .or_else(|| num(v, &["dailyEndMinute"]).filter(|m| (0.0..=1440.0).contains(m) && m.fract() == 0.0).map(|m| m as u32));
+    Some((start?, end?))
+}
 pub(super) fn snapshot(
     packs: Vec<CreditPack>,
     rewards: Vec<Reward>,
@@ -648,6 +770,7 @@ pub(super) fn model(id: String, name: String, context: Option<u64>) -> ModelInfo
         supports_reasoning: None,
         reasoning_effort_options: vec![],
         default_reasoning_effort: None,
+        credit_rate: None,
         verified: false,
         verification_note: Some("已从账号实时目录发现，尚未验证实际模型身份".into()),
     }
@@ -776,6 +899,63 @@ pub(super) fn empty_credentials() -> Credentials {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn catalog_credit_rates_accept_prefix_and_suffix_notation() {
+        for value in [json!(0.5), json!("x0.50"), json!("X 0.50"), json!("0.50x"), json!("×0.50"), json!("0.50 倍")] {
+            assert_eq!(credit_multiplier(&value), Some(0.5), "{value}");
+        }
+        assert_eq!(credit_multiplier(&json!("x0.00")), Some(0.0));
+        for value in [json!(null), json!(-1), json!("x-1"), json!("x0.5x"), json!("限时0.5倍"), json!("NaN"), json!("inf")] {
+            assert_eq!(credit_multiplier(&value), None, "{value}");
+        }
+    }
+
+    #[test]
+    fn catalog_credit_rates_accept_workbuddy_credit_units() {
+        for value in ["x0.18 credits", "0.18x credits", "0.18 credits", "  X 0.18 CREDITS  ", "0.18× credit", "x0.18\tcredits"] {
+            assert_eq!(credit_multiplier(&json!(value)), Some(0.18), "{value}");
+        }
+        assert_eq!(credit_multiplier(&json!("x0.00 credits")), Some(0.0));
+        for value in ["credits", "x-0.18 credits", "NaN credits", "inf credits", "x0.18 credits per request", "限时 0.18 credits"] {
+            assert_eq!(credit_multiplier(&json!(value)), None, "{value}");
+        }
+    }
+
+    #[test]
+    fn catalog_credit_promotions_use_nested_discounts_and_schedules() {
+        let promotion = credit_promotion(&json!({
+            "id":"official", "kind":"discount", "priority":5,
+            "discount":{"discountedCredits":"x0.06", "factor":0.5},
+            "schedule":{"validFrom":"2026-11-01T00:00:00+08:00", "validUntil":"2026-12-01T00:00:00+08:00",
+                "timezone":"Asia/Shanghai", "daily":[{"start":"22:00", "end":"08:00"}, {"start":"12:00", "end":"14:00"}]}
+        }), "v3/config").unwrap();
+        assert_eq!(promotion.discounted_credits, Some(0.06));
+        assert_eq!(promotion.discount_factor, Some(0.5));
+        assert_eq!(promotion.timezone.as_deref(), Some("Asia/Shanghai"));
+        assert_eq!(promotion.daily_windows.len(), 2);
+        assert_eq!(promotion.daily_windows[0].start_minute, 1320);
+        assert_eq!(promotion.daily_windows[0].end_minute, 480);
+        assert_eq!(promotion.starts_at, epoch(&json!("2026-11-01T00:00:00+08:00")));
+        assert_eq!(promotion.ends_at, epoch(&json!("2026-12-01T00:00:00+08:00")));
+        assert_ne!(promotion.enabled, Some(false));
+    }
+
+    #[test]
+    fn malformed_promotion_windows_cannot_turn_into_all_day_discounts() {
+        for schedule in [
+            json!({"validUntil":"not-a-date"}),
+            json!({"daily":[{"start":"25:00", "end":"08:00"}]}),
+            json!({"dailyStartTime":"08:00"}),
+            json!("unknown-window"),
+        ] {
+            let promotion = credit_promotion(&json!({"kind":"discount", "discount":{"factor":0.5}, "schedule":schedule}), "fixture").unwrap();
+            assert_eq!(promotion.enabled, Some(false));
+        }
+        let all_day = credit_promotion(&json!({"discount":0.5, "dailyStartTime":"00:00", "dailyEndTime":"00:00"}), "legacy").unwrap();
+        assert_eq!(all_day.daily_start_minute, Some(0));
+        assert_eq!(all_day.daily_end_minute, Some(0));
+    }
+
     #[test]
     fn native_units_are_never_combined_and_catalog_versions_are_recognized() {
         let packs = vec![
