@@ -24,6 +24,7 @@ pub struct CreditManager {
     account_gates: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
     import_gate: AsyncMutex<()>,
     key_gate: Mutex<()>,
+    key_mirror: Option<std::path::PathBuf>,
     cancellation: CancellationToken,
     refresh_schedule: Mutex<refresh::RefreshSchedule>,
     claim_schedule: Mutex<claims::ClaimSchedule>,
@@ -43,6 +44,7 @@ impl CreditManager {
             account_gates: Mutex::new(HashMap::new()),
             import_gate: AsyncMutex::new(()),
             key_gate: Mutex::new(()),
+            key_mirror: gateway_key_mirror(),
             cancellation: CancellationToken::new(),
             refresh_schedule: Mutex::new(refresh::RefreshSchedule::new(now_ms())),
             claim_schedule: Mutex::new(claims::ClaimSchedule::default()),
@@ -66,6 +68,7 @@ impl CreditManager {
             account_gates: Mutex::new(HashMap::new()),
             import_gate: AsyncMutex::new(()),
             key_gate: Mutex::new(()),
+            key_mirror: None,
             cancellation: CancellationToken::new(),
             refresh_schedule: Mutex::new(refresh::RefreshSchedule::new(now_ms())),
             claim_schedule: Mutex::new(claims::ClaimSchedule::default()),
@@ -407,12 +410,36 @@ impl CreditManager {
 
     pub fn gateway_key(&self) -> Result<String, String> {
         let _guard = self.key_gate.lock();
+        // The mirror is read first: a rebuilt app is a new code signing
+        // identity for its own Keychain item, so reading it back would ask for
+        // authorization after every update even though the key never changed.
+        if let Some(key) = self.key_mirror.as_deref().and_then(read_gateway_key_file) {
+            return Ok(key);
+        }
         if let Some(key) = self.secrets.get(GATEWAY_API_KEY_ID)? {
+            self.publish_gateway_key(&key);
             return Ok(key);
         }
         let key = new_key();
         self.secrets.set(GATEWAY_API_KEY_ID, &key)?;
+        self.publish_gateway_key(&key);
         Ok(key)
+    }
+    /// Mirror the shared proxy key where local clients can read it.
+    ///
+    /// macOS binds Keychain authorization to the code signing identity, so a
+    /// rebuilt app has to ask again even after "Always Allow". The mirror is
+    /// read first; the Keychain only restores a missing or malformed mirror.
+    fn publish_gateway_key(&self, key: &str) {
+        let Some(path) = self.key_mirror.as_deref() else {
+            return;
+        };
+        if std::fs::read_to_string(path).is_ok_and(|mirrored| mirrored == key) {
+            return;
+        }
+        if let Err(error) = write_gateway_key_file(path, key) {
+            eprintln!("[credits] 无法发布代理密钥文件 {}: {error}", path.display());
+        }
     }
     pub fn record_request(&self, summary: RequestSummary) -> Result<(), String> {
         self.store.record_request(&summary)
@@ -532,6 +559,32 @@ fn claim_schedule(now: i64) -> (i64, bool) {
         beijing.div_euclid(86400),
         beijing.rem_euclid(86400) >= 10 * 3600 + 30 * 60,
     )
+}
+
+fn valid_gateway_key(key: &str) -> bool {
+    key.strip_prefix("ait_").is_some_and(|hex| {
+        hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
+    })
+}
+
+fn read_gateway_key_file(path: &std::path::Path) -> Option<String> {
+    let key = std::fs::read_to_string(path).ok()?;
+    let key = key.trim_end_matches(['\r', '\n']);
+    valid_gateway_key(key).then(|| key.to_string())
+}
+
+fn gateway_key_mirror() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|home| home.join(".ai-toolkit").join("gateway-key"))
+}
+
+fn write_gateway_key_file(path: &std::path::Path, key: &str) -> Result<(), String> {
+    let directory = path.parent().ok_or("代理密钥文件路径无效")?;
+    crate::core::private_fs::ensure_private_dir(directory).map_err(|error| format!("{error:#}"))?;
+    let staging = directory.join("gateway-key.next");
+    crate::core::private_fs::prepare_private_file(&staging)
+        .map_err(|error| format!("{error:#}"))?;
+    std::fs::write(&staging, key).map_err(|error| format!("写入代理密钥失败：{error}"))?;
+    std::fs::rename(&staging, path).map_err(|error| format!("替换代理密钥失败：{error}"))
 }
 
 #[cfg(test)]
@@ -753,6 +806,39 @@ mod tests {
         assert!(outcomes[0].retry_after_ms.is_some_and(|delay| delay > 590_000));
         assert_eq!(manager.provider.test_inspection_calls().len(), 1);
         assert!(!manager.claim_schedule.lock().due(&account.id, now_ms() + 60_000));
+    }
+    #[test]
+    fn gateway_key_mirror_is_private_and_replaces_previous_content() {
+        let directory = std::env::temp_dir().join(format!("ai-toolkit-key-{}", now_ms()));
+        let path = directory.join("gateway-key");
+        write_gateway_key_file(&path, "ait-test-key-1").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "ait-test-key-1");
+        write_gateway_key_file(&path, "ait-test-key-2").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "ait-test-key-2");
+        assert!(!directory.join("gateway-key.next").exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    #[test]
+    fn gateway_key_mirror_is_read_only_when_well_formed() {
+        let directory = std::env::temp_dir().join(format!("ai-toolkit-key-read-{}", now_ms()));
+        let path = directory.join("gateway-key");
+        let key = format!("ait_{}", "a1".repeat(32));
+        assert_eq!(read_gateway_key_file(&path), None);
+        write_gateway_key_file(&path, &format!("{key}\n")).unwrap();
+        assert_eq!(read_gateway_key_file(&path).as_deref(), Some(key.as_str()));
+        write_gateway_key_file(&path, "ait_short").unwrap();
+        assert_eq!(read_gateway_key_file(&path), None);
+        write_gateway_key_file(&path, "ait_中文").unwrap();
+        assert_eq!(read_gateway_key_file(&path), None);
+        std::fs::remove_dir_all(directory).unwrap();
     }
     #[test]
     fn gateway_keys_persist_and_do_not_enter_dashboard() {
